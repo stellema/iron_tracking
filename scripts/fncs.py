@@ -24,7 +24,7 @@ import math
 import parcels
 import numpy as np
 import xarray as xr
-from datetime import datetime
+from datetime import datetime, timedelta
 from parcels import (FieldSet, ParticleSet, VectorField, Variable, ScipyParticle,
                      JITParticle, fieldfilebuffer)
 
@@ -164,13 +164,13 @@ def add_ofam3_bgc_fields(fieldset, variables, exp):
     """Add additional OFAM3 fields to fieldset.
 
     Args:
-        fieldset (TYPE): DESCRIPTION.
+        fieldset (parcels.Fieldset): Parcels fieldset.
         variables (dict): Dictionary mapping variables names. {'P': 'phy'}
         exp (int): experiment integer.
         chunks (int): chunksize.
 
     Returns:
-        fieldset (TYPE): DESCRIPTION.
+        fieldset (parcels.Fieldset): Parcels fieldset with added fields.
 
     """
     # Dictonary mapping parcels to OFAM3 dimension names.
@@ -203,6 +203,98 @@ def add_ofam3_bgc_fields(fieldset, variables, exp):
     return fieldset
 
 
+def format_Kd490_dataset():
+    """Merge & add time dimension to Kd490 monthly files."""
+    # Open kd490 dataset.
+    files = [cfg.obs / 'GMIS_Kd490/GMIS_S_K490_{:02d}.nc'.format(m) for m in range(1, 13)]
+    ds = xr.open_mfdataset(files, combine='nested', concat_dim='time')
+    ds['time'] = np.array([datetime(1981, i+1, 1, 12) for i in range(12)],
+                          dtype='datetime64[ns]')
+    # Save dataset.
+    ds.to_netcdf(cfg.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc')
+
+    # # Interpolate lat and lon to OFAM3
+    # # Open OFAM3 mesh coordinates.
+    # mesh = xr.open_dataset(cfg.data / 'ofam_mesh_grid_part.nc')
+
+    # Plot
+    # ds.Kd490.plot(col='time', col_wrap=4)
+    # plt.tight_layout()
+    # plt.savefig(cfg.fig / 'particle_source_map.png', bbox_inches='tight',
+    #             dpi=300)
+    files = cfg.obs / 'SEAWIFS_Kd490/SEASTAR_SEAWIFS_GAC.19980801_20100831.L3b.MC.KD.nc'
+    ds = xr.open_dataset(files)
+
+
+def add_Kd490_field(fieldset):
+    """Add Kd490 field to fieldset.
+
+    Args:
+        fieldset (Parcels fieldset): Parcels fieldset.
+
+    Returns:
+        fieldset (Parcels fieldset): Parcels fieldset with added fields.
+
+    """
+    # Dictonary mapping parcels to OFAM3 dimension names.
+    filenames = str(cfg.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc')
+    variables = {'Kd490': 'Kd490'}
+    dimensions = {'lon': 'lon', 'lat': 'lat', 'time': 'time'}
+
+    # Size of the chunks in dask loading.
+    chunksize = fieldset.get_fields()[0].grid.chunksize
+
+    xfieldset = FieldSet.from_netcdf(filenames, variables, dimensions, chunksize=chunksize,
+                                     time_periodic=timedelta(days=365))
+
+    # Field time origins and calander.
+    xfieldset.time_origin = fieldset.time_origin
+    xfieldset.time_origin.time_origin = fieldset.time_origin.time_origin
+    xfieldset.time_origin.calendar = fieldset.time_origin.calendar
+
+    # Add fields to fieldset.
+    for fld in xfieldset.get_fields():
+        fld.units = parcels.tools.converters.UnitConverter()
+        fieldset.add_field(fld, fld.name)
+    return fieldset
+
+
+def add_fset_constants(fieldset):
+    """Add fieldset constants."""
+    # Phytoplankton paramaters.
+    # Initial slope of P-I curve.
+    fieldset.add_constant('alpha', 0.025)
+    # Photosynthetically active radiation.
+    fieldset.add_constant('PAR', 0.34)  # Qin 0.34!!!
+    # Growth rate at 0C.
+    fieldset.add_constant('I_0', 300)  # !!!
+    fieldset.add_constant('a', 0.6)
+    fieldset.add_constant('b', 1.066)
+    fieldset.add_constant('c', 1.0)
+    fieldset.add_constant('k_fe', 1.0)
+    fieldset.add_constant('k_N', 1.0)
+    fieldset.add_constant('k_org', 1.0521e-4)  # !!!
+    fieldset.add_constant('k_inorg', 6.10e-4)  # !!!
+
+    # Detritus paramaters.
+    # Detritus sinking velocity
+    fieldset.add_constant('w_det', 10)  # 10 or 5 !!!
+
+    # Zooplankton paramaters.
+    fieldset.add_constant('y_1', 0.85)
+    fieldset.add_constant('g', 2.1)
+    fieldset.add_constant('E', 1.1)
+    fieldset.add_constant('u_Z', 0.06)
+
+    # # Not constant.
+    # fieldset.add_constant('Kd_490', 0.43)
+    # fieldset.add_constant('u_D', 0.02)  # depends on depth & not constant.
+    # fieldset.add_constant('u_D_180', 0.01)  # depends on depth & not constant.
+    # fieldset.add_constant('u_P', 0.01)  # Not constant.
+    # fieldset.add_constant('y_2', 0.01)  # Not constant.
+    return fieldset
+
+
 def get_fe_pclass(fieldset, dtype=np.float32, **kwargs):
     """Particle class."""
 
@@ -212,7 +304,6 @@ def get_fe_pclass(fieldset, dtype=np.float32, **kwargs):
         s = Variable('s', initial=0., dtype=dtype, to_write='once')
         phy = Variable('phy', initial=fieldset.P, dtype=dtype)
         """
-
         # Iron.
         fe = Variable('fe', initial=fieldset.Fe, dtype=dtype)
         # Uptake of iron for phytoplankton growth.
@@ -226,33 +317,86 @@ def get_fe_pclass(fieldset, dtype=np.float32, **kwargs):
     return FeParticle
 
 
-def add_fset_constants(fieldset):
-    """Add fieldset constants."""
-    # Phytoplankton paramaters.
-    fieldset.add_constant('alpha', 0.025)
-    fieldset.add_constant('PAR', 0.34)
-    fieldset.add_constant('a', 0.6)
-    fieldset.add_constant('b', 1.066)
-    fieldset.add_constant('c', 1.0)
-    fieldset.add_constant('k_fe', 1.0)
-    fieldset.add_constant('k_N', 1.0)
-    fieldset.add_constant('k_org', 1.0521e-4)
-    fieldset.add_constant('k_inorg', 6.10e-4)
+def pset_from_plx_file(fieldset, pclass, filename, **kwargs):
+    """Initialise particle data from back-tracked ParticleFile.
 
-    # Detritus paramaters.
-    # Detritus sinking velocity
-    fieldset.add_constant('w_det', 10)  # 10 or 5??
+    This creates a new ParticleSet based on locations of all particles written
+    in a netcdf ParticleFile at a certain time.
+    Particle IDs are preserved if restart=True
 
-    # Zooplankton paramaters.
-    fieldset.add_constant('y_1', 0.85)
-    fieldset.add_constant('g', 2.1)
-    fieldset.add_constant('E', 1.1)
-    fieldset.add_constant('u_Z', 0.06)
+    filename = cfg.data / 'plx/plx_hist_165_v1r00.nc'
+    kwargs = dict(lonlatdepth_dtype=np.float32)
+    """
+    df = xr.open_dataset(str(filename), decode_cf=False)
+    df = df.isel(traj=slice(10)).dropna('obs', 'all')  # !!!
 
-    # # Not constant.
-    fieldset.add_constant('Kd_490', 0.43)
-    # fieldset.add_constant('u_D', 0.02)  # depends on depth & not constant.
-    # fieldset.add_constant('u_D_180', 0.01)  # depends on depth & not constant.
-    # fieldset.add_constant('u_P', 0.01)  # Not constant.
-    # fieldset.add_constant('y_2', 0.01)  # Not constant.
-    return fieldset
+    df_vars = [v for v in df.data_vars]
+
+    vars = {}
+
+    for v in ['trajectory', 'time', 'lat', 'lat', 'z']:
+        vars[v] = np.ma.filled(df.variables[v], np.nan)
+
+    vars['depth'] = np.ma.filled(df.variables['z'], np.nan)
+    vars['id'] = np.ma.filled(df.variables['trajectory'], np.nan)
+
+    if isinstance(vars['time'][0], np.timedelta64):
+        vars['time'] = np.array([t / np.timedelta64(1, 's') for t in vars['time']])
+
+    for v in pclass.getPType().variables:
+        if v.name in pfile_vars:
+            vars[v.name] = np.ma.filled(pfile.variables[v.name], np.nan)
+        elif v.name not in ['xi', 'yi', 'zi', 'ti', 'dt', '_next_dt',
+                            'depth', 'id', 'fileid', 'state'] \
+                and v.to_write:
+            raise RuntimeError('Variable %s is in pclass but not in the particlefile' % v.name)
+        to_write[v.name] = v.to_write
+
+
+    # if reduced:
+    #     for v in vars:
+    #         if v not in ['lon', 'lat', 'depth', 'time', 'id']:
+    #             kwargs[v] = vars[v]
+    # else:
+    #     if restarttime is None:
+    #         restarttime = np.nanmin(vars['time'])
+    #     if callable(restarttime):
+    #         restarttime = restarttime(vars['time'])
+    #     else:
+    #         restarttime = restarttime
+
+    #     inds = np.where(vars['time'] <= restarttime)
+    #     for v in vars:
+    #         if to_write[v] is True:
+    #             vars[v] = vars[v][inds]
+    #         elif to_write[v] == 'once':
+    #             vars[v] = vars[v][inds[0]]
+    #         if v not in ['lon', 'lat', 'depth', 'time', 'id']:
+    #             kwargs[v] = vars[v]
+
+    # if restart:
+    #     pclass.setLastID(0)  # reset to zero offset
+    # else:
+    #     vars['id'] = None
+
+    # pset = ParticleSet(fieldset=fieldset, pclass=pclass, lon=vars['lon'],
+    #                    lat=vars['lat'], depth=vars['depth'], time=vars['time'],
+    #                    pid_orig=vars['id'], repeatdt=repeatdt,
+    #                    lonlatdepth_dtype=lonlatdepth_dtype, **kwargs)
+
+    # if reduced and 'nextid' in df.variables:
+    #     pclass.setLastID(df.variables['nextid'].item())
+    # else:
+    #     pclass.setLastID(np.nanmax(df.variables['trajectory']) + 1)
+
+    # if xlog:
+    #     xlog['file'] = vars['lon'].size
+    #     xlog['pset_start'] = restarttime
+    #     if reduced:
+    #         if 'restarttime' in df.variables:
+    #             xlog['pset_start'] = df.variables['restarttime'].item()
+    #         if 'runtime' in df.variables:
+    #             xlog['runtime'] = df.variables['runtime'].item()
+    #         if 'endtime' in df.variables:
+    #             xlog['endtime'] = df.variables['endtime'].item()
+    # return pset

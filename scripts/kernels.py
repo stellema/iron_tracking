@@ -48,7 +48,7 @@ def IronScavenging(particle, fieldset, time):
         - Inorganic Iron scavenging rate constant (k_inorg)
     """
     D = fieldset.Det[time, particle.depth, particle.lat, particle.lon]
-    Fe = fieldset.Fe[time, particle.depth, particle.lat, particle.lon]
+    Fe = particle.fe
 
     particle.scav = ((fieldset.k_org * math.pow((D / fieldset.w_det), 0.58) * Fe)
                      + (fieldset.k_inorg * math.pow(Fe, 1.5)))
@@ -94,10 +94,11 @@ def IronPhytoUptake(particle, fieldset, time):
     T = fieldset.temp[time, particle.depth, particle.lat, particle.lon]
     P = fieldset.P[time, particle.depth, particle.lat, particle.lon]
     N = fieldset.N[time, particle.depth, particle.lat, particle.lon]
+    Kd490 = fieldset.Kd490[time, particle.depth, particle.lat, particle.lon]
 
-    Frac_z = math.exp(-particle.depth * fieldset.Kd_490)
-    I_0 = 1000  # @TODO
-    I = fieldset.PAR * I_0 * Frac_z
+    Frac_z = math.exp(-particle.depth * Kd490)
+
+    I = fieldset.PAR * fieldset.I_0 * Frac_z
 
     J_max = math.pow(fieldset.a * fieldset.b, fieldset.c * T)
     J = J_max * (1 - math.exp(-(fieldset.alpha * I) / J_max))
@@ -107,7 +108,7 @@ def IronPhytoUptake(particle, fieldset, time):
 
 def IronSourceInput(particle, fieldset, time):
     """Initialise source iron at LLWBCs."""
-    particle.src = fieldset.Fe[time, particle.depth, particle.lat, particle.lon]
+    particle.src = 0#fieldset.Fe[time, particle.depth, particle.lat, particle.lon]
 
 
 def Iron(particle, fieldset, time):
