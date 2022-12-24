@@ -25,6 +25,7 @@ Todo:
 
 """
 import sys
+import dask
 import string
 import calendar
 import warnings
@@ -34,7 +35,12 @@ from pathlib import Path
 from dataclasses import dataclass
 from collections import namedtuple
 
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message='VisibleDeprecationWarning')
+warnings.filterwarnings(action='ignore', message='SerializationWarning')
+# warnings.filterwarnings("ignore")
 np.set_printoptions(suppress=True)
+dask.config.set({"array.slicing.split_large_chunks": True})
 
 # Setup directories.
 if Path.home().drive == 'C:':
@@ -52,6 +58,8 @@ data, fig, log = [repo / s for s in ['data', 'plots', 'logs']]
 sys.path.append(repo / 'scripts')
 
 years = [[1981, 2012], [2070, 2101]]
+ltr = [i + ')' for i in list(string.ascii_lowercase)]
+mon = list(calendar.month_abbr)[1:]  # Month abbreviations.
 
 # OFAM3 dimensions for NetcdfFileBuffer namemaps (chunkdims_name_map).
 # chunkdims_name_map (opt.): gives a name map to the FieldFileBuffer that
@@ -66,4 +74,3 @@ bgc_vars = ['adic', 'alk', 'caco3', 'det', 'dic', 'fe', 'no3', 'o2', 'phy',
             'zoo']
 bgc_name_map = {'P': 'phy', 'Z': 'zoo', 'Det': 'det', 'temp': 'temp',
                 'Fe': 'fe', 'N': 'no3', 'DIC': 'dic'}
-
