@@ -30,32 +30,13 @@ from parcels import (FieldSet, ParticleSet, VectorField, Variable, ScipyParticle
                      JITParticle, fieldfilebuffer)
 
 import cfg
-
-
-def get_datetime_bounds(exp):
-    """Get list of experiment start and end year datetimes."""
-    y = cfg.years[exp]
-    times = [datetime(y[0], 1, 1), datetime(y[1], 12, 31)]
-
-    if cfg.home.drive == 'C:':
-        times[0] = datetime(y[1], 1, 1)
-        times[1] = datetime(y[1], 2, 29)
-    return times
-
-
-def get_ofam_filenames(var, times):
-    """Create OFAM3 file list based on selected times."""
-    f = []
-    for y in range(times[0].year, times[1].year + 1):
-        for m in range(times[0].month, times[1].month + 1):
-            f.append(str(cfg.ofam / 'ocean_{}_{}_{:02d}.nc'.format(var, y, m)))
-    return f
+from tools import get_datetime_bounds, get_ofam_filenames
 
 
 def from_ofam3(filenames, variables, dimensions, indices=None, mesh='spherical',
                allow_time_extrapolation=None, field_chunksize='auto', time_periodic=False,
                tracer_interp_method='bgrid_tracer', **kwargs):
-    """Initialise FieldSet object from NetCDF files of OFAM3 fields.
+    """Initialise FieldSet object from NetCDF files of OFAM3 fields (parcels 2.2.1).
 
     Args:
         filenames (dict): Dictionary mapping variables to file(s).
@@ -106,7 +87,7 @@ def from_ofam3(filenames, variables, dimensions, indices=None, mesh='spherical',
 
 
 def ofam3_fieldset(exp=0, cs=300):
-    """Create a 3D parcels fieldset from OFAM model output.
+    """Create a 3D parcels fieldset from OFAM model output (parcels 2.2.1).
 
     Returns:
         fieldset (parcels.Fieldset)
@@ -163,7 +144,7 @@ def ofam3_fieldset(exp=0, cs=300):
 
 
 def add_ofam3_bgc_fields(fieldset, variables, exp):
-    """Add additional OFAM3 fields to fieldset.
+    """Add additional OFAM3 fields to fieldset (parcels 2.2.1).
 
     Args:
         fieldset (parcels.Fieldset): Parcels fieldset.
@@ -262,7 +243,7 @@ def format_Kd490_dataset():
 
 
 def add_Kd490_field(fieldset):
-    """Add Kd490 field to fieldset.
+    """Add Kd490 field to fieldset (parcels 2.2.1).
 
     Args:
         fieldset (Parcels fieldset): Parcels fieldset.
@@ -352,86 +333,143 @@ def get_fe_pclass(fieldset, dtype=np.float32, **kwargs):
     return FeParticle
 
 
-def pset_from_plx_file(fieldset, pclass, filename, **kwargs):
-    """Initialise particle data from back-tracked ParticleFile.
+def ParticleIron(ds, fieldset, time, constants):
+    """Lagrangian Iron scavenging."""
+    loc = dict(time=ds.time, depth=ds.z, lat=ds.lat, lon=ds.lon)
 
-    This creates a new ParticleSet based on locations of all particles written
-    in a netcdf ParticleFile at a certain time.
-    Particle IDs are preserved if restart=True
+    T = fieldset.temp.sel(loc, method='nearest')
+    D = fieldset.Det.sel(loc, method='nearest')
+    Z = fieldset.Z.sel(loc, method='nearest')
+    P = fieldset.P.sel(loc, method='nearest')
+    N = fieldset.N.sel(loc, method='nearest')
 
-    filename = cfg.data / 'plx/plx_hist_165_v1r00.nc'
-    kwargs = dict(lonlatdepth_dtype=np.float32)
+    Kd490 = df.Kd490.sel(loc, method='nearest')
+
+    Fe = ds.fe
+
+    # IronScavenging
+    particle.scav = ((df.k_org * math.pow((D / df.w_det), 0.58) * Fe)
+                     + (df.k_inorg * math.pow(Fe, 1.5)))
+
+    # IronRemineralisation
+    bcT = math.pow(df.b, df.c * T)
+    y_2 = 0.01 * bcT
+    u_P = 0.01 * bcT
+    if particle.depth < 180:
+        u_D = 0.02 * bcT
+    else:
+        u_D = 0.01 * bcT
+
+    particle.reg = 0.02 * (u_D * D + y_2 * Z + u_P * P)
+
+    # IronPhytoUptake
+    Frac_z = math.exp(-particle.depth * Kd490)
+    I = df.PAR * df.I_0 * Frac_z
+    J_max = math.pow(df.a * df.b, df.c * T)
+    J = J_max * (1 - math.exp(-(df.alpha * I) / J_max))
+    J_bar = J_max * min(J / J_max, N / (N + df.k_N), Fe / (Fe + df.k_fe))
+    particle.phy = 0.02 * J_bar * P
+
+    # IronSourceInput
+    particle['src'] = 0#df.Fe[time, particle.depth, particle.lat, particle.lon]
+
+    # Iron
+    particle['fe'] = particle.src + particle.reg - particle.phy - particle.scav
+
+    return particle
+
+
+def ofam3_datasets(exp, variables=cfg.bgc_name_map):
+    """ Get OFAM3 BGC fields.
+
+    Args:
+        exp (int): Scenario.
+
+    Returns:
+        ds (xarray.Dataset): Dataset of BGC fields.
+
+    Todo:
+        - Chunk dataset
+        - Change dtype
+        - add constants
+        - Add Kd490
+
     """
-    df = xr.open_dataset(str(filename), decode_cf=False)
-    df = df.isel(traj=slice(10)).dropna('obs', 'all')  # !!!
+    dims_name_map = {'lon': ['xt_ocean', 'xu_ocean'],
+                     'lat': ['yt_ocean', 'yu_ocean'],
+                     'depth': ['st_ocean', 'sw_ocean']}
 
-    df_vars = [v for v in df.data_vars]
+    mesh = xr.open_dataset(cfg.data / 'ofam_mesh_grid_part.nc')  # OFAM3 coords dataset.
 
-    vars = {}
+    def rename_ofam3_coords(ds):
+        rename_map = {'Time': 'time'}
+        for k, v in dims_name_map.items():
+            c = [i for i in v if i in ds.dims][0]
+            rename_map[c] = k
+            ds.coords[c] = mesh[v[0]].values
+        ds = ds.rename(rename_map)
+        return ds
 
-    for v in ['trajectory', 'time', 'lat', 'lat', 'z']:
-        vars[v] = np.ma.filled(df.variables[v], np.nan)
+    cs = 300
+    chunks = {'Time': 1,
+              'sw_ocean': 1, 'st_ocean': 1, 'depth': 1,
+              'yt_ocean': cs, 'yu_ocean': cs, 'lat': cs,
+              'xt_ocean': cs, 'xu_ocean': cs, 'lon': cs}
 
-    vars['depth'] = np.ma.filled(df.variables['z'], np.nan)
-    vars['id'] = np.ma.filled(df.variables['trajectory'], np.nan)
+    nmonths = 2 if any([i for i in variables.keys() if i in cfg.bgc_name_map.keys()]) else 12
+    # Dictionary mapping variables to file(s).
+    files = []
+    for v in variables:
+        f = get_ofam_filenames(variables[v], get_datetime_bounds(exp, nmonths))
+        files.append(f)
+    files = np.concatenate(files)
 
-    if isinstance(vars['time'][0], np.timedelta64):
-        vars['time'] = np.array([t / np.timedelta64(1, 's') for t in vars['time']])
+    ds = xr.open_mfdataset(files, chunks=chunks, preprocess=rename_ofam3_coords,
+                           compat='override', combine='by_coords', coords='minimal',
+                           data_vars='minimal', parallel=False)
 
-    for v in pclass.getPType().variables:
-        if v.name in pfile_vars:
-            vars[v.name] = np.ma.filled(pfile.variables[v.name], np.nan)
-        elif v.name not in ['xi', 'yi', 'zi', 'ti', 'dt', '_next_dt',
-                            'depth', 'id', 'fileid', 'state'] \
-                and v.to_write:
-            raise RuntimeError('Variable %s is in pclass but not in the particlefile' % v.name)
-        to_write[v.name] = v.to_write
+    return ds
 
 
-    # if reduced:
-    #     for v in vars:
-    #         if v not in ['lon', 'lat', 'depth', 'time', 'id']:
-    #             kwargs[v] = vars[v]
-    # else:
-    #     if restarttime is None:
-    #         restarttime = np.nanmin(vars['time'])
-    #     if callable(restarttime):
-    #         restarttime = restarttime(vars['time'])
-    #     else:
-    #         restarttime = restarttime
+def iron_model_constants():
+    class dotdict(dict):
+        """dot.notation access to dictionary attributes"""
+        __getattr__ = dict.get
+        __setattr__ = dict.__setitem__
+        __delattr__ = dict.__delitem__
 
-    #     inds = np.where(vars['time'] <= restarttime)
-    #     for v in vars:
-    #         if to_write[v] is True:
-    #             vars[v] = vars[v][inds]
-    #         elif to_write[v] == 'once':
-    #             vars[v] = vars[v][inds[0]]
-    #         if v not in ['lon', 'lat', 'depth', 'time', 'id']:
-    #             kwargs[v] = vars[v]
+    constants = {}
+    """Add fieldset constantss."""
+    # Phytoplankton paramaters.
+    # Initial slope of P-I curve.
+    constants['alpha'] = 0.025
+    # Photosynthetically active radiation.
+    constants['PAR'] = 0.34  # Qin 0.34!!!
+    # Growth rate at 0C.
+    constants['I_0'] = 300  # !!!
+    constants['a'] = 0.6
+    constants['b'] = 1.066
+    constants['c'] = 1.0
+    constants['k_fe'] = 1.0
+    constants['k_N'] = 1.0
+    constants['k_org'] = 1.0521e-4  # !!!
+    constants['k_inorg'] = 6.10e-4  # !!!
 
-    # if restart:
-    #     pclass.setLastID(0)  # reset to zero offset
-    # else:
-    #     vars['id'] = None
+    # Detritus paramaters.
+    # Detritus sinking velocity
+    constants['w_det'] = 10  # 10 or 5 !!!
 
-    # pset = ParticleSet(fieldset=fieldset, pclass=pclass, lon=vars['lon'],
-    #                    lat=vars['lat'], depth=vars['depth'], time=vars['time'],
-    #                    pid_orig=vars['id'], repeatdt=repeatdt,
-    #                    lonlatdepth_dtype=lonlatdepth_dtype, **kwargs)
+    # Zooplankton paramaters.
+    constants['y_1'] = 0.85
+    constants['g'] = 2.1
+    constants['E'] = 1.1
+    constants['u_Z'] = 0.06
 
-    # if reduced and 'nextid' in df.variables:
-    #     pclass.setLastID(df.variables['nextid'].item())
-    # else:
-    #     pclass.setLastID(np.nanmax(df.variables['trajectory']) + 1)
-
-    # if xlog:
-    #     xlog['file'] = vars['lon'].size
-    #     xlog['pset_start'] = restarttime
-    #     if reduced:
-    #         if 'restarttime' in df.variables:
-    #             xlog['pset_start'] = df.variables['restarttime'].item()
-    #         if 'runtime' in df.variables:
-    #             xlog['runtime'] = df.variables['runtime'].item()
-    #         if 'endtime' in df.variables:
-    #             xlog['endtime'] = df.variables['endtime'].item()
-    # return pset
+    # # Not constant.
+    # constants['Kd_490'] = 0.43
+    # constants['u_D'] = 0.02  # depends on depth & not constant.
+    # constants['u_D_180'] = 0.01  # depends on depth & not constant.
+    # constants['u_P'] = 0.01  # Not constant.
+    # constants['y_2'] = 0.01  # Not constant.
+    constants = dotdict(constants)
+    return constants
