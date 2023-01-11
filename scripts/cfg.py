@@ -36,10 +36,11 @@ from dataclasses import dataclass
 from collections import namedtuple
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", message='VisibleDeprecationWarning')
+warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 warnings.filterwarnings(action='ignore', message='SerializationWarning')
 # warnings.filterwarnings("ignore")
 np.set_printoptions(suppress=True)
+np.seterr(invalid='ignore')
 dask.config.set({"array.slicing.split_large_chunks": True})
 
 # Setup directories.
@@ -54,9 +55,10 @@ else:
     ofam = home / 'OFAM/trop_pac'
     obs = home / 'obs'
 
+test = True if Path.home().drive == 'C:' else False
 data, fig, log = [repo / s for s in ['data', 'plots', 'logs']]
 sys.path.append(repo / 'scripts')
-
+loggers = {}
 years = [[1981, 2012], [2070, 2101]]
 ltr = [i + ')' for i in list(string.ascii_lowercase)]
 mon = list(calendar.month_abbr)[1:]  # Month abbreviations.
