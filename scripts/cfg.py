@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-
-Example:
+"""Iron Lagrangian Experiment (FeLX) configuration file.
 
 Notes:
     - WOMBAT variables: http://cosima.org.au/index.php/working-groups/bgc/
@@ -15,6 +13,8 @@ Notes:
     - zoo, zooplankton biomass, mml N m-3
     - det, detritus, mmol N m-3
     - caco3, calcium carbonate, mmol m-3
+
+Example:
 
 Todo:
     - unzip zoo, det

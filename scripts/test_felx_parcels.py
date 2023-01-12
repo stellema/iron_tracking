@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
-"""
-
-Example:
+"""Test parcels fieldset, particleset and importing plx particle trajectories.
 
 Notes:
+    - Uses Python=3.X?
+    - Primarily uses parcels version 2.2.1
     - Create Fieldset.
     - Create ParticleClass.
     - Create ParticleSet.
     - Create kernels
+
+Example:
 
 Todo:
 
@@ -17,26 +19,36 @@ Todo:
 
 """
 import math
-from parcels import ErrorCode, AdvectionRK4
-import math
-import random
 import parcels
 import numpy as np
 import xarray as xr
 from datetime import datetime, timedelta
-from parcels import (FieldSet, ParticleSet, VectorField, Variable, JITParticle, ScipyParticle)
+from parcels import (FieldSet, ParticleSet, VectorField, Variable, JITParticle,
+                     ScipyParticle, ErrorCode, AdvectionRK4)
 
 import cfg
-from tools import get_datetime_bounds, get_ofam_filenames
+from datasets import get_datetime_bounds, get_ofam_filenames
 from kernels import (AdvectionRK4_3D, recovery_kernels, IronScavenging,
                      IronRemineralisation, IronSourceInput, IronPhytoUptake, Iron)
-from fncs import (from_ofam3, ofam3_fieldset, add_ofam3_bgc_fields, get_fe_pclass,
-                  add_fset_constants, add_Kd490_field)
-from fncs_parcels_new import (from_ofam3, ofam3_fieldset, add_ofam3_bgc_fields,
-                  add_Kd490_field)
+from fieldsets import (from_ofam3_parcels221, ofam3_fieldset_parcels221,
+                       add_ofam3_bgc_fields_parcels221, add_Kd490_field_parcels221,
+                       from_ofam3_parcels240, ofam3_fieldset_parcels240,
+                       add_ofam3_bgc_fields_parcels240, add_Kd490_field_parcels240,
+                       get_fe_pclass, add_fset_constants)
+
+
+if parcels.__version__ == '2.2.1':
+    ofam3_fieldset = ofam3_fieldset_parcels221
+    add_ofam3_bgc_fields = add_ofam3_bgc_fields_parcels221
+    add_Kd490_field = add_Kd490_field_parcels221
+else:
+    ofam3_fieldset = ofam3_fieldset_parcels240
+    add_ofam3_bgc_fields = add_ofam3_bgc_fields_parcels240
+    add_Kd490_field = add_Kd490_field_parcels240
 
 
 def test_fieldset_initialisation():
+    """Test creation of a parcels fieldset using OFAM3 fields."""
     cs = 300
     exp = 0
     variables = cfg.bgc_name_map
@@ -51,16 +63,14 @@ def test_fieldset_initialisation():
 
 
 def test_pset_creation():
+    """Test creation of a parcels particleset using OFAM3 fields."""
     exp = 0
     # Simulation runtime paramaters.
     dt = timedelta(hours=48)  # Advection step (negative for backward).
-    outputdt = timedelta(days=2)  # Advection steps to write.
-    runtime = timedelta(days=20)
 
     # Create Fieldset.
     cs = 300
     variables = cfg.bgc_name_map
-    variables = {'P': 'phy', 'Z': 'zoo', 'Det': 'det', 'temp': 'temp', 'Fe': 'fe', 'N': 'no3'}
     fieldset = ofam3_fieldset(exp=exp, cs=cs)
     fieldset = add_ofam3_bgc_fields(fieldset, variables, exp)
     fieldset = add_Kd490_field(fieldset)

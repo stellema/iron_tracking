@@ -7,14 +7,13 @@
 
 """
 import math
-from parcels import ErrorCode, AdvectionRK4
-import math
 import random
 import parcels
 import numpy as np
 import xarray as xr
 from datetime import datetime
-from parcels import (FieldSet, ParticleSet, VectorField, Variable, JITParticle)
+from parcels import (FieldSet, ParticleSet, VectorField, Variable,
+                     JITParticle, ErrorCode, AdvectionRK4)
 
 import cfg
 

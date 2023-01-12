@@ -1,30 +1,123 @@
 # -*- coding: utf-8 -*-
-"""
-python 3.9
+"""Tests functions for felx experiment (non-parcels version).
 
-Created on Tue Jan 10 11:52:04 2023
+Notes:
+    - Uses Python=3.9
+    - Primarily uses parcels version 2.4.0
 
-@author: a-ste
+Example:
+
+Todo:
+
+@author: Annette Stellema
+@email: a.stellema@unsw.edu.au
+@created: Tue Jan 10 11:52:04 2023
+
 """
 import math
-import math
-import random
-import parcels
 import numpy as np
 import xarray as xr
-from datetime import datetime, timedelta
 
 import cfg
-from tools import timeit, mlogger, get_datetime_bounds, get_ofam_filenames
-from fncs import (from_ofam3, ofam3_fieldset, add_ofam3_bgc_fields, get_fe_pclass,
-                  add_fset_constants, add_Kd490_field, ofam3_datasets, ParticleIron,
-                  iron_model_constants)
-from fncs_parcels_new import (from_ofam3, ofam3_fieldset, add_ofam3_bgc_fields,
-                              add_Kd490_field)
-from kernels import (AdvectionRK4_3D, recovery_kernels, IronScavenging,
-                     IronRemineralisation, IronSourceInput, IronPhytoUptake, Iron)
+from tools import timeit, mlogger
+from datasets import get_datetime_bounds, get_ofam_filenames, ofam3_datasets
+from fieldsets import (from_ofam3_parcels221, ofam3_fieldset_parcels221,
+                       add_ofam3_bgc_fields_parcels221, add_Kd490_field_parcels221,
+                       from_ofam3_parcels240, ofam3_fieldset_parcels240,
+                       add_ofam3_bgc_fields_parcels240, add_Kd490_field_parcels240,
+                       get_fe_pclass, add_fset_constants)
 
-logger = mlogger('felx_alt_test')
+logger = mlogger('test_felx')
+
+
+def ParticleIron(ds, fieldset, time, constants):
+    """Lagrangian Iron scavenging."""
+    loc = dict(time=ds.time, depth=ds.z, lat=ds.lat, lon=ds.lon)
+
+    T = fieldset.temp.sel(loc, method='nearest')
+    D = fieldset.Det.sel(loc, method='nearest')
+    Z = fieldset.Z.sel(loc, method='nearest')
+    P = fieldset.P.sel(loc, method='nearest')
+    N = fieldset.N.sel(loc, method='nearest')
+
+    Kd490 = fieldset.Kd490.sel(loc, method='nearest')
+
+    Fe = ds.fe
+
+    # IronScavenging
+    ds['scav'] = ((constants.k_org * math.pow((D / constants.w_det), 0.58) * Fe)
+                  + (constants.k_inorg * math.pow(Fe, 1.5)))
+
+    # IronRemineralisation
+    bcT = math.pow(constants.b, constants.c * T)
+    y_2 = 0.01 * bcT
+    u_P = 0.01 * bcT
+    if ds.z < 180:
+        u_D = 0.02 * bcT
+    else:
+        u_D = 0.01 * bcT
+
+    ds['reg'] = 0.02 * (u_D * D + y_2 * Z + u_P * P)
+
+    # IronPhytoUptake
+    Frac_z = math.exp(-ds.z * Kd490)
+    I = constants.PAR * constants.I_0 * Frac_z
+    J_max = math.pow(constants.a * constants.b, constants.c * T)
+    J = J_max * (1 - math.exp(-(constants.alpha * I) / J_max))
+    J_bar = J_max * min(J / J_max, N / (N + constants.k_N), Fe / (Fe + constants.k_fe))
+    ds['phy'] = 0.02 * J_bar * P
+
+    # IronSourceInput
+    ds['src'] = 0#df.Fe[time, particle.depth, particle.lat, particle.lon]
+
+    # Iron
+    ds['fe'] = ds.src + ds.reg - ds.phy - ds.scav
+
+    return ds
+
+
+def iron_model_constants():
+    class dotdict(dict):
+        """dot.notation access to dictionary attributes"""
+        __getattr__ = dict.get
+        __setattr__ = dict.__setitem__
+        __delattr__ = dict.__delitem__
+
+    constants = {}
+    """Add fieldset constantss."""
+    # Phytoplankton paramaters.
+    # Initial slope of P-I curve.
+    constants['alpha'] = 0.025
+    # Photosynthetically active radiation.
+    constants['PAR'] = 0.34  # Qin 0.34!!!
+    # Growth rate at 0C.
+    constants['I_0'] = 300  # !!!
+    constants['a'] = 0.6
+    constants['b'] = 1.066
+    constants['c'] = 1.0
+    constants['k_fe'] = 1.0
+    constants['k_N'] = 1.0
+    constants['k_org'] = 1.0521e-4  # !!!
+    constants['k_inorg'] = 6.10e-4  # !!!
+
+    # Detritus paramaters.
+    # Detritus sinking velocity
+    constants['w_det'] = 10  # 10 or 5 !!!
+
+    # Zooplankton paramaters.
+    constants['y_1'] = 0.85
+    constants['g'] = 2.1
+    constants['E'] = 1.1
+    constants['u_Z'] = 0.06
+
+    # # Not constant.
+    # constants['Kd_490'] = 0.43
+    # constants['u_D'] = 0.02  # depends on depth & not constant.
+    # constants['u_D_180'] = 0.01  # depends on depth & not constant.
+    # constants['u_P'] = 0.01  # Not constant.
+    # constants['y_2'] = 0.01  # Not constant.
+    constants = dotdict(constants)
+    return constants
 
 
 def plx_particle_dataset(exp, lon=165, r=0):
@@ -147,13 +240,7 @@ def felx_alt_test_simple():
 
 
 def test_field_sampling():
-    """Test sampling fields at all particle positions.
-
-
-    Returns:
-        None.
-
-    """
+    """Test sampling fields at all particle positions."""
     def UpdateP_parcels(dx, fieldset, time):
         """Test function: sample a variable."""
         dx['P'] = fieldset.P[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
@@ -170,9 +257,9 @@ def test_field_sampling():
     variables = cfg.bgc_name_map
     variables = {'P': 'phy', 'Z': 'zoo', 'Det': 'det',
                  'temp': 'temp', 'Fe': 'fe', 'N': 'no3'}
-    fieldset = ofam3_fieldset(exp=exp, cs=cs)
-    fieldset = add_ofam3_bgc_fields(fieldset, variables, exp)
-    fieldset = add_Kd490_field(fieldset)
+    fieldset = ofam3_fieldset_parcels240(exp=exp, cs=cs)
+    fieldset = add_ofam3_bgc_fields_parcels240(fieldset, variables, exp)
+    fieldset = add_Kd490_field_parcels240(fieldset)
 
     ds = plx_particle_dataset(exp, lon=165, r=0)
     if cfg.test:
@@ -194,11 +281,11 @@ def test_field_sampling():
         for time in range(n_obs):
             particle_loc = dict(traj=p, obs=time)
             dx = ds[particle_loc]
-            fieldset.P.computeTimeChunk(time, 1)
+            # fieldset.P.computeTimeChunk(time, 1)
             ds[particle_loc] = UpdateP_parcels(dx, fieldset, time)
 
 
-    fieldset.computeTimeChunk(0, timedelta(hours=48).total_seconds())
+    # fieldset.computeTimeChunk(0, timedelta(hours=48).total_seconds())
     return
 
 

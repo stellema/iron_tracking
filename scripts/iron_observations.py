@@ -1,41 +1,16 @@
 # -*- coding: utf-8 -*-
-"""
+"""Iron observational dataset and plot functions.
 
-Example:
+Opens and formats iron observational data from:
+    - GEOTRACES IDP2021
+    - Tagliabue et al. (2012) [Updated 2015]
+    - Huang et al. (2022) data-driven climatology dataset (Machine Learning)
 
 Notes:
 
+Example:
+
 Todo:
-
-
-GEOTRACES variables.
-metavar1	Cruise
-metavar2	Station
-metavar3	Type
-longitude	Longitude	degrees_east
-latitude	Latitude	degrees_north
-metavar4	Bot. Depth	m	Bottom depth
-metavar5	Operator's Cruise Name
-metavar6	Ship Name
-metavar7	Period
-metavar8	Chief Scientist
-metavar9	GEOTRACES Scientist
-metavar10	Cruise Aliases
-metavar11	Cruise Information Link
-metavar12	BODC Cruise Number
-date_time	Decimal Gregorian Days of the station	days since 2006-01-01 00:00:00 UTC
-var1	CTDPRS_T_VALUE_SENSOR	dbar	Pressure from CTD sensor
-var2	DEPTH	m	Depth below sea surface calculated from pressure
-var3	Rosette Bottle Number		Bottle number on the rosette
-var4	GEOTRACES Sample ID		GEOTRACES sample id
-var5	Bottle Flag		Quality flag for the entire bottle
-var6	Cast Identifier		Cast identifier as string
-var7	Sampling Device		Sampling device descriptor
-var8	BODC Bottle Number		Unique BODC bottle number
-var9	BODC Event Number		Unique BODC event number
-var88	Fe_D_CONC_BOTTLE	nmol/kg	Concentration of dissolved Fe
-var89	Fe_II_D_CONC_BOTTLE	nmol/kg	Concentration of dissolved Fe(II)
-var90	Fe_S_CONC_BOTTLE	Conc. of operationally defined soluble Fe (colloids excluded)
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -75,9 +50,44 @@ def subset_obs_data(ds, y=None, x=None, z=None, drop=True):
 
 
 def GEOTRACES_iron_dataset(var='var88'):
-    """Open GEOTRACES dataset."""
-    # @todo: drop bad data np.unique(ds.var5)
-    # @todo: bin model depths?
+    """Open GEOTRACES idp2021 dataset.
+
+    Notes:
+
+    Todo:
+        - Drop bad data np.unique(ds.var5)
+        - Bin model depths?
+
+    GEOTRACES Iron variables.
+    metavar1	Cruise
+    metavar2	Station
+    metavar3	Type
+    longitude	Longitude	degrees_east
+    latitude	Latitude	degrees_north
+    metavar4	Bot. Depth	m	Bottom depth
+    metavar5	Operator's Cruise Name
+    metavar6	Ship Name
+    metavar7	Period
+    metavar8	Chief Scientist
+    metavar9	GEOTRACES Scientist
+    metavar10	Cruise Aliases
+    metavar11	Cruise Information Link
+    metavar12	BODC Cruise Number
+    date_time	Decimal Gregorian Days of the station	days since 2006-01-01 00:00:00 UTC
+    var1	CTDPRS_T_VALUE_SENSOR	dbar	Pressure from CTD sensor
+    var2	DEPTH	m	Depth below sea surface calculated from pressure
+    var3	Rosette Bottle Number		Bottle number on the rosette
+    var4	GEOTRACES Sample ID		GEOTRACES sample id
+    var5	Bottle Flag		Quality flag for the entire bottle
+    var6	Cast Identifier		Cast identifier as string
+    var7	Sampling Device		Sampling device descriptor
+    var8	BODC Bottle Number		Unique BODC bottle number
+    var9	BODC Event Number		Unique BODC event number
+    var88	Fe_D_CONC_BOTTLE	nmol/kg	Concentration of dissolved Fe
+    var89	Fe_II_D_CONC_BOTTLE	nmol/kg	Concentration of dissolved Fe(II)
+    var90	Fe_S_CONC_BOTTLE	Conc. of operationally defined soluble Fe (no colloids)
+
+    """
     file = 'GEOTRACES/idp2021/seawater/GEOTRACES_IDP2021_Seawater_Discrete_Sample_Data_v1.nc'
     ds = xr.open_dataset(cfg.obs / file)
 
@@ -103,8 +113,6 @@ def GEOTRACES_iron_dataset(var='var88'):
 
 def GEOTRACES_iron_dataset_4D(var='var88', lats=[-15, 15], lons=[120, 290]):
     """Open geotraces data, subset location and convert to multi-dim dataset."""
-    # @todo: drop bad data np.unique(ds.var5)
-    # @todo: bin model depths?
     ds = GEOTRACES_iron_dataset(var)
 
     # Subset lat/lons.
