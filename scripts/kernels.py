@@ -15,7 +15,6 @@ from datetime import datetime
 from parcels import (FieldSet, ParticleSet, VectorField, Variable,
                      JITParticle, ErrorCode, AdvectionRK4)
 
-import cfg
 
 def AdvectionRK4_3D(particle, fieldset, time):
     """Fourth-order Runge-Kutta 3D particle advection."""

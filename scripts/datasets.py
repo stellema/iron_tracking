@@ -19,9 +19,81 @@ import numpy as np
 import xarray as xr
 from pathlib import Path
 from functools import wraps
+from calendar import monthrange
 from datetime import datetime, timedelta
 
 import cfg
+
+
+def get_plx_filename(exp, lon, r, v=1):
+    """Get plx particle filename.
+
+    Args:
+        exp (int): Scenario.
+        lon (int): Particle release longitude.
+        r (int): Particle file repeat index.
+        v (int, optional): Particle file version. Defaults to 1.
+
+    Returns:
+        filename (pathlib.Path): plx dataset filename (path to plx repo).
+
+    """
+    filename = 'data/plx/plx_{}_{}_v1r{:02d}.nc'.format(cfg.exp_abr[exp], lon, r)
+    filename = cfg.plx / filename
+    return filename
+
+
+def get_felx_filename(exp, lon, r, v=1, subfolder=None):
+    """Get felx particle filename and path.
+
+    e.g., repo/felx/data/subfolder/felx_hist_165_vXrYY.nc
+
+    Args:
+        exp (int): Scenario.
+        lon (int): Particle release longitude.
+        r (int): Particle file repeat index.
+        v (int, optional): Particle file version. Defaults to 1.
+        subfolder (str, optional): subfolder. Defaults to None.
+
+    Returns:
+        filename (pathlib.Path): felx dataset filename.
+
+    """
+    filename = 'felx_{}_{}_v{}r{:02d}.nc'.format(cfg.exp_abr[exp], lon, v, r)
+    if subfolder is not None:
+        filename = subfolder + filename
+
+    filename = cfg.data / filename
+    return filename
+
+
+def plx_particle_dataset(exp, lon, r, **kwargs):
+    """Get plx particle dataset.
+
+    Args:
+        exp (int): Scenario {0, 1}.
+        lon (int): Particle release longitude {165, 190, 220, 250}.
+        r (int): Particle file repeat index {0-9}.
+
+    Returns:
+        ds (xarray.Dataset): Dataset particle trajectories.
+
+    Todo:
+        - chunk dataset
+        - Filter spinup particles
+        - Filter by available field times
+
+    """
+    file = get_plx_filename(exp, lon, r)
+    kwargs.setdefault('decode_cf', True)
+    ds = xr.open_dataset(str(file), **kwargs)
+    # ds = ds.drop({'age', 'zone', 'distance', 'unbeached', 'u'})
+
+    # Convert these to float32 dtype (others have same dtype).
+    for var in ['obs', 'traj', 'trajectory']:
+        ds[var] = ds[var].astype('float32')
+    return ds
+
 
 def get_datetime_bounds(exp, test_months=2):
     """Get list of experiment start and end year datetimes."""
@@ -88,9 +160,11 @@ def ofam3_datasets(exp, variables=cfg.bgc_name_map):
         files.append(f)
     files = np.concatenate(files)
 
-    ds = xr.open_mfdataset(files, chunks=chunks, preprocess=rename_ofam3_coords,
-                           compat='override', combine='by_coords', coords='minimal',
-                           data_vars='minimal', parallel=False)
+    open_kwargs = dict(chunks=chunks, preprocess=rename_ofam3_coords,
+                       compat='override', combine='by_coords', coords='minimal',
+                       data_vars='minimal', combine_attrs='override',
+                       parallel=False, decode_cf=None, decode_times=False)
+    ds = xr.open_mfdataset(files, **open_kwargs)
 
     return ds
 
@@ -147,5 +221,26 @@ def format_Kd490_dataset():
     # plt.tight_layout()
     # plt.savefig(cfg.fig / 'particle_source_map.png', bbox_inches='tight',
     #             dpi=300)
-    files = cfg.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc'
-    ds = xr.open_dataset(files)
+    # files = cfg.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc'
+    # ds = xr.open_dataset(files)
+
+
+def append_dataset_history(ds, msg):
+    """Append dataset history with timestamp and message."""
+    if 'history' not in ds.attrs:
+        ds.attrs['history'] = ''
+    else:
+        ds.attrs['history'] += ' '
+    ds.attrs['history'] += str(np.datetime64('now', 's')).replace('T', ' ')
+    ds.attrs['history'] += ' ' + msg
+    return ds
+
+
+def save_dataset(ds, filename, msg=None):
+    """Save dataset with history, message and encoding."""
+    ds = ds.chunk()
+    if msg is not None:
+        ds = append_dataset_history(ds, msg)
+    comp = dict(zlib=True, complevel=5)
+    encoding = {var: comp for var in ds.data_vars}
+    ds.to_netcdf(filename, encoding=encoding, compute=True)

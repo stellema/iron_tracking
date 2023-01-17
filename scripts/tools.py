@@ -12,10 +12,12 @@ Todo:
 @created: Tue Jan 10 19:45:46 2023
 
 """
+import time
 import inspect
 import sys
 import math
 import logging
+from typing import Union
 import numpy as np
 import xarray as xr
 from pathlib import Path
@@ -25,7 +27,7 @@ from datetime import datetime, timedelta
 import cfg
 
 
-def mlogger(filename, level=logging.DEBUG):
+def mlogger(filename, level=logging.NOTSET):
     """Initialise logger that writes to a stream and file.
 
     Args:
@@ -77,8 +79,7 @@ def mlogger(filename, level=logging.DEBUG):
 
     # Create formatters and add it to handlers.
     c_format = logging.Formatter('%(message)s')
-    f_format = logging.Formatter('%(asctime)s:%(message)s',
-                                 "%Y-%m-%d %H:%M:%S")
+    f_format = logging.Formatter('%(asctime)s:%(message)s', "%Y-%m-%d %H:%M:%S")
 
     if len(logger.handlers) != 0:
         logger.handlers.clear()
@@ -97,19 +98,32 @@ def mlogger(filename, level=logging.DEBUG):
     return logger
 
 
-def timeit(method):
-    """Wrap function to time method execution time."""
-    @wraps(method)
-    def timed(*args, **kw):
-        logger = mlogger(Path(sys.argv[0]).stem)
-        ts = datetime.now()
-        result = method(*args, **kw)
-        te = datetime.now()
-        h, rem = divmod((te - ts).total_seconds(), 3600)
-        m, s = divmod(rem, 60)
+def timeit(_method=None, *, my_logger=None):
+    def decorator_timeit(method):
+        """Wrap function to time method execution time."""
+        @wraps(method)
+        def timed(*args, **kwargs):
+            # Timer.
+            t_s = datetime.now()
+            result = method(*args, **kwargs)
+            t_e = datetime.now() - t_s
 
-        logger.info('{}: {:}:{:}:{:05.2f} total: {:.2f} seconds.'
-                    .format(method.__name__, int(h), int(m), s,
-                            (te - ts).total_seconds()))
-        return result
-    return timed
+            # Format elpased time string.
+            h, rem = divmod(t_e.total_seconds(), 3600)
+            m, s = divmod(rem, 60)
+
+            # Log elapsed time.
+            if my_logger is None:
+                logger = mlogger(method.__name__)
+            else:
+                logger = my_logger
+            logger = mlogger(Path(sys.argv[0]).stem)
+            logger.info('{}: {:02.0f}h:{:02.0f}m:{:05.2f}s (total={:.2f} seconds).'
+                        .format(method.__name__, h, m, s, t_e.total_seconds()))
+            return result
+        return timed
+
+    if _method is None:
+        return decorator_timeit
+    else:
+        return decorator_timeit(_method)
