@@ -1,3 +1,5 @@
 *.spyproject
 *.pyc
-data/plx/plx_hist_165_v1r00.nc
+data/plx/
+data/test/
+plots/dask/
