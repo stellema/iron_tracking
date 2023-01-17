@@ -8,6 +8,29 @@ Notes:
 Example:
 
 Todo:
+    - Add Kd490 Fields
+    - Calculate background Iron fields
+    - Add background Iron fields
+    - Calculate & save BGC fields at particle positions
+        - Calculate OOM
+        - Test fieldset vs xarray times
+        - Research best method for:
+            - indexing 4D data
+            - chunking/opening data
+            - parallelisation
+    - Filter & save particle datasets
+        - Spinup:
+            - Calculate num of affected particles
+            - Test effect of removing particles
+        - Available BGC fields:
+            - Figure out availble times
+            - Calculate num of affected particles
+            - Test effect of removing particles
+    - Write UpdateIron function
+        - Calculate OOM & memory
+    - Run simulation
+        - Add parallelisation
+        - Optimise parallelisation
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -20,17 +43,19 @@ import xarray as xr
 
 import cfg
 from tools import timeit, mlogger
-from datasets import get_datetime_bounds, get_ofam_filenames, ofam3_datasets
-from fieldsets import (from_ofam3_parcels221, ofam3_fieldset_parcels221,
-                       add_ofam3_bgc_fields_parcels221, add_Kd490_field_parcels221,
-                       from_ofam3_parcels240, ofam3_fieldset_parcels240,
-                       add_ofam3_bgc_fields_parcels240, add_Kd490_field_parcels240,
-                       get_fe_pclass, add_fset_constants)
+from datasets import (get_datetime_bounds, get_ofam_filenames, ofam3_datasets,
+                      plx_particle_dataset)
+from dataset_plx_reverse import reverse_plx_particle_obs
+from fieldsets import (get_fe_pclass, add_fset_constants,
+                       ofam3_fieldset_parcels221, add_Kd490_field_parcels221,
+                       add_ofam3_bgc_fields_parcels221,
+                       ofam3_fieldset_parcels240, add_Kd490_field_parcels240,
+                       add_ofam3_bgc_fields_parcels240)
 
 logger = mlogger('test_felx')
 
 
-def ParticleIron(ds, fieldset, time, constants):
+def UpdateIron(ds, fieldset, time, constants):
     """Lagrangian Iron scavenging."""
     loc = dict(time=ds.time, depth=ds.z, lat=ds.lat, lon=ds.lon)
 
@@ -120,54 +145,7 @@ def iron_model_constants():
     return constants
 
 
-def plx_particle_dataset(exp, lon=165, r=0):
-    """Get particle file.
 
-    Args:
-        exp (int): Scenario.
-        lon (int, optional): Particle release longitude. Defaults to 165.
-        r (in, optional): Particle file repeat index. Defaults to 0.
-
-    Returns:
-        ds (xarray.Dataset): Dataset particle trajectories.
-
-    Todo:
-        - chunk dataset
-        - Filter spinup particles
-        - Filter by available field times
-
-    """
-    file = cfg.data / 'plx/plx_{}_{}_v1r{:02d}.nc'.format(['hist', 'rcp'][exp], lon, r)
-    ds = xr.open_dataset(str(file), decode_cf=True)
-    ds = ds.drop({'age', 'zone', 'distance', 'unbeached', 'u'})
-    return ds
-
-
-@timeit
-def reverse_plx_particle_dataset(ds):
-    """Get particle file.
-
-    Args:
-        ds (xarray.Dataset): Dataset particle trajectories.
-
-    Returns:
-        ds (xarray.Dataset): Reversed dataset particle trajectories.
-
-    Todo:
-
-    """
-    # Reverse order of obs indexes (forward).
-    ds = ds.isel(obs=slice(None, None, -1))
-
-    # Remove leading NaNs
-    for p in range(ds.traj.size):
-        # Index of first non-NaN value
-        N = np.isnan(ds.isel(traj=p).z).sum().item()
-        ds[dict(traj=p)] = ds.isel(traj=p).roll(obs=-N)
-
-    ds.coords['obs'] = np.arange(ds.obs.size, dtype=np.int32)
-    ds.coords['traj'] = ds.traj.astype(dtype=np.int32)
-    return ds
 
 
 @timeit
@@ -196,7 +174,7 @@ def felx_alt_test_simple():
         dx['u'] = dx['prev_u'].item() + U
         return dx
 
-    #------------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------
     # Non-Parallelisable.
     exp = 0
     constants = iron_model_constants()
@@ -208,7 +186,7 @@ def felx_alt_test_simple():
     if cfg.test:
         ds = ds.isel(traj=slice(1)).dropna('obs', 'all')
         ds = ds.where(ds.time >= np.datetime64('2012-01-01'))
-    ds = reverse_plx_particle_dataset(ds)
+    ds = reverse_plx_particle_obs(ds)
 
     # Add BGC particle arrays to dataset.
     particle_vars = ['u', 'prev_u']
@@ -219,7 +197,7 @@ def felx_alt_test_simple():
                                dims=ds.z.dims, coords=ds.z.coords)
         ds[var][dict(obs=0)] = 0
 
-    #------------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------
     # Parallelisable.
     # Todo: Split functions.
     n_particles = ds.traj.size
@@ -232,61 +210,133 @@ def felx_alt_test_simple():
 
             ds[particle_loc] = UpdateU(dx, fieldset, time, constants)
             ds['prev_u'][dict(traj=p, obs=time + 1)] = ds['u'][dict(traj=p, obs=time)]
-
-    #------------------------------------------------------------------------------------
+    # -------------------------------------------------------------------------------
     # Todo: Save dataset.
 
     return fieldset, ds
 
 
-def test_field_sampling():
-    """Test sampling fields at all particle positions."""
-    def UpdateP_parcels(dx, fieldset, time):
-        """Test function: sample a variable."""
-        dx['P'] = fieldset.P[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
-        return dx
+@timeit
+def test_field_sampling(nparticles=10, nfields=3, method='xarray'):
+    """Test sampling fields at all particle positions.
 
-    def UpdateP_xarray(dx, fieldset):
+    Args:
+        nparticles (int, optional): Number of particles. Defaults to 10.
+        nfields (int, optional): Number of fields 1-6. Defaults to 3.
+        method (str, optional): 'xarray' or 'parcels'. Defaults to 'xarray'.
+
+    Returns:
+        ds: (xarray.Dataset). Particle dataset.
+
+    Notes:
+        - if method == 'parcels', nfields in updatefunc needs to be manually changed.
+        - All P & Z values are 0.00006104 (6.104e-05)
+            - This is because phy and zoo are basically zero below 175m
+        - Only selecting nearest neighbour (check if issue?)
+
+        - Xarray
+            - 10p 10y 3f:  (13-18s/particle).
+            - 5p 10y 6f: 0:2:33.35 total: 153.35 seconds (25-32s/particle).
+            - Double nfields -> double runtime.
+
+        - Parcels
+            - 10p 10y 3f: 0:33:43.63 total: 2023.63 seconds (200s/particle).
+            - 5p 10y 6f: 0:41:40.17 total: 2500.17 seconds (443-600s/particle).
+            - Double nfields -> >double runtime.
+
+    Todo:
+        - 4D sampling without loop
+        - Loop through time & search matching particles instead
+        - check time search indexing correct
+        - test mem usage
+        - test output file size
+
+    """
+    def update_PZD_fields_xarray(dx, fieldset, time, variables):
         """Test function: sample a variable."""
+
         loc = dict(time=dx.time, depth=dx.z, lat=dx.lat, lon=dx.lon)
-        dx['P'] = fieldset.P.sel(loc, method='nearest').load().item()
-        return dx
+        for k, v in variables.items():
+            dx[k] = fieldset[v].sel(loc, method='nearest').load().item()
+        return dx, fieldset
 
-    cs = 300
-    exp = 0
-    variables = cfg.bgc_name_map
-    variables = {'P': 'phy', 'Z': 'zoo', 'Det': 'det',
-                 'temp': 'temp', 'Fe': 'fe', 'N': 'no3'}
-    fieldset = ofam3_fieldset_parcels240(exp=exp, cs=cs)
-    fieldset = add_ofam3_bgc_fields_parcels240(fieldset, variables, exp)
-    fieldset = add_Kd490_field_parcels240(fieldset)
+    def update_PZD_fields_parcels(dx, fieldset, time, variables):
+        """Test function: sample a variable."""
+        fieldset.computeTimeChunk(time, 1)
+        dx['P'] = fieldset.P[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
+        dx['Z'] = fieldset.Z[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
+        dx['Det'] = fieldset.Det[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
+        dx['U'] = fieldset.U[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
+        dx['V'] = fieldset.V[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
+        dx['W'] = fieldset.W[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
+        return dx, fieldset
 
-    ds = plx_particle_dataset(exp, lon=165, r=0)
-    if cfg.test:
-        ds = ds.isel(traj=slice(10)).dropna('obs', 'all')
-        ds = ds.where(ds.time >= np.datetime64('2012-01-01'))
-    ds = reverse_plx_particle_dataset(ds)
-
-    particle_vars = ['P']
-    initial_vals = [np.nan]  # Fill with NaN or zero?
-
-    for var, val in zip(particle_vars, initial_vals):
-        ds[var] = xr.DataArray(np.full(ds.z.shape, np.nan, dtype=np.float32),
-                               dims=ds.z.dims, coords=ds.z.coords)
-        ds[var][dict(obs=0)] = 0
-
-    n_particles = ds.traj.size
-    for p in range(n_particles):
+    @timeit
+    def loop_particle_obs(p, ds, fieldset, update_func, variables):
         n_obs = ds.isel(traj=p).dropna('obs', 'all').obs.size
         for time in range(n_obs):
             particle_loc = dict(traj=p, obs=time)
-            dx = ds[particle_loc]
-            # fieldset.P.computeTimeChunk(time, 1)
-            ds[particle_loc] = UpdateP_parcels(dx, fieldset, time)
+            ds[particle_loc], fieldset = update_func(ds[particle_loc], fieldset, time, variables)
+        return ds, fieldset
+
+    logger.debug('Test field sampling ({}): {}p, 1y, {} fields.'
+                 .format(method, nparticles, nfields))
+    exp = 0
+    variables = {'P': 'phy', 'Z': 'zoo', 'Det': 'det', 'U': 'u', 'V': 'v', 'W': 'w'}
+    variables = dict((k, variables[k]) for k in list(variables.keys())[:nfields])
+
+    # Particle trajectories.
+    ds = plx_particle_dataset(exp, lon=165, r=0)
+    ds = ds.drop({'age', 'zone', 'distance', 'unbeached', 'u'})
+
+    # Subset number of particles.
+    ds = ds.isel(traj=slice(nparticles)).dropna('obs', 'all')
+    # Subset number of times.
+    ds = ds.where(ds.time >= np.datetime64('2012-01-01'))
+    # Reverse particleset.
+    ds = reverse_plx_particle_dataset(ds)
+
+    # Initialise fields in particle dataset.
+    particle_vars = list(variables.keys())
+    initial_vals = [np.nan] * len(particle_vars)  # Fill with NaN.
+    for var, val in zip(particle_vars, initial_vals):
+        ds[var] = xr.DataArray(np.full(ds.z.shape, np.nan, dtype=np.float32),
+                               dims=ds.z.dims, coords=ds.z.coords)
+
+    if method == 'xarray':
+        update_func = update_PZD_fields_xarray
+        fieldset = ofam3_datasets(exp, variables=variables)
+    else:
+        update_func = update_PZD_fields_parcels
+        cs = 300
+        fieldset = ofam3_fieldset_parcels240(exp=exp, cs=cs)
+        varz = {'P': 'phy', 'Z': 'zoo', 'Det': 'det'}
+        fieldset = add_ofam3_bgc_fields_parcels240(fieldset, varz, exp)
+        # fieldset = add_Kd490_field_parcels240(fieldset)
+
+    # Sample fields at particle positions.
+    n_particles = ds.traj.size
+    for p in range(n_particles):
+        ds, fieldset = loop_particle_obs(p, ds, fieldset, update_func, variables)
+    ds.to_netcdf(cfg.data / 'test/test_field_sampling_{}_{}p_{}f.nc'.format(method, nparticles, nfields))
+    return ds
 
 
-    # fieldset.computeTimeChunk(0, timedelta(hours=48).total_seconds())
+def check_test_field_sampling_interpolation(nparticles, nfields):
+    """Check xarray and parcels particle trajectory field sampling equality."""
+    logger.debug('Check xarray and parcels fields: 1y {}p {}f.'.format(nparticles, nfields))
+    ds1 = xr.open_dataset(cfg.data / 'test/test_field_sampling_xarray_{}p_{}f.nc'.format(nparticles, nfields))
+    ds2 = xr.open_dataset(cfg.data / 'test/test_field_sampling_parcels_{}p_{}f.nc'.format(nparticles, nfields))
+
+    for var in ds1.data_vars:
+        if not all(~np.isnan(ds1[var]) == ~np.isnan(ds2[var])):
+            logger.debug('Failed check for {} field: 1y {}p {}f.'.format(var, nparticles, nfields))
     return
 
 
 # fieldset, ds = felx_alt_test_simple()
+nparticles = 5
+nfields = 6
+# ds = test_field_sampling(nparticles, nfields, method='parcels')
+# ds = test_field_sampling(nparticles, nfields, method='xarray')
+check_test_field_sampling_interpolation(nparticles, nfields)

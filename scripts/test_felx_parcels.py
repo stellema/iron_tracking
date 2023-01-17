@@ -30,10 +30,10 @@ import cfg
 from datasets import get_datetime_bounds, get_ofam_filenames
 from kernels import (AdvectionRK4_3D, recovery_kernels, IronScavenging,
                      IronRemineralisation, IronSourceInput, IronPhytoUptake, Iron)
-from fieldsets import (from_ofam3_parcels221, ofam3_fieldset_parcels221,
-                       add_ofam3_bgc_fields_parcels221, add_Kd490_field_parcels221,
-                       from_ofam3_parcels240, ofam3_fieldset_parcels240,
-                       add_ofam3_bgc_fields_parcels240, add_Kd490_field_parcels240,
+from fieldsets import (ofam3_fieldset_parcels221, add_Kd490_field_parcels221,
+                       add_ofam3_bgc_fields_parcels221,
+                       ofam3_fieldset_parcels240, add_Kd490_field_parcels240,
+                       add_ofam3_bgc_fields_parcels240,
                        get_fe_pclass, add_fset_constants)
 
 
@@ -118,7 +118,8 @@ def test_forward_particle_execution():
                 + pset.Kernel(Iron))
 
     # # Create output ParticleFile p_name and time steps to write output.
-    # output_file = pset.ParticleFile(cfg.data/'test.nc', outputdt=outputdt)  # @todo
+    # @todo
+    # output_file = pset.ParticleFile(cfg.data/'test.nc', outputdt=outputdt)
 
     print(pset)
     start = fieldset.time_origin.time_origin  # @todo
