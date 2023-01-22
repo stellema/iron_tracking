@@ -25,6 +25,9 @@ Runtimes:
         inverse_plx_dataset: 0:2:35.68 total: 155.68 seconds.
     - plx_hist_165_v1r00_inverse:
         inverse_particle_obs: 0:2:23.39 total: 143.39 seconds.
+    - plx_hist_190_v1r00_inverse:
+        inverse_particle_obs: 00h:02m:14.12s (total=134.12 seconds).
+        inverse_plx_dataset: 00h:09m:20.65s (total=560.65 seconds).
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -43,7 +46,7 @@ from datasets import plx_particle_dataset, get_plx_filename, save_dataset
 logger = mlogger('felx_files')
 
 
-@timeit
+@timeit(my_logger=logger)
 def inverse_particle_obs(ds):
     """Reverse obs order for plx particles & remove leading NaNs.
 
@@ -93,6 +96,12 @@ def inverse_plx_dataset(exp, lon, r, v=1):
     Returns:
         ds (xarray.Dataset): Dataset particle trajectories.
 
+    Notes:
+        - Saves file as './data/felx/plx_hist_165_v1r00.nc'
+        - Drops 'unbeached' variable.
+        - Runs in 5-10 mins per file.
+        -
+
     """
     file = get_plx_filename(exp, lon, r, v)
     file = cfg.data / ('felx/' + file.stem + '_inverse.nc')
@@ -102,9 +111,9 @@ def inverse_plx_dataset(exp, lon, r, v=1):
 
     else:
         logger.info('{}: Calculating inverse plx file'.format(file.stem))
+
         # Particle trajectories.
-        open_kwargs = dict(decode_cf=True)  # , chunks='auto') !!!
-        ds = plx_particle_dataset(exp, lon, r, **open_kwargs)
+        ds = plx_particle_dataset(exp, lon, r)
         ds = ds.drop({'unbeached'})
 
         # # Subset number of particl1es.
@@ -129,7 +138,7 @@ def inverse_plx_dataset(exp, lon, r, v=1):
 
         # Save dataset.
         logger.info('{}: Inverse plx file saving..'.format(file.stem))
-        save_dataset(ds, file, msg='Reversed particle obs dimension.')
+        save_dataset(ds, file, msg='Inverse particle obs dimension.')
         logger.info('{}: Inverse plx file saved.'.format(file.stem))
     return ds
 
@@ -142,8 +151,8 @@ if __name__ == '__main__':
     p.add_argument('-v', '--version', default=1, type=int, help='PLX experiment version.')
     args = p.parse_args()
 
-    for r in range(10):
-        inverse_plx_dataset(lon=args.lon, exp=args.exp, r=r, v=args.version)
+    # for r in range(10):
+    #     inverse_plx_dataset(lon=args.lon, exp=args.exp, r=r, v=args.version)
 
-    # exp, lon, r = 0, 165, 0
-    # inverse_plx_dataset(exp, lon, r, v=1)
+    exp, lon, r = 0, 190, 0
+    inverse_plx_dataset(exp, lon, r, v=1)
