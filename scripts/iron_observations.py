@@ -7,10 +7,7 @@ Opens and formats iron observational data from:
     - Huang et al. (2022) data-driven climatology dataset (Machine Learning)
 
 Notes:
-
-Example:
-
-Todo:
+    - Only works for pandas
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -18,7 +15,6 @@ Todo:
 
 """
 import re
-import math
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -26,7 +22,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-from cartopy.mpl.gridliner import LatitudeFormatter, LongitudeFormatter
+from cartopy.mpl.gridliner import LatitudeFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import cfg
@@ -52,8 +48,6 @@ def subset_obs_data(ds, y=None, x=None, z=None, drop=True):
 def GEOTRACES_iron_dataset(var='var88'):
     """Open GEOTRACES idp2021 dataset.
 
-    Notes:
-
     Todo:
         - Drop bad data np.unique(ds.var5)
         - Bin model depths?
@@ -73,7 +67,7 @@ def GEOTRACES_iron_dataset(var='var88'):
     metavar10	Cruise Aliases
     metavar11	Cruise Information Link
     metavar12	BODC Cruise Number
-    date_time	Decimal Gregorian Days of the station	days since 2006-01-01 00:00:00 UTC
+    date_time	Decimal Gregorian Days of the station days since 2006-01-01 UTC
     var1	CTDPRS_T_VALUE_SENSOR	dbar	Pressure from CTD sensor
     var2	DEPTH	m	Depth below sea surface calculated from pressure
     var3	Rosette Bottle Number		Bottle number on the rosette
@@ -88,8 +82,8 @@ def GEOTRACES_iron_dataset(var='var88'):
     var90	Fe_S_CONC_BOTTLE	Conc. of operationally defined soluble Fe (no colloids)
 
     """
-    file = 'GEOTRACES/idp2021/seawater/GEOTRACES_IDP2021_Seawater_Discrete_Sample_Data_v1.nc'
-    ds = xr.open_dataset(cfg.obs / file)
+    f = 'GEOTRACES/idp2021/seawater/GEOTRACES_IDP2021_Seawater_Discrete_Sample_Data_v1.nc'
+    ds = xr.open_dataset(cfg.obs / f)
 
     ds = ds.rename({'date_time': 't', 'var2': 'z', 'metavar1': 'cruise',
                     'var5': 'bottle_flag', 'latitude': 'y', 'longitude': 'x'})
@@ -120,11 +114,10 @@ def GEOTRACES_iron_dataset_4D(var='var88', lats=[-15, 15], lons=[120, 290]):
                   (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
 
     # Convert to multi-dim array.
-    index = pd.MultiIndex.from_arrays([ds.t.values, ds.z.values, ds.y.values, ds.x.values],
-                                      names=['t', 'z', 'y', 'x'],)
+    coords = [ds.t.values, ds.z.values, ds.y.values, ds.x.values]
+    index = pd.MultiIndex.from_arrays(coords, names=['t', 'z', 'y', 'x'],)
     ds = ds.drop_vars({'index', 'x', 'y', 't', 'z'})
     ds = ds.assign_coords({'index': index})
-
     # ds = ds.dropna('index', how='all')
     ds = ds.unstack('index')
 
@@ -146,55 +139,62 @@ def Tagliabue_iron_dataset():
     ds = pd.DataFrame(ds)
     ds = ds.to_xarray()
 
+    # Rename & format coords.
     ds = ds.rename({'lon': 'x', 'lat': 'y', 'depth': 'z'})
     # Convert longituge to degrees east (0-360).
     ds['x'] = xr.where(ds.x < 0, ds.x + 360, ds.x, keep_attrs=True)
     ds = ds.where(ds.month > 0, drop=True)  # Remove single -99 month.
 
+    # Round coords.
+    for var in ['z', 'y', 'x']:
+        ds[var] = np.around(ds[var], 1).astype(dtype=np.float32)
+    t = pd.to_datetime(['{:.0f}-{:02.0f}-01'.format(ds.year[i].item(), ds.month[i].item())
+                        for i in range(ds.index.size)])
+    ds['t'] = ('index', t)
+
+    # Convert full reference to in-text citation style.
     ds['ref'] = ('index', ds.Reference.values.copy())
+
     for i, r in enumerate(ds.Reference.values):
         ref = [s.replace(',', '').replace('.', '') for s in r.split(' ')]
         author = ref[0]
         year = re.findall('\d+', r)[0]
+
         if len(year) < 4:
             if author == 'Slemons':
                 year = 2009
             if author == 'Obata':
                 year = 2008
+
         if ref[3].isdigit():
             ds['ref'][i] = '{} ({})'.format(author, year)
+
         else:
             ds['ref'][i] = '{} et al. ({})'.format(author, year)
-    t = pd.to_datetime(['{:.0f}-{:02.0f}-01'.format(ds.year[i].item(), ds.month[i].item())
-                        for i in range(ds.index.size)])
-    ds['t'] = ('index', t)
-
-    # Round coords.
-    for var in ['z', 'y', 'x']:
-        ds[var] = np.around(ds[var], 1).astype(dtype=np.float32)
     return ds
 
 
 def Tagliabue_iron_dataset_4D(lats=[-15, 15], lons=[120, 290]):
-    """Open Tagliabue iron dataset, subset location and convert to multi-dim dataset."""
+    """Open Tagliabue dataset, subset location and convert to multi-dim dataset."""
     # Subset to tropical ocean.
     ds = Tagliabue_iron_dataset()
+
     ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1]) &
                   (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
 
+    ds = ds.drop_vars(['month', 'year', 'ref', 'Reference'])
     # Convert to multi-dimensional array.
-
-    ds = ds.drop_vars(['month', 'year'])
-    index = pd.MultiIndex.from_arrays([ds.t.values, ds.z.values, ds.y.values, ds.x.values],
-                                      names=['t', 'z', 'y', "x"], )
-    ds = ds.assign_coords({"index": index})
+    coords = [ds.t.values, ds.z.values, ds.y.values, ds.x.values]
+    index = pd.MultiIndex.from_arrays(coords, names=['t', 'z', 'y', 'x'], )
+    ds = ds.drop_vars(['t', 'z', 'y', 'x'])
+    ds = ds.assign_coords({'index': index})
     ds = ds.dropna('index')
-    ds = ds.unstack("index")
+    ds = ds.unstack('index')
     return ds.dFe
 
 
 def iron_obs_dataset_information(name='GEOTRACES', lats=[-15, 15], lons=[110, 290]):
-    """Open Tagliabue iron dataset, subset location and convert to multi-dim dataset."""
+    """Open Tagliabue dataset and get obs information."""
     # Subset to tropical ocean.
     if name == 'GEOTRACES':
         ds = GEOTRACES_iron_dataset()
@@ -211,25 +211,11 @@ def iron_obs_dataset_information(name='GEOTRACES', lats=[-15, 15], lons=[110, 29
         ds['t'] = ('index', t)
         # ds = ds.drop_vars(['month', 'year'])
 
-        ds['ref'] = ('index', ds.Reference.values.copy())
-        for i, r in enumerate(ds.Reference.values):
-            ref = [s.replace(',', '').replace('.', '') for s in r.split(' ')]
-            author = ref[0]
-            year = re.findall('\d+', r)[0]
-            if len(year) < 4:
-                if author == 'Slemons':
-                    year = 2009
-                if author == 'Obata':
-                    year = 2008
-            if ref[3].isdigit():
-                ds['ref'][i] = '{} ({})'.format(author, year)
-            else:
-                ds['ref'][i] = '{} et al. ({})'.format(author, year)
-
-
     refs = np.unique(ds.ref)
+
     if name == 'Tagliabue':
         refs = refs[np.argsort([re.findall('\d+', r)[0] for r in refs])]
+
     for i, ref in enumerate(refs):
         dr = ds.where(ds.ref == ref, drop=True)
 
@@ -262,8 +248,9 @@ def iron_obs_dataset_information(name='GEOTRACES', lats=[-15, 15], lons=[110, 29
         crds = crd[:, 0].astype(dtype=str)
         zz = crd[:, 0].astype(dtype=str)
         tt = crd[:, 0].astype(dtype=str)
+
         for j in range(crd.shape[0]):
-            dj = dr.where((dr.y==crd[j, 0]) & (dr.x==crd[j, 1]), drop=True)
+            dj = dr.where((dr.y == crd[j, 0]) & (dr.x == crd[j, 1]), drop=True)
             d = 'S' if crd[j, 0] < 0 else 'N'
             crds[j] = ('{:.1f}°{}, {:.1f}°E'
                        .format(np.fabs(crd[j, 0]), d, crd[j, 1]))
@@ -276,12 +263,12 @@ def iron_obs_dataset_information(name='GEOTRACES', lats=[-15, 15], lons=[110, 29
             print('\n'.join(crds))
             print('\n'.join(zz))
             print('\n'.join(tt))
-
     return ds.dFe
 
 
 def Huang_iron_dataset():
-    """Huang et al. (2022)
+    """Huang et al. (2022).
+
     dFe climatology based on compilation of dFe observations + environmental predictors
     from satellite observations and reanalysis products using machine-learning approaches
     (random forest).
@@ -294,7 +281,8 @@ def Huang_iron_dataset():
     ds = ds.sortby(ds.x)
     ds.t.attrs['units'] = 'Month'
 
-    for v, n, u in zip(['y', 'x', 'z'], ['Latitude', 'Longitude', 'Depth'], ['°', '°', 'm']):
+    for v, n, u in zip(['y', 'x', 'z'], ['Latitude', 'Longitude', 'Depth'],
+                       ['°', '°', 'm']):
         ds = ds.sortby(ds[v])
         ds[v].attrs['long_name'] = n
         ds[v].attrs['standard_name'] = n.lower()
@@ -331,7 +319,7 @@ def create_map_axis(fig, ax, extent=[120, 285, -10, 10]):
 def plot_iron_obs_GEOTRACES():
     """Plot geotraces data."""
     ds = GEOTRACES_iron_dataset_4D(var='var88', lats=[-10, 10], lons=[120, 285])
-    dx = ds.var88#.where(~np.isnan(ds.var88), drop=True)
+    dx = ds.var88  # .where(~np.isnan(ds.var88), drop=True)
 
     for v in ['x', 'y', 'z', 't']:
         dx = dx.dropna(v, 'all')
@@ -417,7 +405,8 @@ def plot_iron_obs_Tagliabue():
         dx = dx.dropna(v, 'all')
 
     # Plot EUC time mean.
-    dx.mean('t').mean('y').plot(figsize=(12, 6), yincrease=False, vmax=1, cmap=plt.cm.rainbow)
+    dx.mean('t').mean('y').plot(figsize=(12, 6), yincrease=False, vmax=1,
+                                cmap=plt.cm.rainbow)
     plt.title('Tagliabue EUC(2.6S-2.6N) iron observations (time/lat mean)')
     plt.savefig(cfg.fig / 'obs/Tagliabue_dFe_EUC_mean.png')
     plt.show()
@@ -478,7 +467,8 @@ def plot_iron_obs_Tagliabue():
 
 
 def plot_iron_obs_Huang():
-    """Huang et al. (2022)
+    """Huang et al. (2022).
+
     dFe climatology based on compilation of dFe observations + environmental predictors
     from satellite observations and reanalysis products using machine-learning approaches
     (random forest).
@@ -513,7 +503,8 @@ def plot_iron_obs_Huang():
     fig, ax = plt.subplots(figsize=(10, 7))
     dxx = dx.sel(y=0, x=slice(132, 279), z=slice(0, 400)).isel(t=slice(0, -1))
     dxx.coords['t'] = cfg.mon
-    cs = dxx.plot(yincrease=False, vmin=0, vmax=1, cmap=plt.cm.rainbow, col='t', col_wrap=4)
+    cs = dxx.plot(yincrease=False, vmin=0, vmax=1, cmap=plt.cm.rainbow, col='t',
+                  col_wrap=4)
     ax.set_title('Equatorial dissolved Fe ML compilation from Huang et al. (2022)')
     plt.savefig(cfg.fig / 'obs/ML_obs_dFe_eq_month.png')
     plt.show()
@@ -550,7 +541,8 @@ def plot_iron_obs_Huang():
     # All straits (annual mean).
     fig, ax = plt.subplots(1, 1, figsize=(6, 5))
     color = ['r', 'deeppink', 'darkviolet', 'b', 'dodgerblue', 'lime', 'g']
-    name = ['Vitiaz Strait', 'PNG', 'Solomon Strait', 'Solomon Sea', 'New Ireland', 'MC(7N)', 'MC(5N)']
+    name = ['Vitiaz Strait', 'PNG', 'Solomon Strait', 'Solomon Sea',
+            'New Ireland', 'MC(7N)', 'MC(5N)']
     for i, dxx in enumerate([da1, da2, da3, da4, da5, da6, da7]):
         ax.plot(dxx.isel(t=-1), dxx.z, c=color[i], label=name[i], marker='o', ls='-',
                 fillstyle='none')
@@ -567,7 +559,8 @@ def plot_iron_obs_Huang():
     plt.show()
 
     # All straits (month heatmap).
-    name = ['MC(7N)', 'Vitiaz Strait', 'PNG', 'Solomon Sea', 'Solomon Strait', 'New Ireland']
+    name = ['MC(7N)', 'Vitiaz Strait', 'PNG', 'Solomon Sea', 'Solomon Strait',
+            'New Ireland']
 
     fig, ax = plt.subplots(2, 3, figsize=(12, 8), sharey=True)
     ax = ax.flatten()
@@ -699,7 +692,6 @@ def plot_iron_obs_straits():
     dx2 = dx2.dropna('z', 'all').dropna('t', 'all')
     dx3 = dx3.isel(t=-1)
 
-
     names = ['GEOTRACES', 'Tagliabue', 'Huang']
     name = ['MC(7N)', 'Vitiaz Strait', 'PNG', 'Solomon Sea', 'Solomon Strait', 'New Ireland']  # 'MC(5N)'
     nvar = ['mc7', 'vs', 'png', 'ssea', 'ss',  'ni']
@@ -709,6 +701,7 @@ def plot_iron_obs_straits():
     ax = ax.flatten()
 
     for i, v in enumerate(nvar):
+
         for m, ds, ls, c in zip(range(3), [dx1, dx2, dx3], ['d', '+', '*'], ['r', 'b', 'k']):
             label = names[m]
             if v in ds.data_vars:
@@ -718,7 +711,6 @@ def plot_iron_obs_straits():
                     dv = dv.dropna('t', 'all')
                     label + ' ({})'.format(dv.t[0].dt.strftime("%Y-%m").item())
                     dv = dv.mean('t')
-
 
                 ax[i].plot(dv, dv.z, c=c, label=label, marker='o', ls='-', fillstyle='none')
 
@@ -732,16 +724,15 @@ def plot_iron_obs_straits():
         ax[i].set_xlabel('dFe [nM]')
         ax[i].set_ylabel('Depth [m]')
 
-
     plt.tight_layout()
     plt.savefig(cfg.fig / 'obs/iron_obs_straits.png')
     plt.show()
 
 
-def iron_obs_datasets():
+def combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[115, 285], depths=[0, 1500],
+                               resample_coords=False):
     """Merge iron obs datasets (4D; subset over the tropical Pacific)."""
     # Todo: resample depths
-    lats, lons, depths = [-11.5, 11.5], [115, 285], [0, 1200]
     dg = GEOTRACES_iron_dataset_4D(lats=lats, lons=lons)
     dt = Tagliabue_iron_dataset_4D(lats=lats, lons=lons)
     dh = Huang_iron_dataset()
@@ -763,17 +754,20 @@ def iron_obs_datasets():
     # Round obs depths to 1 decimal place.
     # dg_interp = dg.interp(z=np.unique(np.around(dg.z, 1)), method='cubic')
     # dt_interp = dt.interp(z=np.unique(np.around(dt.z, 1)), method='cubic')
-
-    x = np.arange(115, 286, 1)
-    y = np.arange(-11, 12, 0.5)
-    z = np.array([0])
-    t = np.array([dt.t.values[0]])
-    temp = xr.DataArray(np.full((t.size, z.size, y.size, x.size), np.nan),
-                        dims=['t', 'z', 'y', 'x'],
-                        coords=dict(t=('t', t), z=('z', z), y=('y', y), x=('x', x)))
-    temp = temp.to_dataset(name='fe')
-    df = xr.merge([dg, dt, temp])
-    dm = xr.merge([df, dh])
+    if resample_coords:
+        x = np.arange(115, 286, 1)
+        y = np.arange(-11, 12, 0.5)
+        z = np.array([0])
+        t = np.array([dt.t.values[0]])
+        temp = xr.DataArray(np.full((1, 1, y.size, x.size), np.nan),
+                            dims=['t', 'z', 'y', 'x'],
+                            coords=dict(t=('t', t), z=('z', z),
+                                        y=('y', y), x=('x', x)))
+        temp = temp.to_dataset(name='fe')
+        df = xr.merge([dg, dt, temp])
+        dm = xr.merge([df, dh])
+    else:
+        dm = xr.merge([dg, dt, dh])
 
     # dmm = dm.sel(z=slice(1498, 1500))
     # dmmx = dmm.where(~np.isnan(dmm.fe), drop=1)
@@ -782,12 +776,19 @@ def iron_obs_datasets():
     # dmg = dm.groupby_bins('z', np.unique(np.around(dt.z, 1)))
     # dmg = dm.fe.notnull().groupby_bins('z', np.unique(np.around(dt.z, 1)))
     # dmg_sum = dmg.sum('z')
+    return dm
 
 
+def plot_combined_iron_obs_datasets():
+    ds = combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[119, 180], depths=[0, 1000])
     # # Duplicates z: (+-2, 180E) z=10-11, 97; (-10.5, 208); (-10, 190)
 
-    dx = dm.fe.sel(y=slice(-2.5, 2.5)).dropna('z', 'all').mean('y')
+    # LLWBCS
+    dx = ds.fe.sel(y=slice(-6, -4), x=slice(147, 155)).dropna('z', 'all')
 
+
+    # Equator.
+    dx = ds.fe.sel(y=slice(-2.5, 2.5)).dropna('z', 'all').mean('y')
     fig, ax = plt.subplots(1, 1, figsize=(10, 7))
     dx.mean('t').plot(ax=ax, yincrease=False, vmin=0, vmax=1.5)
 
