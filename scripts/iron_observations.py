@@ -14,6 +14,7 @@ Notes:
 @created: Mon Nov  7 17:05:56 2022
 
 """
+from datetime import datetime
 import re
 import pandas as pd
 import numpy as np
@@ -26,6 +27,8 @@ from cartopy.mpl.gridliner import LatitudeFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import cfg
+from cfg import paths, mon
+from datasets import get_ofam_filenames
 
 
 def subset_obs_data(ds, y=None, x=None, z=None, drop=True):
@@ -83,7 +86,7 @@ def GEOTRACES_iron_dataset(var='var88'):
 
     """
     f = 'GEOTRACES/idp2021/seawater/GEOTRACES_IDP2021_Seawater_Discrete_Sample_Data_v1.nc'
-    ds = xr.open_dataset(cfg.obs / f)
+    ds = xr.open_dataset(paths.obs / f)
 
     ds = ds.rename({'date_time': 't', 'var2': 'z', 'metavar1': 'cruise',
                     'var5': 'bottle_flag', 'latitude': 'y', 'longitude': 'x'})
@@ -134,7 +137,7 @@ def GEOTRACES_iron_dataset_4D(var='var88', lats=[-15, 15], lons=[120, 290]):
 
 def Tagliabue_iron_dataset():
     """Open Tagliabue 2015 iron [nM] dataset."""
-    file = cfg.obs / 'tagliabue_fe_database_jun2015_public_formatted_ref.csv'
+    file = paths.obs / 'tagliabue_fe_database_jun2015_public_formatted_ref.csv'
     ds = pd.read_csv(file)
     ds = pd.DataFrame(ds)
     ds = ds.to_xarray()
@@ -274,7 +277,7 @@ def Huang_iron_dataset():
     (random forest).
 
     """
-    file = cfg.obs / 'Huang_et_al_2022_monthly_dFe_V2.nc'
+    file = paths.obs / 'Huang_et_al_2022_monthly_dFe_V2.nc'
     ds = xr.open_dataset(file)
     ds = ds.rename({'Longitude': 'x', 'Latitude': 'y', 'Depth': 'z', 'Month': 't'})
     ds.coords['x'] = xr.where(ds.x < 0, ds.x + 360, ds.x, keep_attrs=True)
@@ -337,7 +340,7 @@ def plot_iron_obs_GEOTRACES():
     cbar = cs.colorbar
     cbar.set_label('dFe [nmol/kg]')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/GEOTRACES_dFe_map.png')
+    plt.savefig(paths.figs / 'obs/GEOTRACES_dFe_map.png')
     plt.show()
 
     # Plot West Pacific time/depth mean.
@@ -347,7 +350,7 @@ def plot_iron_obs_GEOTRACES():
     dxx.plot(ax=ax, zorder=5, cmap=plt.cm.rainbow, vmax=1, vmin=0, transform=proj)
     plt.title('GEOTRACES iron observations (time/depth mean)')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/GEOTRACES_dFe_map_west_pacific.png')
+    plt.savefig(paths.figs / 'obs/GEOTRACES_dFe_map_west_pacific.png')
     plt.show()
 
     # Plot: Vitiaz Strait & Solomon Strait.
@@ -375,7 +378,7 @@ def plot_iron_obs_GEOTRACES():
     ax.set_xlim(0, 1)
     ax.legend()
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/GEOTRACES_dFe_straits.png')
+    plt.savefig(paths.figs / 'obs/GEOTRACES_dFe_straits.png')
     plt.show()
 
 
@@ -390,13 +393,13 @@ def plot_iron_obs_Tagliabue():
 
     # Plot all equatorial timesteps.
     dx.plot(col='t', col_wrap=3, yincrease=False, vmax=1, cmap=plt.cm.rainbow)
-    plt.savefig(cfg.fig / 'obs/Tagliabue_dFe_equator.png')
+    plt.savefig(paths.figs / 'obs/Tagliabue_dFe_equator.png')
     plt.show()
 
     # Plot equatorial time mean.
     dx.mean('t').plot(figsize=(12, 6), yincrease=False, vmax=1, cmap=plt.cm.rainbow)
     plt.title('Tagliabue equatorial iron observations (time mean)')
-    plt.savefig(cfg.fig / 'obs/Tagliabue_dFe_equator_mean.png')
+    plt.savefig(paths.figs / 'obs/Tagliabue_dFe_equator_mean.png')
     plt.show()
 
     # Subset: EUC.
@@ -408,7 +411,7 @@ def plot_iron_obs_Tagliabue():
     dx.mean('t').mean('y').plot(figsize=(12, 6), yincrease=False, vmax=1,
                                 cmap=plt.cm.rainbow)
     plt.title('Tagliabue EUC(2.6S-2.6N) iron observations (time/lat mean)')
-    plt.savefig(cfg.fig / 'obs/Tagliabue_dFe_EUC_mean.png')
+    plt.savefig(paths.figs / 'obs/Tagliabue_dFe_EUC_mean.png')
     plt.show()
 
     # Subset: Pacific.
@@ -423,7 +426,7 @@ def plot_iron_obs_Tagliabue():
     dx.plot(ax=ax, zorder=5, cmap=plt.cm.rainbow, vmax=1, transform=proj)
     plt.title('Tagliabue iron observations (time/depth mean)')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/Tagliabue_dFe_map.png')
+    plt.savefig(paths.figs / 'obs/Tagliabue_dFe_map.png')
     plt.show()
 
     # Plot West Pacific time/depth mean.
@@ -433,7 +436,7 @@ def plot_iron_obs_Tagliabue():
     dx.plot(ax=ax, zorder=5, cmap=plt.cm.rainbow, vmax=1, transform=proj)
     plt.title('Tagliabue iron observations (time/depth mean)')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/Tagliabue_dFe_map_west_pacific.png')
+    plt.savefig(paths.figs / 'obs/Tagliabue_dFe_map_west_pacific.png')
     plt.show()
 
     # Plot: Vitiaz Strait & Solomon Strait.
@@ -462,7 +465,7 @@ def plot_iron_obs_Tagliabue():
     ax.set_xlim(0, 4)
     ax.legend()
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/Tagliabue_dFe_straits.png')
+    plt.savefig(paths.figs / 'obs/Tagliabue_dFe_straits.png')
     plt.show()
 
 
@@ -487,7 +490,7 @@ def plot_iron_obs_Huang():
     cbar = cs.colorbar
     cbar.set_label('dFe [nmol/kg]')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/iron_obs_map_Huang.png')
+    plt.savefig(paths.figs / 'obs/iron_obs_map_Huang.png')
     plt.show()
 
     # Plot: equatorial depth profile.
@@ -496,7 +499,7 @@ def plot_iron_obs_Huang():
     cs = dxx.plot(yincrease=False, vmin=0, vmax=1, cmap=plt.cm.rainbow)
     ax.set_title('Equatorial dissolved Fe ML compilation from Huang et al. (2022)')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/ML_obs_dFe_eq.png')
+    plt.savefig(paths.figs / 'obs/ML_obs_dFe_eq.png')
     plt.show()
 
     # Plot: equatorial depth profile (months).
@@ -506,7 +509,7 @@ def plot_iron_obs_Huang():
     cs = dxx.plot(yincrease=False, vmin=0, vmax=1, cmap=plt.cm.rainbow, col='t',
                   col_wrap=4)
     ax.set_title('Equatorial dissolved Fe ML compilation from Huang et al. (2022)')
-    plt.savefig(cfg.fig / 'obs/ML_obs_dFe_eq_month.png')
+    plt.savefig(paths.figs / 'obs/ML_obs_dFe_eq_month.png')
     plt.show()
 
     # Plot: straits depth profile.
@@ -524,7 +527,7 @@ def plot_iron_obs_Huang():
     ax.set_xlim(0.1, 0.9)
     ax.legend()
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/ML_obs_dFe_straits.png')
+    plt.savefig(paths.figs / 'obs/ML_obs_dFe_straits.png')
     plt.show()
 
     dx = ds.sel(y=slice(-30, 30), x=slice(120, 290), z=slice(0, 2000))
@@ -555,7 +558,7 @@ def plot_iron_obs_Huang():
     ax.set_xlim(0, 1)
     ax.legend()
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/Huang_dFe_straits.png')
+    plt.savefig(paths.figs / 'obs/Huang_dFe_straits.png')
     plt.show()
 
     # All straits (month heatmap).
@@ -583,7 +586,7 @@ def plot_iron_obs_Huang():
         cbar.set_label('dFe [nmol/kg]')
 
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/Huang_dFe_straits_monthly.png')
+    plt.savefig(paths.figs / 'obs/Huang_dFe_straits_monthly.png')
     plt.show()
 
 
@@ -603,7 +606,7 @@ def plot_iron_obs_maps():
         ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
         ax.set_title('{} iron observations'.format(names[i]), loc='left')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/iron_obs_map_global.png')
+    plt.savefig(paths.figs / 'obs/iron_obs_map_global.png')
 
     # Tropical Pacific.
     fig = plt.figure(figsize=(12, 6))
@@ -617,7 +620,7 @@ def plot_iron_obs_maps():
 
     ax.set_title('Iron observations from (blue) GEOTRACES IDP2021 and (red) Tagliabue et al. (2012) dataset [2015 Update]')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/iron_obs_map_pacific.png')
+    plt.savefig(paths.figs / 'obs/iron_obs_map_pacific.png')
 
     # Tropical Pacific (References/cruises).
     lats, lons = [-15, 15], [110, 290]
@@ -641,7 +644,7 @@ def plot_iron_obs_maps():
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=6)
     ax.set_title('Iron observations from GEOTRACES IDP2021 and Tagliabue et al. (2012) dataset [2015 Update]')
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/iron_obs_map_pacific_references.png', dpi=300)
+    plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_references.png', dpi=300)
 
 
 def plot_iron_obs_straits():
@@ -725,31 +728,52 @@ def plot_iron_obs_straits():
         ax[i].set_ylabel('Depth [m]')
 
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/iron_obs_straits.png')
+    plt.savefig(paths.figs / 'obs/iron_obs_straits.png')
     plt.show()
 
 
-def combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[115, 285], depths=[0, 1500],
-                               resample_coords=False):
+def interpolate_depths(ds):
+    """Interpolate depths."""
+    # lats = [-8, 3]
+    # lons = [115, 220]
+    # ds = Tagliabue_iron_dataset_4D(lats=lats, lons=lons)
+    mesh = xr.open_dataset(str(paths.data / 'ofam_mesh_grid.nc'))
+    z_new = mesh.st_edges_ocean.values
+
+    ds_interp = ds.interp(z=z_new, method='cubic')
+    for t in range(ds.t.size):
+        for j in range(ds.y.size):
+            for i in range(ds.x.size):
+                loc = dict(t=t, y=j, x=i)
+                if not all(np.isnan(ds.isel(loc))):
+                    ds_interp[loc] = ds.isel(loc).dropna('z').interp(z=z_new)
+
+    # subset_obs_data(ds, -5, 155).plot()  # Solomon Strait
+    # subset_obs_data(ds_interp, -5, 155).plot()
+    return ds_interp
+
+
+def combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[117, 285], depths=[0, 600],
+                               resample_coords=False, add_Huang=False):
     """Merge iron obs datasets (4D; subset over the tropical Pacific)."""
     # Todo: resample depths
     dg = GEOTRACES_iron_dataset_4D(lats=lats, lons=lons)
     dt = Tagliabue_iron_dataset_4D(lats=lats, lons=lons)
-    dh = Huang_iron_dataset()
+    if add_Huang:
+        dh = Huang_iron_dataset()
+        # Subset to tropical ocean.
+        dh = dh.sel(y=slice(*lats), x=slice(*lons)).isel(t=slice(12))
+        dh = dh.to_dataset(name='fe')
+        dh['t'] = pd.to_datetime(['2030-{:02d}-01'.format(i + 1) for i in range(12)])
+        dh = dh.sel(z=slice(*depths))
 
     # Drop/rename vars and convert to Datasets.
     dg = dg.drop_vars(['cruise']).rename({'var88': 'fe'})
     dt = dt.to_dataset(name='fe')
 
-    # Subset to tropical ocean.
-    dh = dh.sel(y=slice(*lats), x=slice(*lons)).isel(t=slice(12))
-    dh = dh.to_dataset(name='fe')
-    dh['t'] = pd.to_datetime(['2030-{:02d}-01'.format(i + 1) for i in range(12)])
-
     # Subset depths.
     dg = dg.sel(z=slice(*depths))
     dt = dt.sel(z=slice(*depths))
-    dh = dh.sel(z=slice(*depths))
 
     # Round obs depths to 1 decimal place.
     # dg_interp = dg.interp(z=np.unique(np.around(dg.z, 1)), method='cubic')
@@ -764,10 +788,12 @@ def combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[115, 285], depths=[0, 1
                             coords=dict(t=('t', t), z=('z', z),
                                         y=('y', y), x=('x', x)))
         temp = temp.to_dataset(name='fe')
-        df = xr.merge([dg, dt, temp])
-        dm = xr.merge([df, dh])
+        dm = xr.merge([dg, dt, temp])
+        if add_Huang:
+            dm = xr.merge([dm, dh])
     else:
-        dm = xr.merge([dg, dt, dh])
+        dm = xr.merge([dg, dt, dh]) if add_Huang else xr.merge([dg, dt])
+        # dm = xr.merge([dg, dt])
 
     # dmm = dm.sel(z=slice(1498, 1500))
     # dmmx = dmm.where(~np.isnan(dmm.fe), drop=1)
@@ -779,8 +805,24 @@ def combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[115, 285], depths=[0, 1
     return dm
 
 
+def get_ofam3_land_mask(dm):
+    file = get_ofam_filenames('phy', [datetime(2012, 1, 1), datetime(2012, 1, 1)])
+    df = xr.open_dataset(file[0]).phy
+    df = df.isel(Time=0, st_ocean=0, drop=True).rename({'yt_ocean': 'y', 'xt_ocean': 'x'})
+    df = df.where(np.isnan(df), 1)
+
+    # create mask (n grid cells from nan)
+    n = 9
+    mask = df.copy()
+    JJ, II = np.where(np.isnan(df))
+    for inan in range(len(JJ)):
+        jp, ip = JJ[inan], II[inan]
+        mask[dict(y=slice(jp-n, jp+n+1), x=slice(ip-n, ip+n+1))] = np.nan
+    return mask
+
+
 def plot_combined_iron_obs_datasets():
-    ds = combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[119, 180], depths=[0, 1000])
+    ds = combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[119, 283], depths=[0, 700])
     # # Duplicates z: (+-2, 180E) z=10-11, 97; (-10.5, 208); (-10, 190)
 
     # LLWBCS
@@ -796,5 +838,5 @@ def plot_combined_iron_obs_datasets():
     ax.set_ylim(600, 0)
     ax.set_xlim(130, 280)
     plt.tight_layout()
-    plt.savefig(cfg.fig / 'obs/iron_obs_equator_combined.png')
+    plt.savefig(paths.figs / 'obs/iron_obs_equator_combined.png')
     plt.show()
