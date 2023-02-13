@@ -12,17 +12,11 @@ Todo:
 @created: Tue Jan 10 19:45:46 2023
 
 """
-import time
-import inspect
 import sys
-import math
 import logging
-from typing import Union
-import numpy as np
-import xarray as xr
 from pathlib import Path
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import cfg
 
@@ -45,8 +39,10 @@ def mlogger(filename, level=logging.NOTSET):
         - Filters the logging of common warnings from parcels version 2.2.1
 
     """
+
     class NoWarnFilter(logging.Filter):
-        """"Filter logging of common warnings from parcels version 2.2.1."""
+        """Filter logging of common warnings from parcels version 2.2.1."""
+
         def filter(self, record):
             show = True
             for key in ['Casting', 'Trying', 'Particle init', 'Did not find',
@@ -72,7 +68,7 @@ def mlogger(filename, level=logging.NOTSET):
 
     # Create stream and file handlers.
     c_handler = logging.StreamHandler()
-    f_handler = logging.FileHandler(cfg.log / '{}.log'.format(filename))
+    f_handler = logging.FileHandler(cfg.paths.logs / '{}.log'.format(filename))
 
     c_handler.setLevel(level)
     f_handler.setLevel(level)
@@ -99,6 +95,7 @@ def mlogger(filename, level=logging.NOTSET):
 
 
 def timeit(_method=None, *, my_logger=None):
+    """Timer decorator that logs elapsed time."""
     def decorator_timeit(method):
         """Wrap function to time method execution time."""
         @wraps(method)
