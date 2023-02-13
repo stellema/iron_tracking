@@ -343,7 +343,7 @@ class BGCFields(object):
         self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
 
         # Initialise ofam3 dataset.
-        self.ofam = ofam3_datasets(self.exp, variables=self.vars_ofam)
+        self.ofam = ofam3_datasets(self.exp, variables=self.vars_ofam, parallel=True)
 
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
