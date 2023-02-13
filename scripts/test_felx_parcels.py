@@ -26,8 +26,8 @@ from datetime import datetime, timedelta
 from parcels import (FieldSet, ParticleSet, VectorField, Variable, JITParticle,
                      ScipyParticle, ErrorCode, AdvectionRK4)
 
-import cfg
-from datasets import get_datetime_bounds, get_ofam_filenames
+from cfg import paths, ExpData, bgc_name_map
+from datasets import get_ofam_filenames
 from kernels import (AdvectionRK4_3D, recovery_kernels, IronScavenging,
                      IronRemineralisation, IronSourceInput, IronPhytoUptake, Iron)
 from fieldsets import (ofam3_fieldset_parcels221, add_Kd490_field_parcels221,
@@ -50,8 +50,8 @@ else:
 def test_fieldset_initialisation():
     """Test creation of a parcels fieldset using OFAM3 fields."""
     cs = 300
-    exp = 0
-    variables = cfg.bgc_name_map
+    exp = ExpData(scenario=0)
+    variables = bgc_name_map
     variables = {'P': 'phy', 'Z': 'zoo', 'Det': 'det',
                  'temp': 'temp', 'Fe': 'fe', 'N': 'no3'}
     fieldset = ofam3_fieldset(exp=exp, cs=cs)
@@ -64,13 +64,13 @@ def test_fieldset_initialisation():
 
 def test_pset_creation():
     """Test creation of a parcels particleset using OFAM3 fields."""
-    exp = 0
+    exp = ExpData(scenario=0)
     # Simulation runtime paramaters.
     dt = timedelta(hours=48)  # Advection step (negative for backward).
 
     # Create Fieldset.
     cs = 300
-    variables = cfg.bgc_name_map
+    variables = bgc_name_map
     fieldset = ofam3_fieldset(exp=exp, cs=cs)
     fieldset = add_ofam3_bgc_fields(fieldset, variables, exp)
     fieldset = add_Kd490_field(fieldset)
@@ -83,7 +83,7 @@ def test_pset_creation():
 
 
 def test_forward_particle_execution():
-    exp = 0
+    exp = ExpData(scenario=0)
     # Simulation runtime paramaters.
     dt = timedelta(hours=48)  # Advection step (negative for backward).
     outputdt = timedelta(days=2)  # Advection steps to write.
@@ -91,7 +91,7 @@ def test_forward_particle_execution():
 
     # Create Fieldset.
     cs = 300
-    variables = cfg.bgc_name_map
+    variables = bgc_name_map
     fieldset = ofam3_fieldset(exp=exp, cs=cs)
     fieldset = add_ofam3_bgc_fields(fieldset, variables, exp)
     fieldset = add_Kd490_field(fieldset)
@@ -119,7 +119,7 @@ def test_forward_particle_execution():
 
     # # Create output ParticleFile p_name and time steps to write output.
     # @todo
-    # output_file = pset.ParticleFile(cfg.data/'test.nc', outputdt=outputdt)
+    # output_file = pset.ParticleFile(cfg.paths.data/'test.nc', outputdt=outputdt)
 
     print(pset)
     start = fieldset.time_origin.time_origin  # @todo
@@ -144,12 +144,10 @@ def test_pset_from_file():
         if particle.state == ErrorCode.Evaluate:
             particle.agetest = particle.agetest + math.fabs(particle.dt)
 
-
-    exp = 0
+    exp = ExpData(scenario=0)
     cs = 300
 
-
-    variables = cfg.bgc_name_map
+    variables = bgc_name_map
     fieldset = ofam3_fieldset(exp=exp, cs=cs)
     # fieldset = add_ofam3_bgc_fields(fieldset, variables, exp)
     fieldset = add_Kd490_field(fieldset)
@@ -158,28 +156,25 @@ def test_pset_from_file():
     restarttime = 279480 # !!! just picked lowest df.time.min('obs').min() but should be None
 
     # Create ParticleClass.
-
     class uParticle(ScipyParticle):
         agetest = Variable('agetest', initial=0, dtype=np.float32)
     pclass = uParticle
 
-
     kwargs = {}
     # Pset from file
-    filename = cfg.data / 'plx/plx_hist_165_v1r00.nc'
+    filename = paths.data / 'plx/plx_hist_165_v1r00.nc'
     df = xr.open_dataset(str(filename), decode_cf=False)
     df = df.isel(traj=slice(10)).dropna('obs', 'all')  # !!!
 
     # TODO: Convert time values in dataset
     # hours since 2012-12-31 12:00:00 --> hours since 1981-01-01 12:00:00
-    td = (datetime(cfg.years[exp][1], 12, 31, 12) - datetime(cfg.years[exp][0], 1, 1, 12))
+    td = (datetime(exp.year_bnds[1], 12, 31, 12) - datetime(exp.year_bnds[0], 1, 1, 12))
     df['time'] = df['time'] + (td.total_seconds() / (60 * 60))
 
     # Get particle variables.
     df_vars = [v for v in df.data_vars]
     vars = {}
     to_write = {}  # TODO: list of variables to write.
-
 
     for v in pclass.getPType().variables:
         if v.name in df_vars:
@@ -214,18 +209,16 @@ def test_pset_from_file():
         if v not in ['lon', 'lat', 'depth', 'time', 'id']:
             kwargs[v] = vars[v]
 
-
     pset = ParticleSet(fieldset=fieldset, pclass=pclass, lon=vars['lon'],
                        lat=vars['lat'], depth=vars['depth'], time=vars['time'],
                        pid_orig=vars['id'],
                        lonlatdepth_dtype=np.float32, **kwargs)
 
-
     dt = timedelta(hours=48)  # Advection step (negative for backward).
     runtime = timedelta(days=5)
     kernels = pset.Kernel(AgeTest)
     pset.execute(kernels, runtime=runtime, dt=dt,
-                  verbose_progress=True, recovery=recovery_kernels)
+                 verbose_progress=True, recovery=recovery_kernels)
 
 
 # fieldset = test_fieldset_initialisation()
