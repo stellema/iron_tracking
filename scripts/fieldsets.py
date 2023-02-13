@@ -5,10 +5,6 @@ Notes:
     - Contains OFAM3 fieldset functions for different parcels versions (2.2.1 and 2.4.0).
 
 Example:
-    times = get_datetime_bounds(0)
-    var='adic'
-    f = get_ofam_filenames(var, get_datetime_bounds(0))
-    ds = xr.open_dataset(f[0])
 
 Todo:
 
@@ -21,13 +17,13 @@ import math
 import parcels
 import numpy as np
 import xarray as xr
-from calendar import monthrange
 from datetime import datetime, timedelta
 from parcels import (FieldSet, ParticleSet, VectorField, Variable, ScipyParticle,
                      JITParticle, fieldfilebuffer)
 
-import cfg
-from datasets import get_datetime_bounds, get_ofam_filenames
+# import cfg
+from cfg import paths, ExpData, chunkdims_name_map
+from datasets import get_ofam_filenames
 
 
 def from_ofam3_parcels221(filenames, variables, dimensions, indices=None,
@@ -124,7 +120,7 @@ def from_ofam3_parcels240(filenames, variables, dimensions, indices=None,
                                     time_periodic=time_periodic,
                                     allow_time_extrapolation=allow_time_extrapolation,
                                     chunksize=chunksize,
-                                    chunkdims_name_map=cfg.chunkdims_name_map,
+                                    chunkdims_name_map=chunkdims_name_map,
                                     interp_method=interp_method,
                                     gridindexingtype='mom5', **kwargs)
 
@@ -133,11 +129,11 @@ def from_ofam3_parcels240(filenames, variables, dimensions, indices=None,
     return fieldset
 
 
-def ofam3_fieldset_parcels221(exp=0, cs=300):
+def ofam3_fieldset_parcels221(exp, cs=300):
     """Create a 3D parcels fieldset from OFAM model output (parcels 2.2.1).
 
     Args:
-        exp (int, optional): Scenario (for data file years). Defaults to 0.
+        exp (cfg.ExpData): Experiment dataclass instance.
         cs (int, optional): Chunk size. Defaults to 300.
 
     Returns:
@@ -171,10 +167,10 @@ def ofam3_fieldset_parcels221(exp=0, cs=300):
                          'depth': 'sw_ocean', 'time': 'Time'}
 
     # Dictionary mapping variables to file(s).
-    mesh = [str(cfg.data / 'ofam_mesh_grid_part.nc')]  # OFAM3 coords dataset.
+    mesh = [str(paths.data / 'ofam_mesh_grid_part.nc')]  # OFAM3 coords dataset.
     filenames = {}
     for v in variables:
-        f = get_ofam_filenames(variables[v], get_datetime_bounds(exp))
+        f = get_ofam_filenames(variables[v], exp.time_bnds)
         filenames[v] = {'depth': mesh, 'lat': mesh, 'lon': mesh, 'data': f}
 
     # Size of the chunks in dask loading.
@@ -182,7 +178,7 @@ def ofam3_fieldset_parcels221(exp=0, cs=300):
         chunks = cs
         nmap = None
     else:
-        nmap = cfg.chunkdims_name_map
+        nmap = chunkdims_name_map
         # field_chunksize.
         chunks = {'Time': 1,
                   'sw_ocean': 1, 'st_ocean': 1, 'depth': 1,
@@ -194,11 +190,11 @@ def ofam3_fieldset_parcels221(exp=0, cs=300):
     return fieldset
 
 
-def ofam3_fieldset_parcels240(exp=0, cs=300):
+def ofam3_fieldset_parcels240(exp, cs=300):
     """Create a 3D parcels fieldset from OFAM model output (parcels 2.4.0).
 
     Args:
-        exp (int, optional): Scenario (for data file years). Defaults to 0.
+        exp (cfg.ExpData): Experiment dataclass instance.
         cs (int, optional): Chunk size. Defaults to 300.
 
     Returns:
@@ -206,8 +202,7 @@ def ofam3_fieldset_parcels240(exp=0, cs=300):
 
     """
     # Add OFAM3 dims to chunk name map.
-    fieldfilebuffer.DaskFileBuffer.add_to_dimension_name_map_global(
-        cfg.chunkdims_name_map)
+    fieldfilebuffer.DaskFileBuffer.add_to_dimension_name_map_global(chunkdims_name_map)
 
     # Dictionary mapping variables to variable names in the netCDF file(s).
     variables = {'U': 'u', 'V': 'v', 'W': 'w'}
@@ -219,10 +214,10 @@ def ofam3_fieldset_parcels240(exp=0, cs=300):
                          'depth': 'sw_ocean', 'time': 'Time'}
 
     # Dictionary mapping variables to file(s).
-    mesh = [str(cfg.data / 'ofam_mesh_grid_part.nc')]  # OFAM3 coords dataset.
+    mesh = [str(paths.data / 'ofam_mesh_grid_part.nc')]  # OFAM3 coords dataset.
     filenames = {}
     for v in variables:
-        f = get_ofam_filenames(variables[v], get_datetime_bounds(exp))
+        f = get_ofam_filenames(variables[v], exp.time_bnds)
         filenames[v] = {'depth': mesh, 'lat': mesh, 'lon': mesh, 'data': f}
 
     # Size of the chunks in dask loading.
@@ -246,8 +241,7 @@ def add_ofam3_bgc_fields_parcels221(fieldset, variables, exp):
     Args:
         fieldset (parcels.Fieldset): Parcels fieldset.
         variables (dict): Dictionary mapping variables names. {'P': 'phy'}
-        exp (int): experiment integer.
-        chunks (int): chunksize.
+        exp (cfg.ExpData): Experiment dataclass instance.
 
     Returns:
         fieldset (parcels.Fieldset): Parcels fieldset with added fields.
@@ -261,9 +255,9 @@ def add_ofam3_bgc_fields_parcels221(fieldset, variables, exp):
 
     # Dictionary mapping variables to file(s).
     filenames = {}
-    mesh = [str(cfg.data / 'ofam_mesh_grid_part.nc')]  # OFAM3 coords dataset.
+    mesh = [str(paths.data / 'ofam_mesh_grid_part.nc')]  # OFAM3 coords dataset.
     for v in variables:
-        f = get_ofam_filenames(variables[v], get_datetime_bounds(exp))
+        f = get_ofam_filenames(variables[v], exp.time_bnds)
         filenames[v] = {'depth': mesh, 'lat': mesh, 'lon': mesh, 'data': f}
 
     # Size of the chunks in dask loading.
@@ -290,7 +284,7 @@ def add_ofam3_bgc_fields_parcels240(fieldset, variables, exp):
     Args:
         fieldset (parcels.Fieldset): Parcels fieldset.
         variables (dict): Dictionary mapping variables names. {'P': 'phy'}
-        exp (int): experiment integer.
+        exp (cfg.ExpData): Experiment dataclass instance.
         chunks (int): chunksize.
 
     Returns:
@@ -305,9 +299,9 @@ def add_ofam3_bgc_fields_parcels240(fieldset, variables, exp):
 
     # Dictionary mapping variables to file(s).
     filenames = {}
-    mesh = [str(cfg.data / 'ofam_mesh_grid_part.nc')]  # OFAM3 coords dataset.
+    mesh = [str(paths.data / 'ofam_mesh_grid_part.nc')]  # OFAM3 coords dataset.
     for v in variables:
-        f = get_ofam_filenames(variables[v], get_datetime_bounds(exp))
+        f = get_ofam_filenames(variables[v], exp.time_bnds)
         filenames[v] = {'depth': mesh, 'lat': mesh, 'lon': mesh, 'data': f}
 
     # Size of the chunks in dask loading.
@@ -338,7 +332,7 @@ def add_Kd490_field_parcels221(fieldset):
 
     """
     # Dictonary mapping parcels to OFAM3 dimension names.
-    filenames = str(cfg.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc')
+    filenames = str(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc')
     variables = {'Kd490': 'Kd490'}
     dimensions = {'lon': 'lon', 'lat': 'lat', 'time': 'time'}
 
@@ -371,7 +365,7 @@ def add_Kd490_field_parcels240(fieldset):
 
     """
     # Dictonary mapping parcels to OFAM3 dimension names.
-    filenames = str(cfg.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc')
+    filenames = str(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc')
     variables = {'Kd490': 'Kd490'}
     dimensions = {'lon': 'lon', 'lat': 'lat', 'time': 'time'}
 

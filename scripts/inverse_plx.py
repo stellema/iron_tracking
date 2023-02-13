@@ -11,7 +11,7 @@ Notes:
             - results may be out of order
 
 Example:
-    - inverse_plx_dataset(exp, lon, r, v=1)
+    - inverse_plx_dataset(exp)
 
 Todo:
     - mkdir /g/data/e14/as3189/stellema/felx/data/felx
@@ -39,11 +39,11 @@ import xarray as xr
 import pandas as pd
 from argparse import ArgumentParser
 
-import cfg
+from cfg import paths, ExpData
 from tools import timeit, mlogger
-from datasets import plx_particle_dataset, get_plx_filename, save_dataset
+from datasets import plx_particle_dataset, save_dataset
 
-logger = mlogger('felx_files')
+logger = mlogger('files_felx')
 
 
 @timeit(my_logger=logger)
@@ -84,14 +84,12 @@ def inverse_particle_obs(ds):
 
 
 @timeit(my_logger=logger)
-def inverse_plx_dataset(exp, lon, r, v=1):
+def inverse_plx_dataset(exp, **open_kwargs):
     """Open, reverse and save plx dataset.
 
     Args:
-        exp (int): Scenario {0, 1}.
-        lon (int): Particle release longitude {165, 190, 220, 250}.
-        r (int): Particle file repeat index {0-9}.
-        v (int, optional): PLX version. Defaults to 1.
+        exp (cfg.ExpData): Experiment dataclass instance.
+        open_kwargs (dict): xarray.open_dataset keywords.
 
     Returns:
         ds (xarray.Dataset): Dataset particle trajectories.
@@ -100,20 +98,18 @@ def inverse_plx_dataset(exp, lon, r, v=1):
         - Saves file as './data/felx/plx_hist_165_v1r00.nc'
         - Drops 'unbeached' variable.
         - Runs in 5-10 mins per file.
-        -
 
     """
-    file = get_plx_filename(exp, lon, r, v)
-    file = cfg.data / ('felx/' + file.stem + '_inverse.nc')
+    file = exp.file_plx_inv
 
     if file.exists():
-        ds = xr.open_dataset(file)
+        ds = xr.open_dataset(file, **open_kwargs)
 
     else:
         logger.info('{}: Calculating inverse plx file'.format(file.stem))
 
         # Particle trajectories.
-        ds = plx_particle_dataset(exp, lon, r)
+        ds = plx_particle_dataset(exp)
         ds = ds.drop({'unbeached'})
 
         # # Subset number of particl1es.
@@ -146,13 +142,16 @@ def inverse_plx_dataset(exp, lon, r, v=1):
 if __name__ == '__main__':
     p = ArgumentParser(description="""Particle BGC fields.""")
     p.add_argument('-x', '--lon', default=165, type=int, help='Start longitude(s).')
-    p.add_argument('-e', '--exp', default=0, type=int, help='Scenario index.')
-    # p.add_argument('-r', '--repeat', default=0, type=int, help='File repeat.')
+    p.add_argument('-e', '--scenario', default=0, type=int, help='Scenario index.')
+    # p.add_argument('-ind', '--index', default=0, type=int, help='File repeat.')
     p.add_argument('-v', '--version', default=1, type=int, help='PLX experiment version.')
     args = p.parse_args()
 
     # for r in range(10):
-    #     inverse_plx_dataset(lon=args.lon, exp=args.exp, r=r, v=args.version)
+    #     exp = ExpData(scenario=args.scenario, lon=args.lon, version=args.v,
+    #                       file_index=r)
+    #     inverse_plx_dataset(exp)
 
-    exp, lon, r = 0, 190, 0
-    inverse_plx_dataset(exp, lon, r, v=1)
+    scenario, lon, r = 0, 190, 0
+    exp = ExpData(scenario=scenario, lon=lon, version=0, file_index=r, out_subdir='felx')
+    inverse_plx_dataset(exp)

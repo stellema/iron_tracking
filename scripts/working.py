@@ -14,15 +14,14 @@ Todo:
 """
 
 def spinup_analysis():
-    import numpy as np
     import xarray as xr
 
     import cfg
     from datasets import plx_particle_dataset
 
-    exp, lon, r = 0, 165, 0
-    ds = plx_particle_dataset(exp, lon, r)
-    file = cfg.data / 'plx/plx_{}_{}_v1r{:02d}.nc'.format(['hist', 'rcp'][exp], lon, r)
+    exp = cfg.ExpData(0, lon=165)
+    ds = plx_particle_dataset(exp)
+    file = cfg.paths.data / 'plx/{}'.format(exp.file_plx.name)
     ds = xr.open_dataset(str(file), decode_cf=True)
     ds = ds.drop({'zone', 'distance', 'unbeached', 'u'})
     inds = ds.age.argmax('obs')
@@ -121,7 +120,7 @@ def working_parallel_plx_reverse():
         N = np.isnan(ds.trajectory).sum().item()
         return ds.roll(obs=-N)
 
-    ds = plx_particle_dataset(0, 165, 0)
+    ds = plx_particle_dataset(cfg.ExpData(0, lon=165))
     ds = ds.drop({'age', 'zone', 'distance', 'unbeached', 'u'})
 
     # Subset number of particles.
@@ -186,7 +185,7 @@ def working_parallel_plx_reverse():
     # # dask.dataframe.utils.make_meta
     # meta = ds.to_dataframe()
     # daz = da.z.apply(func, meta=meta.z)
-    # # daz.visualize(str(cfg.fig/'test2.png'), optimize_graph=True)
+    # # daz.visualize(str(cfg.paths.figs/'test2.png'), optimize_graph=True)
     # # daz.dask.visualize()
     # daz = daz.compute()
     return
@@ -198,8 +197,7 @@ def working_particle_BGC_fields(ds):
 
     import cfg
     from tools import timeit, mlogger
-    from datasets import (ofam3_datasets, plx_particle_dataset, get_felx_filename,
-                          save_dataset)
+    from datasets import (ofam3_datasets, plx_particle_dataset, save_dataset)
     from inverse_plx import inverse_plx_dataset
     def sample_fields(da, field, var):
         def sample_fields_particle(da, field):
@@ -230,8 +228,7 @@ def working_particle_BGC_fields(ds):
         dx = np.apply_along_axis(sample_fields_particle, 1, ds.trajectory, ds=ds, field=field)
         return dx
 
-
-    exp = 0
+    exp = cfg.ExpData(0)
     variables = {'P': 'phy', 'Z': 'zoo', 'Det': 'det'}
     fieldset = ofam3_datasets(exp, variables=variables)
 
