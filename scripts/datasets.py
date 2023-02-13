@@ -6,82 +6,29 @@ Notes:
 Example:
 
 Todo:
+    * plx_particle_dataset ** remove lon & r kwargs
+    * delete get_datetime_bounds & replace with exp.time_bnds
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
 @created: Wed Jan 11 19:37:25 2023
 
 """
-import sys
-import math
-import logging
+import calendar
+import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-from pathlib import Path
-from functools import wraps
-from calendar import monthrange
-from datetime import datetime, timedelta
 
-import cfg
+from cfg import paths, zones, bgc_vars
 
 
-def get_plx_filename(exp, lon, r, v=1, folder='plx/'):
-    """Get plx particle filename.
-
-    Args:
-        exp (int): Scenario.
-        lon (int): Particle release longitude.
-        r (int): Particle file repeat index.
-        v (int, optional): Particle file version. Defaults to 1.
-
-    Returns:
-        filename (pathlib.Path): plx dataset filename (path to plx repo).
-
-    """
-    if r is not None:
-        file = 'plx_{}_{}_v{}r{:02d}.nc'.format(cfg.exp_abr[exp], lon, v, r)
-    else:
-        file = 'plx_{}_{}_v{}.nc'.format(cfg.exp_abr[exp], lon, v)
-
-    path = cfg.plx / 'data'
-    if folder is not None:
-        path = path / folder
-
-    filename = path / file
-    return filename
-
-
-def get_felx_filename(exp, lon, r, v=1, folder=None):
-    """Get felx particle filename and path.
-
-    e.g., repo/felx/data/subfolder/felx_hist_165_vXrYY.nc
-
-    Args:
-        exp (int): Scenario.
-        lon (int): Particle release longitude.
-        r (int): Particle file repeat index.
-        v (int, optional): Particle file version. Defaults to 1.
-        subfolder (str, optional): subfolder. Defaults to None.
-
-    Returns:
-        filename (pathlib.Path): felx dataset filename.
-
-    """
-    filename = 'felx_{}_{}_v{}r{:02d}.nc'.format(cfg.exp_abr[exp], lon, v, r)
-    if folder is not None:
-        filename = folder + filename
-
-    filename = cfg.data / filename
-    return filename
-
-
-def plx_particle_dataset(exp, lon, r, **kwargs):
+def plx_particle_dataset(exp, **kwargs):
     """Get plx particle dataset.
 
     Args:
-        exp (int): Scenario {0, 1}.
-        lon (int): Particle release longitude {165, 190, 220, 250}.
-        r (int): Particle file repeat index {0-9}.
+        exp (cfg.ExpData): Experiment dataclass instance.
+        kwargs (dict): xarray.open_dataset keywords.
+
 
     Returns:
         ds (xarray.Dataset): Dataset particle trajectories.
@@ -92,9 +39,8 @@ def plx_particle_dataset(exp, lon, r, **kwargs):
         - Filter by available field times
 
     """
-    file = get_plx_filename(exp, lon, r)
     kwargs.setdefault('decode_cf', True)
-    ds = xr.open_dataset(str(file), **kwargs)
+    ds = xr.open_dataset(str(exp.file_plx), **kwargs)
     # ds = ds.drop({'age', 'zone', 'distance', 'unbeached', 'u'})
 
     # Convert these to float32 dtype (others have same dtype).
@@ -103,34 +49,34 @@ def plx_particle_dataset(exp, lon, r, **kwargs):
     return ds
 
 
-def get_datetime_bounds(exp, test_months=2):
-    """Get list of experiment start and end year datetimes."""
-    y = cfg.years[exp]
-    times = [datetime(y[0], 1, 1), datetime(y[1], 12, 31)]
-
-    if cfg.home.drive == 'C:':
-        times[0] = datetime(y[1], 1, 1)
-        times[1] = datetime(y[1], test_months, 29)
-    return times
-
-
 def get_ofam_filenames(var, times):
-    """Create OFAM3 file list based on selected times."""
+    """Create OFAM3 file list based on selected times.
+
+    Args:
+        var (str): Variable name.
+        times (list of datetime.datetime): Time bounds for field files.
+
+    Returns:
+        f (list of str): List of OFAM3 var filenames between given times.
+
+    """
     f = []
     for y in range(times[0].year, times[1].year + 1):
         for m in range(times[0].month, times[1].month + 1):
-            f.append(str(cfg.ofam / 'ocean_{}_{}_{:02d}.nc'.format(var, y, m)))
+            f.append(str(paths.ofam / 'ocean_{}_{}_{:02d}.nc'.format(var, y, m)))
     return f
 
 
-def ofam3_datasets(exp, variables=cfg.bgc_name_map):
-    """ Get OFAM3 BGC fields.
+def ofam3_datasets(exp, variables=bgc_vars, **kwargs):
+    """Open OFAM3 fields for variables.
 
     Args:
-        exp (int): Scenario.
+        exp (cfg.ExpData): Experiment dataclass instance.
+        variables (list of str, optional): OFAM3 variables. Defaults to bgc_vars.
+        **kwargs (dict): xarray.open_mfdataset keywords.
 
     Returns:
-        ds (xarray.Dataset): Dataset of BGC fields.
+        ds (xarray.Dataset): Dataset of OFAM3 fields.
 
     Todo:
         - Chunk dataset
@@ -147,7 +93,7 @@ def ofam3_datasets(exp, variables=cfg.bgc_name_map):
                      'lat': ['yt_ocean', 'yu_ocean'],
                      'depth': ['st_ocean', 'sw_ocean']}
 
-    mesh = xr.open_dataset(cfg.data / 'ofam_mesh_grid_part.nc')  # OFAM3 coords dataset.
+    mesh = xr.open_dataset(paths.data / 'ofam_mesh_grid_part.nc')  # OFAM3 coords dataset.
 
     def rename_ofam3_coords(ds):
         rename_map = {'Time': 'time'}
@@ -164,11 +110,10 @@ def ofam3_datasets(exp, variables=cfg.bgc_name_map):
               'yt_ocean': cs, 'yu_ocean': cs, 'lat': cs,
               'xt_ocean': cs, 'xu_ocean': cs, 'lon': cs}
 
-    nmonths = 2 if any([v for v in variables if v in ['fe', 'no3', 'temp']]) else 12
-
     files = []
     for var in variables:
-        f = get_ofam_filenames(var, get_datetime_bounds(exp, nmonths))
+        time_bnds = exp.time_bnds if not exp.test else exp.test_time_bnds
+        f = get_ofam_filenames(var, time_bnds)
         files.append(f)
     files = np.concatenate(files)
 
@@ -176,16 +121,19 @@ def ofam3_datasets(exp, variables=cfg.bgc_name_map):
                        compat='override', combine='by_coords', coords='minimal',
                        data_vars='minimal', combine_attrs='override',
                        parallel=False, decode_cf=None, decode_times=False)
+    for k, v in kwargs.items():
+        open_kwargs[k] = v
     ds = xr.open_mfdataset(files, **open_kwargs)
 
     return ds
 
 
-def concat_exp_dimension(ds, add_diff=False):
-    """Concatenate list of datasets along 'exp' dimension.
+def concat_scenario_dimension(ds, add_diff=False):
+    """Concatenate list of datasets along 'era' dimension.
 
     Args:
         ds (list of xarray.Dataset): List of datasets.
+        add_diff (bool, optional): Add rcp minus hist coordinate. Defaults to False.
 
     Returns:
         ds (xarray.Dataset): Concatenated dataset.
@@ -202,8 +150,8 @@ def concat_exp_dimension(ds, add_diff=False):
         # Calculate projected change (RCP-hist).
         ds = [*ds, ds[1] - ds[0]]
 
-    ds = [ds[i].expand_dims(dict(exp=[i])) for i in range(len(ds))]
-    ds = xr.concat(ds, 'exp')
+    ds = [ds[i].expand_dims(dict(era=[i])) for i in range(len(ds))]
+    ds = xr.concat(ds, 'era')
     return ds
 
 
@@ -216,7 +164,7 @@ def combine_source_indexes(ds, z1, z2):
         z2 (int): Source ID coordinate to merge.
 
     Returns:
-        ds_new (TYPE): Reduced Dataset.
+        ds_new (xarray.Dataset): Reduced Dataset.
 
     Notes:
         - Adds the values in 'zone' position z1 and z2.
@@ -259,7 +207,8 @@ def merge_interior_sources(ds):
     Merge longitudes:
         - North interior: zone[6] = zone[6+7+8+9+10].
         - South interior lons: zone[8] = zone[12+13+14+15].
-    Notes:
+
+    Note:
         - Modified to skip South interior (<165E).
 
     """
@@ -275,8 +224,8 @@ def merge_interior_sources(ds):
     # Reset source name and colours.
     if set(['names', 'colors']).issubset(ds.data_vars):
         for i in zf:
-            ds['names'][i] = cfg.zones.names[i]
-            ds['colors'][i] = cfg.zones.colors[i]
+            ds['names'][i] = zones.names[i]
+            ds['colors'][i] = zones.colors[i]
 
     ds.coords['zone'] = np.arange(ds.zone.size, dtype=int)
     return ds
@@ -286,7 +235,7 @@ def format_Kd490_dataset():
     """Merge & add time dimension to Kd490 monthly files."""
     time_dim = ['time', 'month'][1]
     # Open kd490 dataset.
-    files = [cfg.obs / 'GMIS_Kd490/GMIS_S_K490_{:02d}.nc'.format(m) for m in range(1, 13)]
+    files = [paths.obs / 'GMIS_Kd490/GMIS_S_K490_{:02d}.nc'.format(m) for m in range(1, 13)]
     df = xr.open_mfdataset(files, combine='nested', concat_dim='time', decode_cf=0)
 
     # Create New Dataset.
@@ -298,7 +247,8 @@ def format_Kd490_dataset():
     # Keep as months.
     if time_dim == 'month':
         time = np.arange(1, 13, dtype=np.float32)
-        time_bnds = np.array([[a, b] for a, b in zip(np.roll(time, 1), np.roll(time, -1))])
+        time_bnds = np.array([[a, b] for a, b in zip(np.roll(time, 1),
+                                                     np.roll(time, -1))])
         time_attrs = {'axis': 'T', 'long_name': 'time', 'standard_name': 'time'}
     else:
         # Alt: Convert time to dates.
@@ -307,7 +257,7 @@ def format_Kd490_dataset():
         time = np.array(time, dtype='datetime64[ns]')
 
         time_bnds = [['{}-{:02d}-01T12'.format(y, m),
-                      '{}-{:02d}-{:02d}T12'.format(y, m, monthrange(1981, m)[-1])]
+                      '{}-{:02d}-{:02d}T12'.format(y, m, calendar.monthrange(1981, m)[-1])]
                      for m in range(1, 13)]
         time_bnds = np.array(time_bnds, dtype='datetime64[ns]')
 
@@ -323,31 +273,35 @@ def format_Kd490_dataset():
              'title': df.attrs['Title'],
              'history': df.attrs['history'],
              'institution': 'Joint Research Centre (IES)',
-             'source': 'https://data.europa.eu/data/datasets/dfe3524f-7d57-486c-ac92-cfa730887c48?locale=en',
-             'comment': 'Monthly climatology sea surface diffuse attenuation coefficient at 490nm in m^-1 (log10 scalling) derived from the SeaWiFS sensor.',
-             'references': 'Werdell, P.J. (2005). Ocean color K490 algorithm evaluation. http://oceancolor.gsfc.nasa.gov/REPROCESSING/SeaWiFS/R5.1/k490_update.html'
+             'source': ('https://data.europa.eu/data/datasets/'
+                        'dfe3524f-7d57-486c-ac92-cfa730887c48?locale=en'),
+             'comment': ('Monthly climatology sea surface diffuse attenuation coefficient at '
+                         '490nm in m^-1 (log10 scalling) derived from the SeaWiFS sensor.'),
+             'references': ('Werdell, P.J. (2005). Ocean color K490 algorithm evaluation. http://'
+                            'oceancolor.gsfc.nasa.gov/REPROCESSING/SeaWiFS/R5.1/k490_update.html')
              }
 
-    ds = xr.Dataset({'Kd490': (['time', 'lat', 'lon'], df['Kd490'].values, df['Kd490'].attrs)},
+    ds = xr.Dataset({'Kd490': (['time', 'lat', 'lon'],
+                               df['Kd490'].values, df['Kd490'].attrs)},
                     coords=coords, attrs=attrs)
 
     ds.time.encoding = {'units': 'seconds since 1981-01-01 00:00:00'}
 
     # Save dataset.
-    ds.to_netcdf(cfg.obs / 'GMIS_Kd490/GMIS_S_Kd490_{}.nc'.format(time_dim), format='NETCDF4',
+    ds.to_netcdf(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_{}.nc'.format(time_dim), format='NETCDF4',
                  encoding={'Kd490': {'shuffle': True, 'chunksizes': [1, 3503, 9577],
                                      'zlib': True, 'complevel': 5}})
 
     # # Interpolate lat and lon to OFAM3
     # # Open OFAM3 mesh coordinates.
-    # mesh = xr.open_dataset(cfg.data / 'ofam_mesh_grid_part.nc')
+    # mesh = xr.open_dataset(paths.data / 'ofam_mesh_grid_part.nc')
 
     # Plot
     # ds.Kd490.plot(col='time', col_wrap=4)
     # plt.tight_layout()
-    # plt.savefig(cfg.fig / 'particle_source_map.png', bbox_inches='tight',
+    # plt.savefig(paths.figs / 'particle_source_map.png', bbox_inches='tight',
     #             dpi=300)
-    # files = cfg.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc'
+    # files = paths.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc'
     # ds = xr.open_dataset(files)
 
 
@@ -370,3 +324,35 @@ def save_dataset(ds, filename, msg=None):
     comp = dict(zlib=True, complevel=5)
     encoding = {var: comp for var in ds.data_vars}
     ds.to_netcdf(filename, encoding=encoding, compute=True)
+
+
+class BGCFields(object):
+    """Biogeochemistry field datasets from OFAM3 and ."""
+
+    def __init__(self, exp):
+        """Initialise & format felx particle dataset."""
+        # self.filter_particles_by_start_time()
+        # Select vairables
+        self.exp = exp
+        self.vars_ofam = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3']
+        self.vars_clim = ['Kd490']
+
+        if self.exp.test:
+            self.vars_ofam = ['phy', 'zoo', 'det', 'u', 'v', 'w']
+
+        self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
+
+        # Initialise ofam3 dataset.
+        self.ofam = ofam3_datasets(self.exp, variables=self.vars_ofam)
+
+    def kd490_dataset(self):
+        """Get Kd490 climatology field."""
+        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc', chunks='auto')
+        kd = kd.assign_coords(lon=kd.lon % 360)
+        kd = kd.rename(dict(month='time'))
+        kd = kd.drop_duplicates('lon')
+
+        # Subset lat and lons to match ofam3 data.
+        kd = kd.sel(lat=slice(self.ofam.lat.min(), self.ofam.lat.max()),
+                    lon=slice(self.ofam.lon.min(), self.ofam.lon.max()))
+        return kd
