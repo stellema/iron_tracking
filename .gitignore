@@ -1,5 +1,6 @@
 *.spyproject
 *.pyc
+data/felx/
 data/plx/
 data/test/
 plots/dask/
