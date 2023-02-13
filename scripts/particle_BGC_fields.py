@@ -14,32 +14,11 @@ Notes:
 Example:
 
 Questions:
-    - How to interpolate kd490 lon fields.
-
-Runtime:
-    - 100 particles:
-        -update_ofam3_fields_AAA: 00h:04m:38.58s (total=278.58 seconds).
-        update_kd490_field_AAA: 00h:15m:06.79s (total=906.79 seconds).
-        get_felx_BGC_fields: 00h:19m:52.34s (total=1192.34 seconds).
-    - 500 particles:
-        - update_ofam3_fields_AAA: 00h:23m:33.38s (total=1413.38 seconds).
-        - update_kd490_field_AAA: 01h:11m:27.42s (total=4287.42 seconds).
-        - get_felx_BGC_fields: 01h:35m:10.64s (total=5710.64 seconds).
-    - 900 particles:
-        -
-    - 1000 particles:
-        - update_ofam3_fields_AAA: 00h:54m:15.27s (total=3255.27 seconds)
-        ntraj = [100, 550, 900]
-        t_ofam_update = [278.58, 1413.38, ]
-        t_kd_update = [906.79, 5710.64, ]
-        t_total = [1192.34, 5710.64, ]
 
 TODO:
     * Parallelise openmfdataset
     * Parallelise file index
     * Estimate computational resources
-
-
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -61,7 +40,6 @@ from inverse_plx import inverse_plx_dataset
 from tools import timeit, mlogger
 
 logger = mlogger('particle_BGC_field_files')
-test = True
 
 
 class InversePlxDataSet(object):
@@ -75,7 +53,7 @@ class InversePlxDataSet(object):
         self.ds = inverse_plx_dataset(self.exp, decode_times=True, decode_cf=None)
 
         if self.exp.test:
-            self.ds = self.ds.isel(traj=slice(550))
+            self.ds = self.ds.isel(traj=slice(200))
             # ds = ds.subset_min_time(time='2012-01-01'):
             self.ds = self.ds.dropna('obs', 'all')
 
@@ -233,6 +211,39 @@ def update_kd490_field_AAA(ds, fieldset, variables):
     return ds
 
 
+def test_runtime_BGC_fields():
+    """Calculate BGC fields at particle positions.
+
+    Runtime:
+        - 100 particles:
+            -update_ofam3_fields_AAA: 00h:04m:38.58s (total=278.58 seconds).
+            update_kd490_field_AAA: 00h:15m:06.79s (total=906.79 seconds).
+            get_felx_BGC_fields: 00h:19m:52.34s (total=1192.34 seconds).
+        - 500 particles:
+            - update_ofam3_fields_AAA: 00h:23m:33.38s (total=1413.38 seconds).
+            - update_kd490_field_AAA: 01h:11m:27.42s (total=4287.42 seconds).
+            - get_felx_BGC_fields: 01h:35m:10.64s (total=5710.64 seconds).
+        - 550 particles:
+            - update_ofam3_fields_AAA: 00h:25m:03.39s (total=1503.39 seconds).
+        - 900 particles:
+            -
+        - 1000 particles:
+            - update_ofam3_fields_AAA: 00h:54m:15.27s (total=3255.27 seconds)
+
+    """
+    x = [100, 550, 1000]
+    xfit = np.array([100, 550, 1000, 108892/2])
+    t_ofam_update = [278.58, 1503.39, 3255.27]
+    t_kd_update = [906.79, 5710.64]
+    t_total = [1192.34, 5710.64]
+
+    # Plot.
+    y = t_ofam_update
+    a, b = np.polyfit(x, y, 1)
+    plt.scatter(x, y)
+    plt.plot(xfit, a*xfit+b)
+
+
 @timeit(my_logger=logger)
 def get_felx_BGC_fields(exp):
     """Sample OFAM3 BGC fields at particle positions.
@@ -256,7 +267,7 @@ def get_felx_BGC_fields(exp):
         - Add kd490 fields
     """
     file = exp.file_felx_bgc
-    if test:
+    if cfg.test:
         file = paths.data / ('test/' + file.stem + '.nc')
 
     logger.info('{}: Getting OFAM3 BGC fields.'.format(file.stem))
@@ -287,7 +298,7 @@ if __name__ == '__main__':
     p.add_argument('-x', '--lon', default=165, type=int, help='Particle start longitude(s).')
     p.add_argument('-e', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-r', '--index', default=0, type=int, help='File repeat.')
-    p.add_argument('-v', '--version', default=0, type=int, help='PLX experiment version.')
+    p.add_argument('-v', '--version', default=0, type=int, help='FeLX experiment version.')
     args = p.parse_args()
 
     if not cfg.test:
