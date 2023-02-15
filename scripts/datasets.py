@@ -60,11 +60,20 @@ def get_ofam_filenames(var, times):
         f (list of str): List of OFAM3 var filenames between given times.
 
     """
-    f = []
+
+    files = []
     for y in range(times[0].year, times[1].year + 1):
         for m in range(times[0].month, times[1].month + 1):
-            f.append(str(paths.ofam / 'ocean_{}_{}_{:02d}.nc'.format(var, y, m)))
-    return f
+            files.append('ocean_{}_{}_{:02d}.nc'.format(var, y, m))
+
+    # Check for known missing files and replace with sub files.
+    for var, file in zip(['zoo', 'det'], ['ocean_det_2008_01.nc', 'ocean_zoo_2008_03.nc']):
+        if file in files:
+            i = np.argwhere(np.array(files) == file)[0][0]
+            files[i] = file[:-3] + '_sub.nc'
+
+    files = [str(paths.ofam / f) for f in files]
+    return files
 
 
 def ofam3_datasets(exp, variables=bgc_vars, **kwargs):
@@ -321,9 +330,16 @@ def save_dataset(ds, filename, msg=None):
     ds = ds.chunk()
     if msg is not None:
         ds = append_dataset_history(ds, msg)
+
     comp = dict(zlib=True, complevel=5)
-    encoding = {var: comp for var in ds.data_vars}
-    ds.to_netcdf(filename, encoding=encoding, compute=True)
+
+    if type(ds) is xr.Dataset:
+        for var in ds:
+            ds[var].encoding.update(comp)
+    if type(ds) is xr.DataArray:
+        ds.encoding.update(comp)
+
+    ds.to_netcdf(filename, compute=True)
 
 
 class BGCFields(object):
@@ -356,3 +372,104 @@ class BGCFields(object):
         kd = kd.sel(lat=slice(self.ofam.lat.min(), self.ofam.lat.max()),
                     lon=slice(self.ofam.lon.min(), self.ofam.lon.max()))
         return kd
+
+def sub_missing_files_ofam3():
+    """Create stand-in OFAM3 fields missing months.
+
+    Fill missing month with ~50/50 (1-15/16-end) previous and next available day.
+
+    Notes:
+        - det_2008_01
+        - zoo_2008_03
+        - adic_2008_02 (not needed)
+        - dic_2008_04 (not needed)
+    """
+    def get_dataset_zoo():
+        """Get datasets with nearest month values and empty dataset for missing month.
+
+        Returns:
+            dv (xarray.DataSet): Dataset of variable for last/next available month.
+            dt (xarray.DataSet): Empty Dataset with missing file's time coordinates.
+            t_inds (list): Index of last (first) day of the month in prev (next) in dv.
+
+        """
+        dt = xr.open_dataset(paths.ofam / 'ocean_det_2008_03.nc', decode_cf=True,
+                             drop_variables='det')
+        del dt.attrs['history']  # Delete history attr.
+
+        files = [paths.ofam / 'ocean_zoo_2008_02.nc', paths.ofam / 'ocean_zoo_2008_04.nc']
+        dv = xr.open_mfdataset(files, decode_cf=True)
+        t_inds = [28, 29]
+        return dv, dt, t_inds
+
+    def get_dataset_det():
+        """Get datasets with nearest month values and empty dataset for missing month.
+
+        Returns:
+            dv (xarray.DataSet): Dataset of variable for last/next available month.
+            dt (xarray.DataSet): Empty Dataset with missing file's time coordinates.
+            t_inds (list): Index of last (first) day of the month in prev (next) in dv.
+
+        """
+        dt = xr.open_dataset(paths.ofam / 'ocean_zoo_2008_01.nc', decode_cf=True,
+                             drop_variables='zoo')
+        del dt.attrs['history']  # Delete history attr.
+
+        files = [paths.ofam / 'ocean_det_2007_12.nc', paths.ofam / 'ocean_det_2008_02.nc']
+        dv = xr.open_mfdataset(files, decode_cf=True)
+        t_inds = [30, 31]
+        return dv, dt, t_inds
+
+    def create_sub_dataset(var, dv, dt, t_inds):
+        """Generate dataset with nearest month values..
+
+        Args:
+            var (str): Variable name.
+            dv (xarray.DataSet): Dataset of variable for last/next available month.
+            dt (xarray.DataSet): Empty Dataset with missing file's time coordinates.
+            t_inds (list): Index of last (first) day of the month in prev (next) in dv.
+
+        Returns:
+            ds (xarray.DataSet): Nearest neighbour filled dataset.
+
+        """
+        # Create new monthly file using coords from different variable.
+        ds = dt.copy()
+
+        # Initialise DataArray using NaN filled time subset of prev/next mfdataset.
+        ds[var] = dv[var].isel(Time=slice(dt.Time.size)) * np.nan
+
+        # Set the first (last) 15 days using last (next) available day.
+        t1, t2 = [dv[var].isel(Time=t, drop=True) for t in t_inds]
+
+        for t in range(0, 15):
+            ds[var][dict(Time=t)] = t1
+
+        for t in range(15, ds.Time.size):
+            ds[var][dict(Time=t)] = t2
+
+        # ds.encoding['zlib'] = True
+        # ds.encoding['complevel'] = 5
+        # encoding = {var: comp for var in ds.data_vars}
+        return ds
+
+    var = 'zoo'
+    dv, dt, t_inds = get_dataset_zoo()
+    ds = create_sub_dataset(var, dv, dt, t_inds)
+    filename = paths.ofam / 'ocean_zoo_2008_03_sub.nc'
+    msg = 'Original file corrupted. Generated substitute using repeat of 2008-02-29 for ' \
+        'the first 15 days and 2008-03-01 for the remaining days.'
+    save_dataset(ds, filename, msg=None)
+    ds.close()
+    dt.close()
+
+    var = 'det'
+    dv, dt, t_inds = get_dataset_det()
+    ds = create_sub_dataset(var, dv, dt, t_inds)
+    filename = paths.ofam / 'ocean_det_2008_01_sub.nc'
+    msg = 'Original file corrupted. Generated substitute using repeat of 2007-12-31 for ' \
+        'the first 15 days and 2008-02-01 for the remaining days.'
+    save_dataset(ds, filename, msg=None)
+    ds.close()
+    dt.close()
+    return
