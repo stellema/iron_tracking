@@ -76,7 +76,22 @@ def get_ofam_filenames(var, times):
     return files
 
 
-def ofam3_datasets(exp, variables=bgc_vars, **kwargs):
+def rename_ofam3_coords(ds):
+    # OFAM3 coords dataset.
+    mesh = xr.open_dataset(paths.data / 'ofam_mesh_grid_part.nc')
+    dims_name_map = {'lon': ['xt_ocean', 'xu_ocean'],
+                     'lat': ['yt_ocean', 'yu_ocean'],
+                     'depth': ['st_ocean', 'sw_ocean']}
+    rename_map = {'Time': 'time'}
+    for k, v in dims_name_map.items():
+        c = [i for i in v if i in ds.dims][0]
+        rename_map[c] = k
+        ds.coords[c] = mesh[v[0]].values
+    ds = ds.rename(rename_map)
+    return ds
+
+
+def ofam3_datasets(exp, variables=bgc_vars, chunks=None, **kwargs):
     """Open OFAM3 fields for variables.
 
     Args:
@@ -95,38 +110,16 @@ def ofam3_datasets(exp, variables=bgc_vars, **kwargs):
 
     """
     # Dictionary mapping variables to file(s).
-    if isinstance(variables, dict):
-        variables = list(variables.values)
 
-    dims_name_map = {'lon': ['xt_ocean', 'xu_ocean'],
-                     'lat': ['yt_ocean', 'yu_ocean'],
-                     'depth': ['st_ocean', 'sw_ocean']}
+    if chunks not in ['auto', False]:
+        cs = [13, 22, 137, 816]
+        chunks = {'Time': cs[0],
+                  'sw_ocean': cs[1], 'st_ocean': cs[1], 'depth': cs[1],
+                  'yt_ocean': cs[2], 'yu_ocean': cs[2], 'lat': cs[2],
+                  'xt_ocean': cs[3], 'xu_ocean': cs[3], 'lon': cs[3]}
 
-    mesh = xr.open_dataset(paths.data / 'ofam_mesh_grid_part.nc')  # OFAM3 coords dataset.
 
-    def rename_ofam3_coords(ds):
-        rename_map = {'Time': 'time'}
-        for k, v in dims_name_map.items():
-            c = [i for i in v if i in ds.dims][0]
-            rename_map[c] = k
-            ds.coords[c] = mesh[v[0]].values
-        ds = ds.rename(rename_map)
-        return ds
-
-    cs = 300
-    chunks = {'Time': 1,
-              'sw_ocean': 1, 'st_ocean': 1, 'depth': 1,
-              'yt_ocean': cs, 'yu_ocean': cs, 'lat': cs,
-              'xt_ocean': cs, 'xu_ocean': cs, 'lon': cs}
-
-    files = []
-    for var in variables:
-        time_bnds = exp.time_bnds if not exp.test else exp.test_time_bnds
-        f = get_ofam_filenames(var, time_bnds)
-        files.append(f)
-    # files = np.concatenate(files)
-
-    open_kwargs = dict(chunks='auto', compat='override', coords='minimal',
+    open_kwargs = dict(chunks=chunks, compat='override', coords='minimal',
                        # preprocess=rename_ofam3_coords, combine='by_coords',
                        combine='nested', concat_dim='Time',
                        data_vars='minimal', combine_attrs='override',
@@ -135,13 +128,57 @@ def ofam3_datasets(exp, variables=bgc_vars, **kwargs):
     for k, v in kwargs.items():
         open_kwargs[k] = v
 
-    dss = []
-    for i, var in enumerate(variables):
-        dss.append(xr.open_mfdataset(files[i], **open_kwargs)[var])
+    time_bnds = exp.time_bnds if not exp.test else exp.test_time_bnds
 
-    ds = xr.merge(dss)
+    # files = np.concatenate(files)
+    if isinstance(variables, list):
+        dss = []
+        files = []
+        for i, var in enumerate(variables):
+            files.append(get_ofam_filenames(var, time_bnds))
+            dss.append(xr.open_mfdataset(files[i], **open_kwargs))
+        ds = xr.merge(dss)
+    else:
+        files = get_ofam_filenames(variables, time_bnds)
+        ds = xr.open_mfdataset(files, **open_kwargs)
+
     ds = rename_ofam3_coords(ds)
     return ds
+
+
+class BGCFields(object):
+    """Biogeochemistry field datasets from OFAM3 and ."""
+
+    def __init__(self, exp):
+        """Initialise & format felx particle dataset."""
+        # self.filter_particles_by_start_time()
+        # Select vairables
+        self.exp = exp
+        self.vars_ofam = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3']
+        self.vars_clim = ['kd']
+
+        if self.exp.test:
+            self.vars_ofam = ['phy', 'zoo', 'det', 'u', 'v', 'w']
+
+        self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
+
+        # Initialise ofam3 dataset.
+        self.ofam = ofam3_datasets(exp, variables=self.vars_ofam[0])
+        for var in self.vars_ofam[1:]:
+            self.ofam[var] = ofam3_datasets(exp, variables=var)[var]
+
+    def kd490_dataset(self):
+        """Get Kd490 climatology field."""
+        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc', chunks='auto')
+        kd = kd.assign_coords(lon=kd.lon % 360)
+        kd = kd.rename(dict(month='time'))
+        kd = kd.drop_duplicates('lon')
+
+        # Subset lat and lons to match ofam3 data.
+        kd = kd.sel(lat=slice(self.ofam.lat.min(), self.ofam.lat.max()),
+                    lon=slice(self.ofam.lon.min(), self.ofam.lon.max()))
+        kd = kd.rename({'Kd490': 'kd'})
+        return kd
 
 
 def concat_scenario_dimension(ds, add_diff=False):
@@ -348,37 +385,6 @@ def save_dataset(ds, filename, msg=None):
 
     ds.to_netcdf(filename, compute=True)
 
-
-class BGCFields(object):
-    """Biogeochemistry field datasets from OFAM3 and ."""
-
-    def __init__(self, exp):
-        """Initialise & format felx particle dataset."""
-        # self.filter_particles_by_start_time()
-        # Select vairables
-        self.exp = exp
-        self.vars_ofam = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3']
-        self.vars_clim = ['Kd490']
-
-        if self.exp.test:
-            self.vars_ofam = ['phy', 'zoo', 'det', 'u', 'v', 'w']
-
-        self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
-
-        # Initialise ofam3 dataset.
-        self.ofam = ofam3_datasets(self.exp, variables=self.vars_ofam)
-
-    def kd490_dataset(self):
-        """Get Kd490 climatology field."""
-        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc', chunks='auto')
-        kd = kd.assign_coords(lon=kd.lon % 360)
-        kd = kd.rename(dict(month='time'))
-        kd = kd.drop_duplicates('lon')
-
-        # Subset lat and lons to match ofam3 data.
-        kd = kd.sel(lat=slice(self.ofam.lat.min(), self.ofam.lat.max()),
-                    lon=slice(self.ofam.lon.min(), self.ofam.lon.max()))
-        return kd
 
 def sub_missing_files_ofam3():
     """Create stand-in OFAM3 fields missing months.
