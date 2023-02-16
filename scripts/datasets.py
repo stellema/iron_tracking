@@ -143,6 +143,7 @@ def ofam3_datasets(exp, variables=bgc_vars, chunks=None, **kwargs):
         ds = xr.open_mfdataset(files, **open_kwargs)
 
     ds = rename_ofam3_coords(ds)
+    ds = ds.drop_duplicates('time')
     return ds
 
 
@@ -157,8 +158,8 @@ class BGCFields(object):
         self.vars_ofam = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3']
         self.vars_clim = ['kd']
 
-        if self.exp.test:
-            self.vars_ofam = ['phy', 'zoo', 'det', 'u', 'v', 'w']
+        if exp.test:
+            self.vars_ofam = ['phy', 'zoo', 'det']
 
         self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
 
