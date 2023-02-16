@@ -126,7 +126,7 @@ def ofam3_datasets(exp, variables=bgc_vars, **kwargs):
         files.append(f)
     # files = np.concatenate(files)
 
-    open_kwargs = dict(chunks=chunks, compat='override', coords='minimal',
+    open_kwargs = dict(chunks='auto', compat='override', coords='minimal',
                        # preprocess=rename_ofam3_coords, combine='by_coords',
                        combine='nested', concat_dim='Time',
                        data_vars='minimal', combine_attrs='override',
