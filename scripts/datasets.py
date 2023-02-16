@@ -126,14 +126,18 @@ def ofam3_datasets(exp, variables=bgc_vars, **kwargs):
         files.append(f)
     files = np.concatenate(files)
 
-    open_kwargs = dict(chunks=chunks, preprocess=rename_ofam3_coords,
-                       compat='override', combine='by_coords', coords='minimal',
+    open_kwargs = dict(chunks=chunks, compat='override', coords='minimal',
+                       # preprocess=rename_ofam3_coords, combine='by_coords',
+                       combine='nested', concat_dim='Time',
                        data_vars='minimal', combine_attrs='override',
-                       parallel=False, decode_cf=None, decode_times=False)
+                       parallel=True, decode_cf=None, decode_times=False)
+
     for k, v in kwargs.items():
         open_kwargs[k] = v
+
     ds = xr.open_mfdataset(files, **open_kwargs)
 
+    ds = rename_ofam3_coords(ds)
     return ds
 
 
@@ -459,7 +463,8 @@ def sub_missing_files_ofam3():
     filename = paths.ofam / 'ocean_zoo_2008_03_sub.nc'
     msg = 'Original file corrupted. Generated substitute using repeat of 2008-02-29 for ' \
         'the first 15 days and 2008-03-01 for the remaining days.'
-    save_dataset(ds, filename, msg=None)
+    ds = append_dataset_history(ds, msg)
+    ds.to_netcdf(filename, compute=True)
     ds.close()
     dt.close()
 
@@ -469,7 +474,8 @@ def sub_missing_files_ofam3():
     filename = paths.ofam / 'ocean_det_2008_01_sub.nc'
     msg = 'Original file corrupted. Generated substitute using repeat of 2007-12-31 for ' \
         'the first 15 days and 2008-02-01 for the remaining days.'
-    save_dataset(ds, filename, msg=None)
+    ds = append_dataset_history(ds, msg)
+    ds.to_netcdf(filename, compute=True)
     ds.close()
     dt.close()
     return
