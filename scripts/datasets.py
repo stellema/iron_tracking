@@ -124,19 +124,22 @@ def ofam3_datasets(exp, variables=bgc_vars, **kwargs):
         time_bnds = exp.time_bnds if not exp.test else exp.test_time_bnds
         f = get_ofam_filenames(var, time_bnds)
         files.append(f)
-    files = np.concatenate(files)
+    # files = np.concatenate(files)
 
     open_kwargs = dict(chunks=chunks, compat='override', coords='minimal',
                        # preprocess=rename_ofam3_coords, combine='by_coords',
                        combine='nested', concat_dim='Time',
                        data_vars='minimal', combine_attrs='override',
-                       parallel=True, decode_cf=None, decode_times=False)
+                       decode_cf=None, decode_times=False)
 
     for k, v in kwargs.items():
         open_kwargs[k] = v
 
-    ds = xr.open_mfdataset(files, **open_kwargs)
+    dss = []
+    for i, var in enumerate(variables):
+        dss.append(xr.open_mfdataset(files[i], **open_kwargs)[var])
 
+    ds = xr.merge(dss)
     ds = rename_ofam3_coords(ds)
     return ds
 
@@ -363,7 +366,7 @@ class BGCFields(object):
         self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
 
         # Initialise ofam3 dataset.
-        self.ofam = ofam3_datasets(self.exp, variables=self.vars_ofam, parallel=True)
+        self.ofam = ofam3_datasets(self.exp, variables=self.vars_ofam)
 
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
