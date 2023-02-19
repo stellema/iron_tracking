@@ -10,7 +10,7 @@ Notes:
     - RCP: 2087-2101 (12 years=2089-2101)
     - Initial year is a La Nina year (for spinup)
     - 85% of particles finish
-
+    - Missing
 Example:
 
 Questions:
@@ -26,8 +26,8 @@ TODO:
 
 """
 from argparse import ArgumentParser
-import calendar
 from datetime import datetime, timedelta  # NOQA
+import dask
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd  # NOQA
@@ -35,180 +35,34 @@ import xarray as xr  # NOQA
 
 import cfg
 from cfg import paths, ExpData
-from datasets import ofam3_datasets, save_dataset, BGCFields
-from inverse_plx import inverse_plx_dataset
+from datasets import save_dataset, BGCFields
+from felx_dataset import FelxDataSet
 from tools import timeit, mlogger
 
-logger = mlogger('particle_BGC_field_files')
+logger = mlogger('files_felx')
 
 
-class InversePlxDataSet(object):
-    """Felx particle dataset."""
-
-    def __init__(self, exp, variables):
-        """Initialise & format felx particle dataset."""
-        # self.filter_particles_by_start_time()
-        self.exp = exp
-        # self.ds = self.from_plx_inverse(self.exp)
-        self.ds = inverse_plx_dataset(self.exp, decode_times=True, decode_cf=None)
-
-        if self.exp.test:
-            self.ds = self.ds.isel(traj=slice(200))
-            # ds = ds.subset_min_time(time='2012-01-01'):
-            self.ds = self.ds.dropna('obs', 'all')
-
-        self.pids = self.particles_after_start_time()
-
-        self.ds = self.ds.sel(traj=self.pids)
-        self.valid_mask = ~np.isnan(self.ds.trajectory)
-        # convert to days since 1979 (same as ofam3)
-        self.ds['month'] = self.ds.time.dt.month
-        # self.ds = self.override_spinup_particle_times(self.exp, self.ds)
-        self.ds_time_orig = self.ds.time.copy()  # particle times before modifying
-        self.ds['time'] = self.override_spinup_particle_times(self.ds.time)
-
-        for var in variables:
-            self.ds[var] = self.empty_DataArray()
-
-    def empty_DataArray(self, name=None, fill_value=np.nan, dtype=np.float32):
-        """Add empty DataArray."""
-        return xr.DataArray(np.full((self.ds.traj.size, self.ds.obs.size), fill_value, dtype),
-                            dims=('traj', 'obs'), coords=self.ds.coords, name=name)
-
-    def particles_after_start_time(self):
-        """Select particles that have reached a source at the start of the spinup period.
-
-        Particles criteria:
-            * Be released in the actual experiment time period.
-            * At the source at least during the spinup period.
-
-        Example:
-            pids = ds.particles_after_start_time()
-            ds = ds.sel(traj=pids)
-
-        """
-        mask_at_euc = self.ds.time.dt.year.max('obs') >= self.exp.time_bnds[0].year
-        mask_at_source = self.ds.isel(obs=0, drop=True).time.dt.year >= self.exp.spinup_bnds[0].year
-        mask = mask_at_source & mask_at_euc  # Both 1D mask along traj dim.
-
-        pids = self.ds.traj.where(mask, drop=True)
-        # ds = ds.sel(traj=keep_traj)
-        return pids
-
-    def override_spinup_particle_times(self, time):
-        """Change the year of particle time during spinup to spinup year.
-
-        Example:
-            ds['time'] = ds.override_spinup_particle_times(ds.time)
-
-        """
-        spinup_year = self.exp.spinup_year
-
-        # Mask Non-Spinup & NaT times.
-        mask = (time < np.datetime64(self.exp.time_bnds[0]))
-
-        time_spinup = time.where(mask)
-
-        # Account for leapdays in timeseries if spinup is a not a leap year.
-        if not calendar.isleap(spinup_year):
-            # Change Feb 29th to Mar 1st (while still in datetime64 format).
-            leapday_new = np.datetime64('{}-03-01T12:00'.format(spinup_year))
-            leapday_mask = ((time_spinup.dt.month == 2) & (time_spinup.dt.day == 29))
-            time_spinup = time_spinup.where(~leapday_mask, leapday_new)
-
-        # Replace year in spinup period by converting to string.
-        time_spinup = time_spinup.dt.strftime('{}-%m-%dT%H:%M'.format(spinup_year))
-
-        # Convert dtype back to 'datetime64'.
-        # Replace NaNs with a number to avoid conversion error (
-        time_spinup = time_spinup.where(mask, 0)
-        time_spinup = time_spinup.astype('datetime64[ns]')
-
-        # N.B. xr.where condition order important as modified times only valid for spinup & ~NaT.
-        time_new = xr.where(mask, time_spinup, time)
-        return time_new
-
-    def revert_spinup_particle_times(self):
-        """Change the year of particle time during spinup to spinup year.
-
-        Notes:
-            * Requires original particle times to be saved to dataset.
-            * At the source at least during the spinup period.
-
-        """
-        # # Self checks.
-        # mask = (self.ds_time_orig >= np.datetime64(self.exp.time_bnds[0]))
-        # fill = np.datetime64('2023')
-        # assert self.ds_time_orig.shape == self.ds.time.shape
-        # assert all(self.ds_time_orig.where(mask, fill) == self.ds.time.where(mask, fill))
-
-        return self.ds_time_orig
-
-    def subset_min_time(self, time='2012-01-01'):
-        """Change particle obs times during spin up to spinup year."""
-        return self.ds.where(self.ds.time >= np.datetime64(time))
-
-    def test_plot_variable(self, var='det'):
-        """Line plot of variable as a function of obs for each particle."""
-        fig, ax = plt.subplots(figsize=(10, 7))
-        self.ds[var].plot.line(ax=ax, x='obs', add_legend=False, yincrease=True)
-        plt.show()
-
-    def test_plot_particle_4D(self, pid, var='det'):
-        """Plot 3D trajectory with contoured variable."""
-        # 3D Plot.
-        dx = self.pds.ds.sel(traj=pid)
-        c = dx[var]
-        fig = plt.figure(figsize=(12, 10))
-        ax = plt.axes(projection='3d')
-        ax.plot3D(dx.lon, dx.lat, dx.z, c='k')
-        sp = ax.scatter3D(dx.lon, dx.lat, dx.z, c=c, cmap=plt.cm.magma)
-        fig.colorbar(sp, shrink=0.6)
-        plt.show()
-
-
+@dask.delayed
 @timeit(my_logger=logger)
-def update_ofam3_fields_AAA(ds, fieldset, variables):
+def update_field_AAA(ds, field_dataset, var, dim_map):
     """Calculate fields at plx particle positions (using apply_along_axis and xarray).
 
     Notes:
         - doesn't fail when wrong time selected.
 
     """
-    def update_ofam3_field(ds, field):
-        def update_field_particle(traj, ds, field):
-            """Subset using entire array for a particle."""
-            dx = ds.sel(traj=traj[~np.isnan(traj)][0].item())
-            loc = dict(depth=dx.z, lat=dx.lat, lon=dx.lon)
-            x = field.sel(loc, method='nearest').sel(time=dx.time, method='nearest')
-            return x
+    def update_field_particle(traj, ds, field, dim_map):
+        """Subset using entire array for a particle."""
+        dx = ds.sel(traj=traj[~np.isnan(traj)][0].item())
+        loc = {}
+        for k, v in dim_map.items():
+            loc[k] = dx[v]
+        x = field.sel(loc, method='nearest')
+        return x
 
-        kwargs = dict(ds=ds, field=field)
-        return np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
-
-    dims = ['traj', 'obs']
-    for var in variables:
-        # da = xr.DataArray(update_ofam3_field(ds, field=fieldset[var]), dims=dims)
-        # ds[var] = da.pad(obs=(0, ds[var].obs.size - da.obs.size))
-        ds[var] = (dims, update_ofam3_field(ds, field=fieldset[var]))
-    return ds
-
-
-@timeit(my_logger=logger)
-def update_kd490_field_AAA(ds, fieldset, variables):
-    """Calculate fields at plx particle positions dims=(month, lat, lon)."""
-    def update_kd490_field(ds, field):
-        def sample_field_particle(traj, ds, field):
-            """Subset using entire array for a particle."""
-            dx = ds.sel(traj=traj[~np.isnan(traj)][0].item())
-            loc = dict(time=dx.month, lat=dx.lat, lon=dx.lon)
-            return field.sel(loc, method='nearest', drop=True)
-        return np.apply_along_axis(sample_field_particle, 1, ds.trajectory, ds=ds,
-                                   field=field)
-
-    for var in variables:
-        ds[var] = (['traj', 'obs'], update_kd490_field(ds, field=fieldset[var]))
-    return ds
+    kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map)
+    dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
+    return dx
 
 
 def test_runtime_BGC_fields():
@@ -225,27 +79,38 @@ def test_runtime_BGC_fields():
             - get_felx_BGC_fields: 01h:35m:10.64s (total=5710.64 seconds).
         - 550 particles:
             - update_ofam3_fields_AAA: 00h:25m:03.39s (total=1503.39 seconds).
+            - update_kd490_field_AAA: 01h:23m:40.10s (total=5020.10 seconds).
+            - get_felx_BGC_fields: 01h:48m:54.75s (total=6534.75 seconds).
         - 900 particles:
             -
         - 1000 particles:
-            - update_ofam3_fields_AAA: 00h:54m:15.27s (total=3255.27 seconds)
+            - # update_ofam3_fields_AAA: 00h:54m:15.27s (total=3255.27 seconds).
+            - update_ofam3_fields_AAA: 00h:46m:01.28s (total=2761.28 seconds).
+            - update_kd490_field_AAA: 02h:30m:17.30s (total=9017.30 seconds).
+            - get_felx_BGC_fields: 03h:16m:34.74s (total=11794.74 seconds)
 
     """
-    x = [100, 550, 1000]
-    xfit = np.array([100, 550, 1000, 108892/2])
-    t_ofam_update = [278.58, 1503.39, 3255.27]
-    t_kd_update = [906.79, 5710.64]
-    t_total = [1192.34, 5710.64]
+    xx = np.array([100, 500, 550, 1000])
+    xfit = np.array([100, 500, 550, 1000])
+    t_ofam_update = np.array([278.58, 1413.38, 1503.39, 2761.28])
+    t_kd_update = np.array([906.79, 4287.42, 5020.10, 9017.30])
+    t_total = np.array([1192.34, 5710.64, 6534.75, 11794.74])
 
     # Plot.
-    y = t_ofam_update
-    a, b = np.polyfit(x, y, 1)
-    plt.scatter(x, y)
-    plt.plot(xfit, a*xfit+b)
+    yy = [t_ofam_update, t_kd_update, t_total]
+    cc = ['b', 'r', 'k']
+    nn = ['OFAM3 Update', 'Kd Update', 'Total Time']
+    for y, c, n in zip(yy, cc, nn):
+        x = xx if y.size == xx.size else xx[:-1]
+        y = y / 60
+        a, b = np.polyfit(x, y, 1)
+        plt.scatter(x, y, c=c)
+        plt.plot(xfit, a*xfit+b, c=c, label=n)
+    plt.legend()
 
 
 @timeit(my_logger=logger)
-def get_felx_BGC_fields(exp):
+def save_felx_BGC_fields(exp):
     """Sample OFAM3 BGC fields at particle positions.
 
     Args:
@@ -266,6 +131,11 @@ def get_felx_BGC_fields(exp):
         - Filter spinup?
         - Add kd490 fields
     """
+    def set_dataset_vars(ds, variables, arrays):
+        for var, arr in zip(variables, arrays):
+            ds[var] = (['traj', 'obs'], arr)
+        return ds
+
     file = exp.file_felx_bgc
     if cfg.test:
         file = paths.data / ('test/' + file.stem + '.nc')
@@ -275,21 +145,52 @@ def get_felx_BGC_fields(exp):
     # Select vairables
     fieldset = BGCFields(exp)
     fieldset.kd = fieldset.kd490_dataset()
+    variables = fieldset.variables
+    vars_ofam = fieldset.vars_ofam
 
     # Initialise particle dataset.
-    pds = InversePlxDataSet(exp, variables=fieldset.variables)
+    pds = FelxDataSet(exp)
 
-    pds.ds = update_ofam3_fields_AAA(pds.ds, fieldset.ofam, fieldset.vars_ofam)
-    pds.ds = update_kd490_field_AAA(pds.ds, fieldset.kd, fieldset.vars_clim)
-    pds.ds = pds.ds.where(pds.valid_mask)
+    if file.exists():
+        ds = xr.open_dataset(file)
+    else:
+        ds = pds.get_formatted_felx_file(variables=variables)
 
-    pds.ds['time'] = pds.revert_spinup_particle_times()
+    # Option 2
+    dim_map_ofam = dict(time='time', depth='z', lat='lat', lon='lon')
+    dim_map_kd = dict(time='month', lat='lat', lon='lon')
+
+    ds = dask.delayed(ds)
+    fieldset = dask.delayed(fieldset)
+
+    results = []
+    for var in vars_ofam:
+        logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
+        result = update_field_AAA(ds, fieldset.ofam, var, dim_map=dim_map_ofam)
+        results.append(result)
+
+    var = 'kd'
+    logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
+    result = update_field_AAA(ds, fieldset.kd, var, dim_map=dim_map_kd)
+    results.append(result)
+
+    logger.info('{}: Computing...'.format(file.stem))
+    total = dask.compute(results)
+    ds = dask.compute(ds)
+    ds = list(ds)[0]
+
+    logger.info('{}: Setting dataset variables'.format(file.stem))
+    ds = pds.set_dataset_vars(ds, variables, total)
+
+    ds = ds.where(ds.valid_mask)
+    ds['time'] = ds.time_orig
+    ds = ds.drop('valid_mask')
+    ds = ds.drop('time_orig')
 
     # Save file.
-    # if not test:
+    logger.info('{}: Saving...'.format(file.stem))
     save_dataset(pds.ds, file, msg='Added BGC fields at paticle positions.')
-    logger.info('felx BGC fields file saved: {}'.format(file.stem))
-
+    logger.info('{}: Felx BGC fields file saved.'.format(file.stem))
     return
 
 
@@ -309,4 +210,4 @@ if __name__ == '__main__':
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
                   out_subdir=name, test=cfg.test)
-    get_felx_BGC_fields(exp)
+    save_felx_BGC_fields(exp)

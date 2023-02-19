@@ -15,14 +15,14 @@ Todo:
 
 """
 import calendar
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # NOQA
 import numpy as np
 import xarray as xr
 
 from cfg import paths, zones, bgc_vars
 
 
-def plx_particle_dataset(exp, **kwargs):
+def plx_particle_dataset(file, **kwargs):
     """Get plx particle dataset.
 
     Args:
@@ -40,7 +40,7 @@ def plx_particle_dataset(exp, **kwargs):
 
     """
     kwargs.setdefault('decode_cf', True)
-    ds = xr.open_dataset(str(exp.file_plx), **kwargs)
+    ds = xr.open_dataset(str(file), **kwargs)
     # ds = ds.drop({'age', 'zone', 'distance', 'unbeached', 'u'})
 
     # Convert these to float32 dtype (others have same dtype).
@@ -60,7 +60,6 @@ def get_ofam_filenames(var, times):
         f (list of str): List of OFAM3 var filenames between given times.
 
     """
-
     files = []
     for y in range(times[0].year, times[1].year + 1):
         for m in range(times[0].month, times[1].month + 1):
@@ -77,7 +76,7 @@ def get_ofam_filenames(var, times):
 
 
 def rename_ofam3_coords(ds):
-    # OFAM3 coords dataset.
+    """Rename OFAM3 coords."""
     mesh = xr.open_dataset(paths.data / 'ofam_mesh_grid_part.nc')
     dims_name_map = {'lon': ['xt_ocean', 'xu_ocean'],
                      'lat': ['yt_ocean', 'yu_ocean'],
@@ -117,7 +116,6 @@ def ofam3_datasets(exp, variables=bgc_vars, chunks=None, **kwargs):
                   'sw_ocean': cs[1], 'st_ocean': cs[1], 'depth': cs[1],
                   'yt_ocean': cs[2], 'yu_ocean': cs[2], 'lat': cs[2],
                   'xt_ocean': cs[3], 'xu_ocean': cs[3], 'lon': cs[3]}
-
 
     open_kwargs = dict(chunks=chunks, compat='override', coords='minimal',
                        # preprocess=rename_ofam3_coords, combine='by_coords',

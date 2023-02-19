@@ -31,7 +31,7 @@ import dask
 import pathlib
 import string
 import sys
-# import warnings
+import warnings
 
 # from collections import namedtuple
 from dataclasses import dataclass, field
@@ -45,12 +45,12 @@ dask.config.set({"array.slicing.split_large_chunks": True})
 # warnings.filterwarnings('ignore', category=DeprecationWarning)
 # warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 # warnings.filterwarnings('ignore', message='SerializationWarning')
+warnings.filterwarnings('ignore', message='RuntimeWarning')
 np.set_printoptions(suppress=True)
 # np.seterr(invalid='ignore')
 
 
 # Dictonaries and Constants.
-
 test = True if pathlib.Path.home().drive == 'C:' else False
 loggers = {}
 # exp_abr = ['hist', 'rcp']
@@ -134,6 +134,7 @@ class ExpData:
         file_plx_source (pathlib.Path): ../plx/data/source/plx_<exp>_<lon>_v1.nc
 
     """
+
     scenario: int
     lon: int = field(default=165)
     name: str = field(default='felx')
@@ -164,6 +165,7 @@ class ExpData:
         self.spinup_bnds = [datetime(self.year_bnds[0] - self.spinup_num_years, 1, 1),
                             datetime(self.year_bnds[1] - self.spinup_num_years, 12, 31)]
         # Data file names.
+        self.file_index_orig = int(np.ceil((self.file_index - 1) / 2))
         self.out_dir = paths.data
 
         if self.out_subdir != '':
@@ -174,9 +176,11 @@ class ExpData:
 
         self.file_felx = self.out_dir / '{}_{}.nc'.format(self.name, self.file_base)
         self.file_felx_bgc = paths.data / 'felx/felx_bgc_{}.nc'.format(self.file_base)
-        self.file_plx = paths.plx / 'plx/plx_{}_{}_v1r{:02d}.nc'.format(self.scenario_abbr,
-                                                                        self.lon, self.file_index)
+        self.file_plx = paths.data / 'plx/plx_{}_{}_v1_{:02d}.nc'.format(self.scenario_abbr,
+                                                                         self.lon, self.file_index)
         self.file_plx_inv = paths.data / 'felx/{}_inverse.nc'.format(self.file_plx.stem)
+        self.file_plx_orig = paths.plx / 'plx/{}r{:02d}.nc'.format(self.file_plx.stem[:-3],
+                                                                   self.file_index_orig)
         self.file_plx_source = paths.plx / 'sources/{}.nc'.format(self.file_plx.stem[:-3])
 
 
