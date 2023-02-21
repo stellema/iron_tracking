@@ -169,9 +169,9 @@ class BGCFields(object):
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
         kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc', chunks='auto')
-        kd = kd.assign_coords(lon=kd.lon % 360)
+
+        # kd.coords['time'] = kd.time.dt.month
         kd = kd.rename(dict(month='time'))
-        kd = kd.drop_duplicates('lon')
 
         # Subset lat and lons to match ofam3 data.
         kd = kd.sel(lat=slice(self.ofam.lat.min(), self.ofam.lat.max()),
@@ -294,6 +294,7 @@ def format_Kd490_dataset():
     # Format longitudes.
     df = df.assign_coords(lon=df.lon % 360)
     df = df.sortby(df.lon)
+    df = df.drop_duplicates('lon')
 
     # Format time coord.
     # Keep as months.
@@ -333,28 +334,17 @@ def format_Kd490_dataset():
                             'oceancolor.gsfc.nasa.gov/REPROCESSING/SeaWiFS/R5.1/k490_update.html')
              }
 
-    ds = xr.Dataset({'Kd490': (['time', 'lat', 'lon'],
-                               df['Kd490'].values, df['Kd490'].attrs)},
+    ds = xr.Dataset({'Kd490': (['time', 'lat', 'lon'], df['Kd490'].values, df['Kd490'].attrs)},
                     coords=coords, attrs=attrs)
 
-    ds.time.encoding = {'units': 'seconds since 1981-01-01 00:00:00'}
+    ds.encoding['unlimited_dims'] = {'time'}
+    ds.time.encoding['units'] = 'days since 1850-01-01'
+    ds.time.encoding['calendar'] = 'proleptic_gregorian'
 
     # Save dataset.
     ds.to_netcdf(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_{}.nc'.format(time_dim), format='NETCDF4',
-                 encoding={'Kd490': {'shuffle': True, 'chunksizes': [1, 3503, 9577],
+                 encoding={'Kd490': {'shuffle': False, 'chunksizes': [12, 4320, 8640],
                                      'zlib': True, 'complevel': 5}})
-
-    # # Interpolate lat and lon to OFAM3
-    # # Open OFAM3 mesh coordinates.
-    # mesh = xr.open_dataset(paths.data / 'ofam_mesh_grid_part.nc')
-
-    # Plot
-    # ds.Kd490.plot(col='time', col_wrap=4)
-    # plt.tight_layout()
-    # plt.savefig(paths.figs / 'particle_source_map.png', bbox_inches='tight',
-    #             dpi=300)
-    # files = paths.obs / 'GMIS_Kd490/GMIS_S_Kd490.nc'
-    # ds = xr.open_dataset(files)
 
 
 def append_dataset_history(ds, msg):
