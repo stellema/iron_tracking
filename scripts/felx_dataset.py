@@ -225,6 +225,21 @@ class FelxDataSet(object):
             ds[var] = (['traj', 'obs'], arr)
         return ds
 
+    def set_dataset_vars_from_tmps(exp, ds, variables, n):
+        """Set arrays as DataArrays in dataset."""
+
+        for var in zip(range(len(variables)), variables):
+            tmp_dir = paths.data / 'plx/tmp_{}_{}'.format(exp.file_felx_bgc.stem, var)
+            files = [tmp_dir / '{}.np'.format(i) for i in range(n)]
+            data = []
+            for file in files:
+                data.append(np.load(file, allow_pickle=True))
+            arr = np.concatenate(data, axis=0)
+
+            ds[var] = (['traj', 'obs'], arr)
+        return ds
+
+
     def revert_spinup_particle_times(self):
         """Change the year of particle time during spinup to spinup year.
 
