@@ -28,8 +28,10 @@ TODO:
 from argparse import ArgumentParser
 from datetime import datetime, timedelta  # NOQA
 import dask
+from dask.distributed import Client, progress
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd  # NOQA
 import xarray as xr  # NOQA
 
@@ -37,12 +39,54 @@ import cfg
 from cfg import paths, ExpData
 from datasets import save_dataset, BGCFields
 from felx_dataset import FelxDataSet
-from tools import timeit, mlogger
+from tools import timeit, mlogger, random_string
 
 logger = mlogger('files_felx')
 
 
-@dask.delayed
+def save_subset(file, ds, p, field_dataset, var, dim_map):
+    logger.info('{}: Calculating'.format(file.stem))
+    dx = ds.isel(traj=slice(*p))
+    dx = update_field_AAA(dx, field_dataset, var, dim_map)
+
+    logger.info('{}: Saveing...'.format(file.stem))
+    np.save(file, dx, allow_pickle=True)
+    logger.info('{}: Saved.'.format(file.stem))
+    return
+
+def update_field_particle_subset(exp, ds, field_dataset, var, dim_map):
+    n = 5  # number of particle subsets
+    traj_bnds = np.linspace(0, ds.traj.size + 1, n + 1, dtype=int)
+    traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(n - 1)]
+
+    # Create temp directory.
+    tmp_dir = paths.data / 'plx/tmp_{}_{}'.format(exp.file_felx_bgc.stem, var)
+    if not tmp_dir.exists():
+        os.mkdir(tmp_dir)
+
+    files = [tmp_dir / '{}.np'.format(i) for i in range(n)]
+
+    # Calculate & save particle subset.
+    for i, p in enumerate(traj_slices):
+        print(slice(*p))
+        if not files[i].exists():
+            save_subset(files[i], ds, p, field_dataset, var, dim_map)
+        else:
+            pass
+
+    # Gather up saved files.
+    data = []
+    for file in files:
+        data.append(np.load(file, allow_pickle=True))
+
+    dx = np.concatenate(data, axis=0)
+
+    # for file in files:
+    #     os.remove(file)
+    # os.rmdir(tmp_dir)
+    return dx
+
+
 @timeit(my_logger=logger)
 def update_field_AAA(ds, field_dataset, var, dim_map):
     """Calculate fields at plx particle positions (using apply_along_axis and xarray).
@@ -160,27 +204,95 @@ def save_felx_BGC_fields(exp):
     dim_map_ofam = dict(time='time', depth='z', lat='lat', lon='lon')
     dim_map_kd = dict(time='month', lat='lat', lon='lon')
 
-    ds = dask.delayed(ds)
-    fieldset = dask.delayed(fieldset)
+    # alt -
+    n = 5  # number of particle subsets
+    traj_bnds = np.linspace(0, ds.traj.size + 1, n + 1, dtype=int)
+    traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(n - 1)]
 
-    results = []
-    for var in vars_ofam:
+    client = Client()
+
+    futures = []
+
+    for var in variables:
+        if var in vars_ofam:
+            dim_map = dim_map_ofam
+            field_dataset = fieldset.ofam
+        else:
+            field_dataset = fieldset.kd
+            dim_map = dim_map_kd
+
         logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
-        result = update_field_AAA(ds, fieldset.ofam, var, dim_map=dim_map_ofam)
-        results.append(result)
+        # Create temp directory.
+        tmp_dir = paths.data / 'plx/tmp_{}_{}'.format(exp.file_felx_bgc.stem, var)
+        if not tmp_dir.exists():
+            os.mkdir(tmp_dir)
 
-    var = 'kd'
-    logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
-    result = update_field_AAA(ds, fieldset.kd, var, dim_map=dim_map_kd)
-    results.append(result)
+        files = [tmp_dir / '{}.np'.format(i) for i in range(n)]
 
-    logger.info('{}: Computing...'.format(file.stem))
-    total = dask.compute(results)
-    ds = dask.compute(ds)
-    ds = list(ds)[0]
+        # Calculate & save particle subset.
+        for i, p in enumerate(traj_slices):
+            print(slice(*p))
+            if not files[i].exists():
+                future = client.submit(save_subset, files[i], ds, p, field_dataset, var, dim_map)
+            else:
+                pass
+
+        futures.append(future)
+
+    logger.info('{}: Gathering...'.format(file.stem))
+    total = client.gather(futures)
 
     logger.info('{}: Setting dataset variables'.format(file.stem))
-    ds = pds.set_dataset_vars(ds, variables, total)
+    ds = pds.set_dataset_vars_from_tmps(exp, ds, variables, n)
+
+    # # alt - Using dask client submit
+    # client = Client()
+
+    # futures = []
+
+    # dim_map = dim_map_ofam
+    # field_dataset = fieldset.ofam
+    # for var in vars_ofam:
+    #     logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
+    #     future = client.submit(update_field_particle_subset, exp, ds, field_dataset, var, dim_map)
+    #     futures.append(future)
+
+    # var = 'kd'
+    # field_dataset = fieldset.kd
+    # dim_map = dim_map_kd
+    # logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
+    # future = client.submit(update_field_particle_subset, exp, ds, field_dataset, var, dim_map)
+    # futures.append(future)
+
+    # logger.info('{}: Gathering...'.format(file.stem))
+    # total = client.gather(futures)
+    # logger.info('{}: Setting dataset variables'.format(file.stem))
+    # ds = pds.set_dataset_vars(ds, variables, total)
+
+
+    # alt - Using dask Delayed.
+    # ds = dask.delayed(ds)
+    # fieldset = dask.delayed(fieldset)
+
+    # results = []
+    # for var in vars_ofam:
+    #     logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
+    #     result = dask.delayed(update_field_AAA)(ds, fieldset.ofam, var, dim_map=dim_map_ofam)
+
+    #     results.append(result)
+
+    # var = 'kd'
+    # logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
+    # result = dask.delayed(update_field_AAA)(ds, fieldset.kd, var, dim_map=dim_map_kd)
+    # results.append(result)
+
+    # logger.info('{}: Computing...'.format(file.stem))
+    # total = dask.compute(results)
+    # ds = dask.compute(ds)
+    # ds = list(ds)[0]
+
+    # logger.info('{}: Setting dataset variables'.format(file.stem))
+    # ds = pds.set_dataset_vars(ds, variables, total)
 
     ds = ds.where(ds.valid_mask)
     ds['time'] = ds.time_orig
