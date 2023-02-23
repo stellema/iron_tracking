@@ -209,10 +209,6 @@ def save_felx_BGC_fields(exp):
     traj_bnds = np.linspace(0, ds.traj.size + 1, n + 1, dtype=int)
     traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(n - 1)]
 
-    client = Client()
-
-    futures = []
-
     for var in variables:
         if var in vars_ofam:
             dim_map = dim_map_ofam
@@ -233,14 +229,10 @@ def save_felx_BGC_fields(exp):
         for i, p in enumerate(traj_slices):
             print(slice(*p))
             if not files[i].exists():
-                future = client.submit(save_subset, files[i], ds, p, field_dataset, var, dim_map)
+                save_subset(files[i], ds, p, field_dataset, var, dim_map)
+                logger.info('{}: Saved OFAM3 {} field.'.format(file.stem, var))
             else:
                 pass
-
-        futures.append(future)
-
-    logger.info('{}: Gathering...'.format(file.stem))
-    total = client.gather(futures)
 
     logger.info('{}: Setting dataset variables'.format(file.stem))
     ds = pds.set_dataset_vars_from_tmps(exp, ds, variables, n)
