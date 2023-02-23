@@ -12,11 +12,13 @@ Todo:
 @created: Tue Jan 10 19:45:46 2023
 
 """
-import sys
-import logging
-from pathlib import Path
-from functools import wraps
 from datetime import datetime
+from functools import wraps
+import logging
+import numpy as np
+from pathlib import Path
+import sys
+
 
 import cfg
 
@@ -124,3 +126,8 @@ def timeit(_method=None, *, my_logger=None):
         return decorator_timeit
     else:
         return decorator_timeit(_method)
+
+
+def random_string(length=10):
+    A, Z = np.array(['A','Z']).view('int32')
+    return np.random.randint(low=A, high=Z, size=length, dtype='int32').view(f"U{length}")[0]
