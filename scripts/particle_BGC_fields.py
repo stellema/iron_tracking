@@ -236,10 +236,9 @@ def parallelise_prereq_files(scenario):
     data = comm.scatter(data, root=0)
     lon = data
 
-    for r in range(0, 20, 2):
+    for r in range(20):
         name = 'felx_bgc'
-        exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=r, name=name,
-                      out_subdir=name)
+        exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=r, name=name)
         pds = FelxDataSet(exp)
         pds.check_prereq_files()
 
@@ -283,7 +282,7 @@ if __name__ == '__main__':
     # var = args.variable
 
     if cfg.test:
-        scenario, lon, version, index, var = 0, 190, 0, 0, 'phy'
+        scenario, lon, version, index, var = 0, 190, 0, 1, 'phy'
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
                   out_subdir=name, test=cfg.test)

@@ -80,7 +80,7 @@ class FelxDataSet(object):
             logger.info('{}: Divided particles size={}->{}.'.format(file.stem, size, dx.traj.size))
             dx = dx.dropna('obs', 'all')
             logger.debug('{}: Saving subset...'.format(file.stem))
-            save_dataset(dx, file, msg='Subset plx file.')
+            save_dataset(dx, str(file), msg='Subset plx file.')
             logger.debug('{}: Saved subset.'.format(file.stem))
             dx.close()
         ds.close()
@@ -134,7 +134,6 @@ class FelxDataSet(object):
             ds.coords['obs'] = np.arange(ds.obs.size, dtype=ds.obs.dtype)
             return ds
 
-        file = self.exp.file_plx_inv
         # Particle trajectories.
         ds = plx_particle_dataset(self.exp.file_plx)
 
@@ -151,21 +150,21 @@ class FelxDataSet(object):
         ds['zone'] = zone
 
         # Save dataset.
-        save_dataset(ds, file, msg='Inverse particle obs dimension.')
+        save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
 
     @timeit(my_logger=logger)
     def check_prereq_files(self):
         """Check needed files saved."""
         if not self.exp.file_plx.exists():
-            logger.info('{}: Subsetting plx file'.format(self.exp.file_plx))
+            logger.info('{}: Subsetting plx file...'.format(self.exp.file_plx_orig.stem))
 
             self.save_plx_file_particle_subset()
-            logger.info('{}: Subset plx file'.format(self.exp.file_plx))
+            logger.info('{}: Saved subset plx file'.format(self.exp.file_plx.stem))
 
         if not self.exp.file_plx_inv.exists():
-            logger.info('{}: Calculating inverse plx file'.format(self.exp.file_plx_inv))
+            logger.info('{}: Calculating inverse plx file...'.format(self.exp.file_plx.stem))
             self.save_inverse_plx_dataset()
-            logger.info('{}: Saved inverse plx file'.format(self.exp.file_plx_inv))
+            logger.info('{}: Saved inverse plx file'.format(self.exp.file_plx_inv.stem))
 
     def empty_DataArray(self, name=None, fill_value=np.nan, dtype=np.float32):
         """Add empty DataArray."""
