@@ -251,7 +251,6 @@ if __name__ == '__main__':
     if rank == 0:
         # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
         data = [[v, i] for v in variables for i in range(pds.num_subsets)]
-        comm.send()
     else:
         data = None
     data = comm.scatter(data, root=0)
