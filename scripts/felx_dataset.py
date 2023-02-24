@@ -61,21 +61,29 @@ class FelxDataSet(object):
     def save_plx_file_particle_subset(self):
         """Divide orig plx dataset & subset FelX time period."""
         ds = plx_particle_dataset(self.exp.file_plx_orig)
+
+        size = ds.traj.size
+        logger.info('{}: Getting Felx particle subset...'.format(self.exp.file_plx_orig.stem))
         pids = self.particles_after_start_time(ds)
 
         ds = ds.sel(traj=pids)
+        logger.info('{}: Subset felx particles size={}->{}.'.format(self.exp.file_plx_orig.stem,
+                                                                    size, ds.traj.size))
 
         ntraj = int(np.floor(ds.traj.size / 2))
-        ds1 = ds.isel(traj=slice(0, ntraj))
-        ds2 = ds.isel(traj=slice(ntraj, ds.traj.size))
 
         files = [paths.data / 'plx/{}{:02d}.nc'.format(self.exp.file_plx.stem[:-2],
                                                        (self.exp.file_index * 2) + i)
                  for i in range(2)]
-
-        for file, dx in zip(files, [ds1, ds2]):
+        for file, subset in zip(files, [slice(0, ntraj), slice(ntraj, ds.traj.size)]):
+            dx = ds.isel(traj=subset)
+            logger.info('{}: Divided particles size={}->{}.'.format(file.stem, size, dx.traj.size))
             dx = dx.dropna('obs', 'all')
-            save_dataset(dx, file, msg='divided plx file.')
+            logger.debug('{}: Saving subset...'.format(file.stem))
+            save_dataset(dx, file, msg='Subset plx file.')
+            logger.debug('{}: Saved subset.'.format(file.stem))
+            dx.close()
+        ds.close()
 
     @timeit(my_logger=logger)
     def save_inverse_plx_dataset(self):
