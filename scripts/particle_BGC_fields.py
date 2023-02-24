@@ -294,7 +294,7 @@ if __name__ == '__main__':
     size = comm.Get_size()
 
     # Step 1.
-    if size == 8:
+    if size == 4:
         parallelise_prereq_files(scenario)
 
     elif size == 35:
