@@ -27,11 +27,8 @@ TODO:
 """
 from argparse import ArgumentParser
 from datetime import datetime, timedelta  # NOQA
-import dask
-from dask.distributed import Client, progress
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 import pandas as pd  # NOQA
 import xarray as xr  # NOQA
 
@@ -39,7 +36,7 @@ import cfg
 from cfg import paths, ExpData
 from datasets import save_dataset, BGCFields
 from felx_dataset import FelxDataSet
-from tools import timeit, mlogger, random_string
+from tools import timeit, mlogger
 try:
     from mpi4py import MPI
 except ModuleNotFoundError:
@@ -48,15 +45,6 @@ except ModuleNotFoundError:
 logger = mlogger('files_felx')
 
 
-def save_subset(file, ds, p, field_dataset, var, dim_map):
-    logger.info('{}: Calculating'.format(file.stem))
-    dx = ds.isel(traj=slice(*p))
-    dx = update_field_AAA(dx, field_dataset, var, dim_map)
-
-    logger.info('{}: Saveing...'.format(file.stem))
-    np.save(file, dx, allow_pickle=True)
-    logger.info('{}: Saved.'.format(file.stem))
-    return
 
 
 @timeit(my_logger=logger)
@@ -147,6 +135,17 @@ def save_felx_BGC_field_subset(exp, var, n):
         - Filter spinup?
         - Add kd490 fields
     """
+    def save_subset(file, ds, p, field_dataset, var, dim_map):
+        """Save temp particle BGC fields subset."""
+        logger.info('{}: Calculating'.format(file.stem))
+        dx = ds.isel(traj=slice(*p))
+        dx = update_field_AAA(dx, field_dataset, var, dim_map)
+
+        logger.info('{}: Saving...'.format(file.stem))
+        np.save(file, dx, allow_pickle=True)
+        logger.info('{}: Saved.'.format(file.stem))
+        return
+
     # Create fieldset for variable.
     fieldset = BGCFields(exp)
 
@@ -185,6 +184,7 @@ def save_felx_BGC_field_subset(exp, var, n):
 
 
 def save_felx_BGC_fields(exp):
+    """Run and save OFAM3 BGC fields at particle positions as n temp files."""
     variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
     pds = FelxDataSet(exp)
 
@@ -218,6 +218,59 @@ def save_felx_BGC_fields(exp):
     return
 
 
+def parallelise_prereq_files():
+    """Calculate plx subset and inverse_plx files.
+
+    Notes:
+        * Assumes 8 processors
+        * 10 file x 16 min each = ~2.6 hours.
+    """
+    # Step 1.
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+
+    if rank == 0:
+        data = [[s, x] for s in [0, 1] for x in [165, 190, 220, 250]]
+    else:
+        data = None
+    data = comm.scatter(data, root=0)
+    scenario, lon = data
+
+    for r in range(0, 20, 2):
+        name = 'felx_bgc'
+        exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=r, name=name,
+                      out_subdir=name)
+        pds = FelxDataSet(exp)
+        pds.check_prereq_files()
+
+
+def parallelise_BGC_fields(exp):
+    """Parallelise saving particle BGC fields as temp files.
+
+    Notes:
+        * Assumes 35 processors
+        * Maybe 5 hours each file.
+    """
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+
+    # Step 2.
+    pds = FelxDataSet(exp)
+    if rank == 0:
+        # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
+        data = [[v, i] for v in variables for i in range(pds.num_subsets)]  # len=35
+    else:
+        data = None
+    data = comm.scatter(data, root=0)
+    var, n = data
+    logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
+    save_felx_BGC_field_subset(exp, var, n)
+
+    # for var in variables:
+    #     for n in range(pds.num_subsets):
+    #         save_felx_BGC_field_subset(exp, var, n)
+
+
 if __name__ == '__main__':
     p = ArgumentParser(description="""Particle BGC fields.""")
     p.add_argument('-x', '--lon', default=165, type=int, help='Particle start longitude(s).')
@@ -226,37 +279,30 @@ if __name__ == '__main__':
     p.add_argument('-v', '--version', default=0, type=int, help='FeLX experiment version.')
     # p.add_argument('-var', '--variable', default=0, type=int, help='FeLX experiment version.')
     args = p.parse_args()
-
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
     # var = args.variable
 
     if cfg.test:
         scenario, lon, version, index, var = 0, 190, 0, 0, 'phy'
-
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
                   out_subdir=name, test=cfg.test)
 
+    variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
+
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
-    rank = comm.Get_rank()
 
-    variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
-    pds = FelxDataSet(exp)
+    # Step 1.
+    if size == 8:
+        parallelise_prereq_files()
 
-    # for var in variables:
-    #     for n in range(pds.num_subsets):
-    #         save_felx_BGC_field_subset(exp, var, n)
+    elif size == 35:
+        # Step 2.
+        parallelise_BGC_fields(exp)
 
-    if rank == 0:
-        # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
-        data = [[v, i] for v in variables for i in range(pds.num_subsets)]
-    else:
-        data = None
-    data = comm.scatter(data, root=0)
-    var, n = data
-    logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
-    save_felx_BGC_field_subset(exp, var, n)
-
-    if rank == 0 and pds.check_tmp_files_complete(variables):
-        save_felx_BGC_fields(exp)
+    # Step 3.
+    elif size == 1:
+        pds = FelxDataSet(exp)
+        if pds.check_tmp_files_complete(variables):
+            save_felx_BGC_fields(exp)
