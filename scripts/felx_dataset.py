@@ -18,6 +18,7 @@ import calendar
 from datetime import datetime, timedelta  # NOQA
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd  # NOQA
 import xarray as xr  # NOQA
 
@@ -35,6 +36,7 @@ class FelxDataSet(object):
     def __init__(self, exp):
         """Initialise & format felx particle dataset."""
         self.exp = exp
+        self.num_subsets = 5
 
     def particles_after_start_time(self, ds):
         """Select particles that have reached a source at the start of the spinup period.
@@ -225,20 +227,40 @@ class FelxDataSet(object):
             ds[var] = (['traj', 'obs'], arr)
         return ds
 
-    def set_dataset_vars_from_tmps(exp, ds, variables, n):
-        """Set arrays as DataArrays in dataset."""
+    def var_tmp_files(self, var):
+        tmp_dir = paths.data / 'plx/tmp_{}_{}'.format(self.exp.file_felx_bgc.stem, var)
+        if not tmp_dir.exists():
+            os.mkdir(tmp_dir)
+        tmp_files = [tmp_dir / '{}.np'.format(i) for i in range(self.num_subsets)]
+        return tmp_files
 
+    def traj_subsets(self, ds):
+        traj_bnds = np.linspace(0, ds.traj.size + 1, self.num_subsets + 1, dtype=int)
+        traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(self.num_subsets - 1)]
+        return traj_slices
+
+    def check_tmp_files_complete(self, variables):
+        """Set arrays as DataArrays in dataset."""
+        complete = True
+        for var in variables:
+            tmp_files = self.var_tmp_files(var)
+            for tmp_file in tmp_files:
+                if not tmp_file.exists():
+                    complete = False
+                    break
+        return complete
+
+    def set_dataset_vars_from_tmps(self, exp, ds, variables):
+        """Set arrays as DataArrays in dataset."""
         for var in zip(range(len(variables)), variables):
-            tmp_dir = paths.data / 'plx/tmp_{}_{}'.format(exp.file_felx_bgc.stem, var)
-            files = [tmp_dir / '{}.np'.format(i) for i in range(n)]
+            tmp_files = self.var_tmp_files(var)
             data = []
-            for file in files:
-                data.append(np.load(file, allow_pickle=True))
+            for tmp_file in tmp_files:
+                data.append(np.load(tmp_file, allow_pickle=True))
             arr = np.concatenate(data, axis=0)
 
             ds[var] = (['traj', 'obs'], arr)
         return ds
-
 
     def revert_spinup_particle_times(self):
         """Change the year of particle time during spinup to spinup year.

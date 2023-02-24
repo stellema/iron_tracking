@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt  # NOQA
 import numpy as np
 import xarray as xr
 
+import cfg
 from cfg import paths, zones, bgc_vars
 
 
@@ -155,16 +156,30 @@ class BGCFields(object):
         self.exp = exp
         self.vars_ofam = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3']
         self.vars_clim = ['kd']
-
-        if exp.test:
-            self.vars_ofam = ['phy', 'zoo', 'det']
-
+        self.dim_map_ofam = dict(time='time', depth='z', lat='lat', lon='lon')
+        self.dim_map_kd = dict(time='month', lat='lat', lon='lon')
         self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
 
-        # Initialise ofam3 dataset.
-        self.ofam = ofam3_datasets(exp, variables=self.vars_ofam[0])
-        for var in self.vars_ofam[1:]:
-            self.ofam[var] = ofam3_datasets(exp, variables=var)[var]
+    def ofam_dataset(self, variables):
+        """Get OFAM3 field(s) dataset."""
+        # Set list of OFAM3 variables to open.
+        self._variables_ = variables
+        if not isinstance(self._variables_, list):
+            self._variables_ = [self._variables_]
+
+        if cfg.test:
+            for i, var in enumerate(self._variables_):
+                if var not in ['phy', 'zoo', 'det']:
+                    self._variables_.pop(i)
+
+        for i, var in enumerate(self._variables_):
+            if i == 0:
+                # Initialise ofam3 dataset.
+                ofam = ofam3_datasets(self.exp, variables=var)
+            else:
+                ofam[var] = ofam3_datasets(self.exp, variables=var)[var]
+
+        setattr(self, 'ofam', ofam)
 
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
@@ -177,7 +192,7 @@ class BGCFields(object):
         kd = kd.sel(lat=slice(self.ofam.lat.min(), self.ofam.lat.max()),
                     lon=slice(self.ofam.lon.min(), self.ofam.lon.max()))
         kd = kd.rename({'Kd490': 'kd'})
-        return kd
+        setattr(self, 'kd', kd)
 
 
 def concat_scenario_dimension(ds, add_diff=False):
@@ -373,6 +388,17 @@ def save_dataset(ds, filename, msg=None):
         ds.encoding.update(comp)
 
     ds.to_netcdf(filename, compute=True)
+
+
+def add_coord_attrs(ds):
+    ds.time.attrs = {'cartesian_axis': 'T', 'long_name': 'time', 'standard_name': 'time'}
+    ds.lon.attrs = {'standard_name': 'longitude', 'long_name': 'longitude',
+                    'units': 'degrees_east', 'cartesian_axis': 'X'}
+    ds.lat.attrs = {'standard_name': 'latitude', 'long_name': 'latitude',
+                    'units': 'degrees_north', 'cartesian_axis': 'Y'}
+    ds.depth.attrs = {'standard_name': 'depth', 'long_name': 'depth',
+                      'positive': 'down', 'units': 'm', 'cartesian_axis': 'Z'}
+    return ds
 
 
 def sub_missing_files_ofam3():

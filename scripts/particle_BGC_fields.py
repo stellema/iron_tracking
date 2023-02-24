@@ -40,6 +40,10 @@ from cfg import paths, ExpData
 from datasets import save_dataset, BGCFields
 from felx_dataset import FelxDataSet
 from tools import timeit, mlogger, random_string
+try:
+    from mpi4py import MPI
+except ModuleNotFoundError:
+    MPI = None
 
 logger = mlogger('files_felx')
 
@@ -53,38 +57,6 @@ def save_subset(file, ds, p, field_dataset, var, dim_map):
     np.save(file, dx, allow_pickle=True)
     logger.info('{}: Saved.'.format(file.stem))
     return
-
-def update_field_particle_subset(exp, ds, field_dataset, var, dim_map):
-    n = 5  # number of particle subsets
-    traj_bnds = np.linspace(0, ds.traj.size + 1, n + 1, dtype=int)
-    traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(n - 1)]
-
-    # Create temp directory.
-    tmp_dir = paths.data / 'plx/tmp_{}_{}'.format(exp.file_felx_bgc.stem, var)
-    if not tmp_dir.exists():
-        os.mkdir(tmp_dir)
-
-    files = [tmp_dir / '{}.np'.format(i) for i in range(n)]
-
-    # Calculate & save particle subset.
-    for i, p in enumerate(traj_slices):
-        print(slice(*p))
-        if not files[i].exists():
-            save_subset(files[i], ds, p, field_dataset, var, dim_map)
-        else:
-            pass
-
-    # Gather up saved files.
-    data = []
-    for file in files:
-        data.append(np.load(file, allow_pickle=True))
-
-    dx = np.concatenate(data, axis=0)
-
-    # for file in files:
-    #     os.remove(file)
-    # os.rmdir(tmp_dir)
-    return dx
 
 
 @timeit(my_logger=logger)
@@ -154,7 +126,7 @@ def test_runtime_BGC_fields():
 
 
 @timeit(my_logger=logger)
-def save_felx_BGC_fields(exp):
+def save_felx_BGC_field_subset(exp, var, n):
     """Sample OFAM3 BGC fields at particle positions.
 
     Args:
@@ -175,116 +147,64 @@ def save_felx_BGC_fields(exp):
         - Filter spinup?
         - Add kd490 fields
     """
-    def set_dataset_vars(ds, variables, arrays):
-        for var, arr in zip(variables, arrays):
-            ds[var] = (['traj', 'obs'], arr)
-        return ds
+    # Create fieldset for variable.
+    fieldset = BGCFields(exp)
 
+    if var in fieldset.vars_ofam:
+        fieldset.ofam_dataset(variables=var)
+        field_dataset = fieldset.ofam
+        dim_map = fieldset.dim_map_ofam
+    else:
+        fieldset.kd490_dataset()
+        field_dataset = fieldset.kd
+        dim_map = fieldset.dim_map_kd
+
+    # Initialise particle dataset.
+
+    pds = FelxDataSet(exp)
+    # Create temp directory and filenames.
+    tmp_files = pds.var_tmp_files(var)
+    tmp_file = tmp_files[n]
+
+    if tmp_file.exists():
+        return
+
+    if exp.file_felx_bgc.exists():
+        ds = xr.open_dataset(exp.file_felx_bgc)
+    else:
+        ds = pds.get_formatted_felx_file(variables=fieldset.variables)
+
+    # Save temp file subset for variable.
+    logger.info('{}: Getting field.'.format(tmp_file.stem))
+    traj_slices = pds.traj_subsets(ds)
+    traj_slice = traj_slices[n]
+
+    # Calculate & save particle subset.
+    save_subset(tmp_file, ds, traj_slice, field_dataset, var, dim_map)
+    logger.info('{}: Saved tmp subset field.'.format(tmp_file.stem))
+
+
+def save_felx_BGC_fields(exp):
+    variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
+    pds = FelxDataSet(exp)
+
+    # for var in variables:
+    #     for n in range(pds.num_subsets):
+    #         save_felx_BGC_field_subset(exp, var, n)
+
+    if exp.file_felx_bgc.exists():
+        ds = xr.open_dataset(exp.file_felx_bgc)
+    else:
+        ds = pds.get_formatted_felx_file(variables=variables)
+
+    # Put all temp files together.
+    logger.info('{}: Getting OFAM3 BGC fields.'.format(exp.file_felx_bgc.stem))
     file = exp.file_felx_bgc
     if cfg.test:
         file = paths.data / ('test/' + file.stem + '.nc')
 
-    logger.info('{}: Getting OFAM3 BGC fields.'.format(file.stem))
-
-    # Select vairables
-    fieldset = BGCFields(exp)
-    fieldset.kd = fieldset.kd490_dataset()
-    variables = fieldset.variables
-    vars_ofam = fieldset.vars_ofam
-
-    # Initialise particle dataset.
-    pds = FelxDataSet(exp)
-
-    if file.exists():
-        ds = xr.open_dataset(file)
-    else:
-        ds = pds.get_formatted_felx_file(variables=variables)
-
-    # Option 2
-    dim_map_ofam = dict(time='time', depth='z', lat='lat', lon='lon')
-    dim_map_kd = dict(time='month', lat='lat', lon='lon')
-
-    # alt -
-    n = 5  # number of particle subsets
-    traj_bnds = np.linspace(0, ds.traj.size + 1, n + 1, dtype=int)
-    traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(n - 1)]
-
-    for var in variables:
-        if var in vars_ofam:
-            dim_map = dim_map_ofam
-            field_dataset = fieldset.ofam
-        else:
-            field_dataset = fieldset.kd
-            dim_map = dim_map_kd
-
-        logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
-        # Create temp directory.
-        tmp_dir = paths.data / 'plx/tmp_{}_{}'.format(exp.file_felx_bgc.stem, var)
-        if not tmp_dir.exists():
-            os.mkdir(tmp_dir)
-
-        files = [tmp_dir / '{}.np'.format(i) for i in range(n)]
-
-        # Calculate & save particle subset.
-        for i, p in enumerate(traj_slices):
-            print(slice(*p))
-            if not files[i].exists():
-                save_subset(files[i], ds, p, field_dataset, var, dim_map)
-                logger.info('{}: Saved OFAM3 {} field.'.format(file.stem, var))
-            else:
-                pass
-
     logger.info('{}: Setting dataset variables'.format(file.stem))
-    ds = pds.set_dataset_vars_from_tmps(exp, ds, variables, n)
-
-    # # alt - Using dask client submit
-    # client = Client()
-
-    # futures = []
-
-    # dim_map = dim_map_ofam
-    # field_dataset = fieldset.ofam
-    # for var in vars_ofam:
-    #     logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
-    #     future = client.submit(update_field_particle_subset, exp, ds, field_dataset, var, dim_map)
-    #     futures.append(future)
-
-    # var = 'kd'
-    # field_dataset = fieldset.kd
-    # dim_map = dim_map_kd
-    # logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
-    # future = client.submit(update_field_particle_subset, exp, ds, field_dataset, var, dim_map)
-    # futures.append(future)
-
-    # logger.info('{}: Gathering...'.format(file.stem))
-    # total = client.gather(futures)
-    # logger.info('{}: Setting dataset variables'.format(file.stem))
-    # ds = pds.set_dataset_vars(ds, variables, total)
-
-
-    # alt - Using dask Delayed.
-    # ds = dask.delayed(ds)
-    # fieldset = dask.delayed(fieldset)
-
-    # results = []
-    # for var in vars_ofam:
-    #     logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
-    #     result = dask.delayed(update_field_AAA)(ds, fieldset.ofam, var, dim_map=dim_map_ofam)
-
-    #     results.append(result)
-
-    # var = 'kd'
-    # logger.info('{}: OFAM3 {} field.'.format(file.stem, var))
-    # result = dask.delayed(update_field_AAA)(ds, fieldset.kd, var, dim_map=dim_map_kd)
-    # results.append(result)
-
-    # logger.info('{}: Computing...'.format(file.stem))
-    # total = dask.compute(results)
-    # ds = dask.compute(ds)
-    # ds = list(ds)[0]
-
-    # logger.info('{}: Setting dataset variables'.format(file.stem))
-    # ds = pds.set_dataset_vars(ds, variables, total)
+    ds = pds.set_dataset_vars_from_tmps(exp, ds, variables)
 
     ds = ds.where(ds.valid_mask)
     ds['time'] = ds.time_orig
@@ -304,14 +224,40 @@ if __name__ == '__main__':
     p.add_argument('-e', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-r', '--index', default=0, type=int, help='File repeat.')
     p.add_argument('-v', '--version', default=0, type=int, help='FeLX experiment version.')
+    # p.add_argument('-var', '--variable', default=0, type=int, help='FeLX experiment version.')
     args = p.parse_args()
 
-    if not cfg.test:
-        scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
-    else:
-        scenario, lon, version, index = 0, 190, 0, 0
+    scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
+    # var = args.variable
+
+    if cfg.test:
+        scenario, lon, version, index, var = 0, 190, 0, 0, 'phy'
 
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
                   out_subdir=name, test=cfg.test)
-    save_felx_BGC_fields(exp)
+
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    rank = comm.Get_rank()
+
+    variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
+    pds = FelxDataSet(exp)
+
+    # for var in variables:
+    #     for n in range(pds.num_subsets):
+    #         save_felx_BGC_field_subset(exp, var, n)
+
+    if rank == 0:
+        # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
+        data = [[v, i] for v in variables for i in range(pds.num_subsets)]
+        comm.send()
+    else:
+        data = None
+    data = comm.scatter(data, root=0)
+    var, n = data
+    logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
+    save_felx_BGC_field_subset(exp, var, n)
+
+    if rank == 0 and pds.check_tmp_files_complete(variables):
+        save_felx_BGC_fields(exp)
