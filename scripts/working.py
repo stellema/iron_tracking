@@ -20,7 +20,7 @@ def spinup_analysis():
     from datasets import plx_particle_dataset
 
     exp = cfg.ExpData(0, lon=165)
-    ds = plx_particle_dataset(exp)
+    ds = plx_particle_dataset(exp.plx_file)
     file = cfg.paths.data / 'plx/{}'.format(exp.file_plx.name)
     ds = xr.open_dataset(str(file), decode_cf=True)
     ds = ds.drop({'zone', 'distance', 'unbeached', 'u'})
@@ -120,7 +120,7 @@ def working_parallel_plx_reverse():
         N = np.isnan(ds.trajectory).sum().item()
         return ds.roll(obs=-N)
 
-    ds = plx_particle_dataset(cfg.ExpData(0, lon=165))
+    ds = plx_particle_dataset(cfg.ExpData(0, lon=165).file_plx)
     ds = ds.drop({'age', 'zone', 'distance', 'unbeached', 'u'})
 
     # Subset number of particles.
@@ -236,3 +236,29 @@ def working_particle_BGC_fields(ds):
     field = fieldset[var]
     dt3 = sample_fields(ds, field, var)
     return
+
+
+def plot_ofam_var_test():
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import xarray as xr  # NOQA
+
+    import cfg
+    from cfg import paths, ExpData
+    from datasets import ofam3_datasets
+    # paths.ofam / 'ocean_{}_{}_{:02d}.nc'.format('zoo', 2008, 02)
+    # paths.ofam / 'ocean_{}_{}_{:02d}.nc'.format('zoo', 2008, 02)
+
+    name = 'felx_bgc'
+    scenario, lon, version, index = 0, 190, 0, 0
+    exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
+                  out_subdir=name, test=cfg.test, test_month_bnds=12)
+    ds = ofam3_datasets(exp, variables=['zoo', 'det'], decode_times=True)
+
+    dx = ds[var].sel(lat=slice(-8, 8)).isel(depth=slice(0, 27))#.groupby('time.month').mean('time')
+    vm = 0.5
+    dx.isel(depth=0).plot(col='month', col_wrap=3, vmax=vm, vmin=0)
+
+    dx.sel(lat=0, method='nearest').plot(col='month', col_wrap=3, vmax=vm, vmin=0)
+
+    dx.sel(lat=0, method='nearest').isel(time=np.arange(0, dx.time.size, 5)).plot(yincrease=0, col='time', col_wrap=3)
