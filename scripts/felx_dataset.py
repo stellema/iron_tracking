@@ -13,7 +13,6 @@ Todo:
 
 """
 
-from argparse import ArgumentParser
 import calendar
 from datetime import datetime, timedelta  # NOQA
 import matplotlib.pyplot as plt
@@ -22,7 +21,7 @@ import os
 import pandas as pd  # NOQA
 import xarray as xr  # NOQA
 
-import cfg
+import cfg  # NOQA
 from cfg import paths, ExpData
 from datasets import (plx_particle_dataset, save_dataset)
 from tools import timeit, mlogger
@@ -37,6 +36,10 @@ class FelxDataSet(object):
         """Initialise & format felx particle dataset."""
         self.exp = exp
         self.num_subsets = 5
+        self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
+        self.bgc_variables_nmap = {'Phy': 'phy', 'Zoo': 'zoo', 'Det': 'det', 'Temp': 'temp',
+                                   'Fe': 'fe', 'NO3': 'no3', 'kd': 'kd'}
+        self.variables = ['scav', 'fe_src', 'fe_p', 'reg', 'phy_up']
 
     def particles_after_start_time(self, ds):
         """Select particles that have reached a source at the start of the spinup period.
@@ -56,6 +59,93 @@ class FelxDataSet(object):
 
         pids = ds.traj.where(mask, drop=True)
         return pids
+
+    def empty_DataArray(self, name=None, fill_value=np.nan, dtype=np.float32):
+        """Add empty DataArray."""
+        return xr.DataArray(np.full((self.ds.traj.size, self.ds.obs.size), fill_value, dtype),
+                            dims=('traj', 'obs'), coords=self.ds.coords, name=name)
+
+    def override_spinup_particle_times(self, time):
+        """Change the year of particle time during spinup to spinup year.
+
+        Example:
+            ds['time'] = ds.override_spinup_particle_times(ds.time)
+
+        """
+        spinup_year = self.exp.spinup_year
+
+        # Mask Non-Spinup & NaT times.
+        mask = (time < np.datetime64(self.exp.time_bnds[0]))
+
+        time_spinup = time.where(mask)
+
+        # Account for leapdays in timeseries if spinup is a not a leap year.
+        if not calendar.isleap(spinup_year):
+            # Change Feb 29th to Mar 1st (while still in datetime64 format).
+            leapday_new = np.datetime64('{}-03-01T12:00'.format(spinup_year))
+            leapday_mask = ((time_spinup.dt.month == 2) & (time_spinup.dt.day == 29))
+            time_spinup = time_spinup.where(~leapday_mask, leapday_new)
+
+        # Replace year in spinup period by converting to string.
+        time_spinup = time_spinup.dt.strftime('{}-%m-%dT%H:%M'.format(spinup_year))
+
+        # Convert dtype back to 'datetime64'.
+        # Replace NaNs with a number to avoid conversion error (
+        time_spinup = time_spinup.where(mask, 0)
+        time_spinup = time_spinup.astype('datetime64[ns]')
+
+        # N.B. xr.where condition order important as modified times only valid for spinup & ~NaT.
+        time_new = xr.where(mask, time_spinup, time)
+        return time_new
+
+    def revert_spinup_particle_times(self):
+        """Change the year of particle time during spinup to spinup year.
+
+        Notes:
+            * Requires original particle times to be saved to dataset.
+            * At the source at least during the spinup period.
+
+        """
+        # # Self checks.
+        # mask = (self.ds_time_orig >= np.datetime64(self.exp.time_bnds[0]))
+        # fill = np.datetime64('2023')
+        # assert self.ds_time_orig.shape == self.ds.time.shape
+        # assert all(self.ds_time_orig.where(mask, fill) == self.ds.time.where(mask, fill))
+
+        return self.ds_time_orig
+
+    def subset_min_time(self, time='2012-01-01'):
+        """Change particle obs times during spin up to spinup year."""
+        return self.ds.where(self.ds.time >= np.datetime64(time))
+
+    def set_dataset_vars(ds, variables, arrays):
+        """Set arrays as DataArrays in dataset."""
+        for var, arr in zip(variables, arrays):
+            ds[var] = (['traj', 'obs'], arr)
+        return ds
+
+    def get_empty_bgc_felx_file(self):
+        """Get new felx file (empty BGC data variables)."""
+        self.check_bgc_prereq_files()
+
+        self.ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=None)
+
+        if self.exp.test:
+            print('Testing 1000 particles.')
+            self.ds = self.ds.isel(traj=slice(100))
+            # ds = ds.subset_min_time(time='2012-01-01'):
+            self.ds = self.ds.dropna('obs', 'all')
+
+        self.ds['valid_mask'] = ~np.isnan(self.ds.trajectory)
+        # convert to days since 1979 (same as ofam3)
+        self.ds['month'] = self.ds.time.dt.month
+        # self.ds = self.override_spinup_particle_times(self.exp, self.ds)
+        self.ds['time_orig'] = self.ds.time.copy()  # particle times before modifying
+        self.ds['time'] = self.override_spinup_particle_times(self.ds.time)
+
+        for var in self.bgc_variables:
+            self.ds[var] = self.empty_DataArray()
+        return self.ds
 
     @timeit(my_logger=logger)
     def save_plx_file_particle_subset(self):
@@ -155,7 +245,7 @@ class FelxDataSet(object):
         logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
 
     @timeit(my_logger=logger)
-    def check_prereq_files(self):
+    def check_bgc_prereq_files(self):
         """Check needed files saved and can be opened with error."""
         def check_file_complete(file):
             file_complete = False
@@ -181,75 +271,7 @@ class FelxDataSet(object):
         if not file_complete:
             self.save_inverse_plx_dataset()
 
-    def empty_DataArray(self, name=None, fill_value=np.nan, dtype=np.float32):
-        """Add empty DataArray."""
-        return xr.DataArray(np.full((self.ds.traj.size, self.ds.obs.size), fill_value, dtype),
-                            dims=('traj', 'obs'), coords=self.ds.coords, name=name)
-
-    def override_spinup_particle_times(self, time):
-        """Change the year of particle time during spinup to spinup year.
-
-        Example:
-            ds['time'] = ds.override_spinup_particle_times(ds.time)
-
-        """
-        spinup_year = self.exp.spinup_year
-
-        # Mask Non-Spinup & NaT times.
-        mask = (time < np.datetime64(self.exp.time_bnds[0]))
-
-        time_spinup = time.where(mask)
-
-        # Account for leapdays in timeseries if spinup is a not a leap year.
-        if not calendar.isleap(spinup_year):
-            # Change Feb 29th to Mar 1st (while still in datetime64 format).
-            leapday_new = np.datetime64('{}-03-01T12:00'.format(spinup_year))
-            leapday_mask = ((time_spinup.dt.month == 2) & (time_spinup.dt.day == 29))
-            time_spinup = time_spinup.where(~leapday_mask, leapday_new)
-
-        # Replace year in spinup period by converting to string.
-        time_spinup = time_spinup.dt.strftime('{}-%m-%dT%H:%M'.format(spinup_year))
-
-        # Convert dtype back to 'datetime64'.
-        # Replace NaNs with a number to avoid conversion error (
-        time_spinup = time_spinup.where(mask, 0)
-        time_spinup = time_spinup.astype('datetime64[ns]')
-
-        # N.B. xr.where condition order important as modified times only valid for spinup & ~NaT.
-        time_new = xr.where(mask, time_spinup, time)
-        return time_new
-
-    def get_formatted_felx_file(self, variables):
-        """Get new felx file (empty BGC data variables)."""
-        self.check_prereq_files()
-        self.variables = variables
-
-        self.ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=None)
-
-        if self.exp.test:
-            print('Testing 1000 particles.')
-            self.ds = self.ds.isel(traj=slice(100))
-            # ds = ds.subset_min_time(time='2012-01-01'):
-            self.ds = self.ds.dropna('obs', 'all')
-
-        self.ds['valid_mask'] = ~np.isnan(self.ds.trajectory)
-        # convert to days since 1979 (same as ofam3)
-        self.ds['month'] = self.ds.time.dt.month
-        # self.ds = self.override_spinup_particle_times(self.exp, self.ds)
-        self.ds['time_orig'] = self.ds.time.copy()  # particle times before modifying
-        self.ds['time'] = self.override_spinup_particle_times(self.ds.time)
-
-        for var in self.variables:
-            self.ds[var] = self.empty_DataArray()
-        return self.ds
-
-    def set_dataset_vars(ds, variables, arrays):
-        """Set arrays as DataArrays in dataset."""
-        for var, arr in zip(variables, arrays):
-            ds[var] = (['traj', 'obs'], arr)
-        return ds
-
-    def var_tmp_files(self, var):
+    def bgc_var_tmp_filenames(self, var):
         """Get tmp filenames for BGC tmp subsets."""
         tmp_dir = paths.data / 'felx/tmp_{}_{}'.format(self.exp.file_felx_bgc.stem, var)
         if not tmp_dir.exists():
@@ -257,54 +279,80 @@ class FelxDataSet(object):
         tmp_files = [tmp_dir / '{}.np'.format(i) for i in range(self.num_subsets)]
         return tmp_files
 
-    def traj_subsets(self, ds):
+    def bgc_tmp_traj_subsets(self, ds):
         """Get traj slices for BGC tmp subsets."""
         traj_bnds = np.linspace(0, ds.traj.size + 1, self.num_subsets + 1, dtype=int)
         traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(self.num_subsets - 1)]
         return traj_slices
 
-    def check_tmp_files_complete(self, variables):
+    def check_bgc_tmp_files_complete(self):
         """Check all variable tmp file subsets complete."""
         complete = True
-        for var in variables:
-            tmp_files = self.var_tmp_files(var)
-            for tmp_file in tmp_files:
+        for var in self.bgc_variables:
+            for tmp_file in self.bgc_var_tmp_filenames(var):
                 if not tmp_file.exists():
                     complete = False
                     break
         return complete
 
-    def set_dataset_vars_from_tmps(self, exp, ds, variables):
-        """Set arrays as DataArrays in dataset."""
-        for var in zip(range(len(variables)), variables):
-            tmp_files = self.var_tmp_files(var)
+    def set_bgc_dataset_vars_from_tmps(self, ds):
+        """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""
+        for name, var in self.bgc_variables_nmap.items():
             data = []
-            for tmp_file in tmp_files:
+            for tmp_file in self.bgc_var_tmp_filenames(var):
                 data.append(np.load(tmp_file, allow_pickle=True))
             arr = np.concatenate(data, axis=0)
 
-            ds[var] = (['traj', 'obs'], arr)
+            ds[name] = (['traj', 'obs'], arr)
         return ds
 
-    def revert_spinup_particle_times(self):
-        """Change the year of particle time during spinup to spinup year.
+    def init_felx_bgc_dataset(self):
+        """Get finished felx BGC dataset and format."""
+        file = self.file_felx_bgc
+        self.ds = xr.open_dataset(file)
 
-        Notes:
-            * Requires original particle times to be saved to dataset.
-            * At the source at least during the spinup period.
+        variables = ['scav', 'src', 'iron', 'reg', 'phyup']
+        for var in variables:
+            self.ds[var] = self.empty_DataArray()
+        self.add_iron_model_constants()
 
-        """
-        # # Self checks.
-        # mask = (self.ds_time_orig >= np.datetime64(self.exp.time_bnds[0]))
-        # fill = np.datetime64('2023')
-        # assert self.ds_time_orig.shape == self.ds.time.shape
-        # assert all(self.ds_time_orig.where(mask, fill) == self.ds.time.where(mask, fill))
+    def add_iron_model_constants(self):
+        """Add a constants to the FieldSet."""
+        constants = {}
+        """Add fieldset constantss."""
+        # Phytoplankton paramaters.
+        # Initial slope of P-I curve.
+        constants['alpha'] = 0.025
+        # Photosynthetically active radiation.
+        constants['PAR'] = 0.34  # Qin 0.34!!!
+        # Growth rate at 0C.
+        constants['I_0'] = 300  # !!!
+        constants['a'] = 0.6
+        constants['b'] = 1.066
+        constants['c'] = 1.0
+        constants['k_fe'] = 1.0
+        constants['k_N'] = 1.0
+        constants['k_org'] = 1.0521e-4  # !!!
+        constants['k_inorg'] = 6.10e-4  # !!!
 
-        return self.ds_time_orig
+        # Detritus paramaters.
+        # Detritus sinking velocity
+        constants['w_det'] = 10  # 10 or 5 !!!
 
-    def subset_min_time(self, time='2012-01-01'):
-        """Change particle obs times during spin up to spinup year."""
-        return self.ds.where(self.ds.time >= np.datetime64(time))
+        # Zooplankton paramaters.
+        constants['y_1'] = 0.85
+        constants['g'] = 2.1
+        constants['E'] = 1.1
+        constants['u_Z'] = 0.06
+
+        # # Not constant.
+        # constants['Kd_490'] = 0.43
+        # constants['u_D'] = 0.02  # depends on depth & not constant.
+        # constants['u_D_180'] = 0.01  # depends on depth & not constant.
+        # constants['u_P'] = 0.01  # Not constant.
+        # constants['y_2'] = 0.01  # Not constant.
+        for name, value in constants.items():
+            setattr(self, name, value)
 
     def test_plot_variable(self, var='det'):
         """Line plot of variable as a function of obs for each particle."""
