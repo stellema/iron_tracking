@@ -147,7 +147,7 @@ def ofam3_datasets(exp, variables=bgc_vars, chunks=None, **kwargs):
 
 
 class BGCFields(object):
-    """Biogeochemistry field datasets from OFAM3 and ."""
+    """Biogeochemistry field datasets from OFAM3 and Kd490."""
 
     def __init__(self, exp):
         """Initialise & format felx particle dataset."""
@@ -189,8 +189,7 @@ class BGCFields(object):
         kd = kd.rename(dict(month='time'))
 
         # Subset lat and lons to match ofam3 data.
-        kd = kd.sel(lat=slice(self.ofam.lat.min(), self.ofam.lat.max()),
-                    lon=slice(self.ofam.lon.min(), self.ofam.lon.max()))
+        kd = kd.sel(lat=slice(-14.95, 14.95), lon=slice(120, 294.95))
         kd = kd.rename({'Kd490': 'kd'})
         setattr(self, 'kd', kd)
 
