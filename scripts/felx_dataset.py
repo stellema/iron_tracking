@@ -154,14 +154,29 @@ class FelxDataSet(object):
 
     @timeit(my_logger=logger)
     def check_prereq_files(self):
-        """Check needed files saved."""
-        if not self.exp.file_plx.exists():
-            logger.info('{}: Subsetting plx file...'.format(self.exp.file_plx_orig.stem))
+        """Check needed files saved and can be opened with error."""
+        def check_file_complete(file):
+            file_complete = False
+            if file.exists():
+                try:
+                    df = xr.open_dataset(file)
+                    df.close()
+                    file_complete = True
+                except:
+                    os.remove(file)
+                    file_complete = False
+            return file_complete
 
+        file = self.exp.file_plx
+        file_complete = check_file_complete(file)
+        if not file_complete:
+            logger.info('{}: Subsetting plx file...'.format(self.exp.file_plx_orig.stem))
             self.save_plx_file_particle_subset()
             logger.info('{}: Saved subset plx file'.format(self.exp.file_plx.stem))
 
-        if not self.exp.file_plx_inv.exists():
+        file = self.exp.file_plx_inv
+        file_complete = check_file_complete(file)
+        if not file_complete:
             logger.info('{}: Calculating inverse plx file...'.format(self.exp.file_plx.stem))
             self.save_inverse_plx_dataset()
             logger.info('{}: Saved inverse plx file'.format(self.exp.file_plx_inv.stem))
