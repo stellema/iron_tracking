@@ -73,7 +73,7 @@ class FelxDataSet(object):
         ntraj = int(np.floor(ds.traj.size / 2))
 
         files = [paths.data / 'plx/{}{:02d}.nc'.format(self.exp.file_plx.stem[:-2],
-                                                       (self.exp.file_index * 2) + i)
+                                                       (self.exp.file_plx_orig * 2) + i)
                  for i in range(2)]
         for file, subset in zip(files, [slice(0, ntraj), slice(ntraj, ds.traj.size)]):
             dx = ds.isel(traj=subset)
@@ -235,19 +235,21 @@ class FelxDataSet(object):
         return ds
 
     def var_tmp_files(self, var):
-        tmp_dir = paths.data / 'plx/tmp_{}_{}'.format(self.exp.file_felx_bgc.stem, var)
+        """Get tmp filenames for BGC tmp subsets."""
+        tmp_dir = paths.data / 'felx/tmp_{}_{}'.format(self.exp.file_felx_bgc.stem, var)
         if not tmp_dir.exists():
             os.mkdir(tmp_dir)
         tmp_files = [tmp_dir / '{}.np'.format(i) for i in range(self.num_subsets)]
         return tmp_files
 
     def traj_subsets(self, ds):
+        """Get traj slices for BGC tmp subsets."""
         traj_bnds = np.linspace(0, ds.traj.size + 1, self.num_subsets + 1, dtype=int)
         traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(self.num_subsets - 1)]
         return traj_slices
 
     def check_tmp_files_complete(self, variables):
-        """Set arrays as DataArrays in dataset."""
+        """Check all variable tmp file subsets complete."""
         complete = True
         for var in variables:
             tmp_files = self.var_tmp_files(var)
