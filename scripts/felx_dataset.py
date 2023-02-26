@@ -73,7 +73,7 @@ class FelxDataSet(object):
         ntraj = int(np.floor(ds.traj.size / 2))
 
         files = [paths.data / 'plx/{}{:02d}.nc'.format(self.exp.file_plx.stem[:-2],
-                                                       (self.exp.file_plx_orig * 2) + i)
+                                                       (self.exp.file_index_orig * 2) + i)
                  for i in range(2)]
         for file, subset in zip(files, [slice(0, ntraj), slice(ntraj, ds.traj.size)]):
             dx = ds.isel(traj=subset)
