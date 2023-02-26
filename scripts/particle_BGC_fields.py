@@ -45,8 +45,6 @@ except ModuleNotFoundError:
 logger = mlogger('files_felx')
 
 
-
-
 @timeit(my_logger=logger)
 def update_field_AAA(ds, field_dataset, var, dim_map):
     """Calculate fields at plx particle positions (using apply_along_axis and xarray).
@@ -67,50 +65,6 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map)
     dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
     return dx
-
-
-def test_runtime_BGC_fields():
-    """Calculate BGC fields at particle positions.
-
-    Runtime:
-        - 100 particles:
-            -update_ofam3_fields_AAA: 00h:04m:38.58s (total=278.58 seconds).
-            update_kd490_field_AAA: 00h:15m:06.79s (total=906.79 seconds).
-            get_felx_BGC_fields: 00h:19m:52.34s (total=1192.34 seconds).
-        - 500 particles:
-            - update_ofam3_fields_AAA: 00h:23m:33.38s (total=1413.38 seconds).
-            - update_kd490_field_AAA: 01h:11m:27.42s (total=4287.42 seconds).
-            - get_felx_BGC_fields: 01h:35m:10.64s (total=5710.64 seconds).
-        - 550 particles:
-            - update_ofam3_fields_AAA: 00h:25m:03.39s (total=1503.39 seconds).
-            - update_kd490_field_AAA: 01h:23m:40.10s (total=5020.10 seconds).
-            - get_felx_BGC_fields: 01h:48m:54.75s (total=6534.75 seconds).
-        - 900 particles:
-            -
-        - 1000 particles:
-            - # update_ofam3_fields_AAA: 00h:54m:15.27s (total=3255.27 seconds).
-            - update_ofam3_fields_AAA: 00h:46m:01.28s (total=2761.28 seconds).
-            - update_kd490_field_AAA: 02h:30m:17.30s (total=9017.30 seconds).
-            - get_felx_BGC_fields: 03h:16m:34.74s (total=11794.74 seconds)
-
-    """
-    xx = np.array([100, 500, 550, 1000])
-    xfit = np.array([100, 500, 550, 1000])
-    t_ofam_update = np.array([278.58, 1413.38, 1503.39, 2761.28])
-    t_kd_update = np.array([906.79, 4287.42, 5020.10, 9017.30])
-    t_total = np.array([1192.34, 5710.64, 6534.75, 11794.74])
-
-    # Plot.
-    yy = [t_ofam_update, t_kd_update, t_total]
-    cc = ['b', 'r', 'k']
-    nn = ['OFAM3 Update', 'Kd Update', 'Total Time']
-    for y, c, n in zip(yy, cc, nn):
-        x = xx if y.size == xx.size else xx[:-1]
-        y = y / 60
-        a, b = np.polyfit(x, y, 1)
-        plt.scatter(x, y, c=c)
-        plt.plot(xfit, a*xfit+b, c=c, label=n)
-    plt.legend()
 
 
 @timeit(my_logger=logger)
@@ -162,7 +116,7 @@ def save_felx_BGC_field_subset(exp, var, n):
 
     pds = FelxDataSet(exp)
     # Create temp directory and filenames.
-    tmp_files = pds.var_tmp_files(var)
+    tmp_files = pds.bgc_var_tmp_filenames(var)
     tmp_file = tmp_files[n]
 
     if tmp_file.exists():
@@ -171,7 +125,7 @@ def save_felx_BGC_field_subset(exp, var, n):
     if exp.file_felx_bgc.exists():
         ds = xr.open_dataset(exp.file_felx_bgc)
     else:
-        ds = pds.get_formatted_felx_file(variables=fieldset.variables)
+        ds = pds.get_empty_bgc_felx_file()
 
     # Save temp file subset for variable.
     logger.info('{}: Getting field.'.format(tmp_file.stem))
@@ -185,17 +139,12 @@ def save_felx_BGC_field_subset(exp, var, n):
 
 def save_felx_BGC_fields(exp):
     """Run and save OFAM3 BGC fields at particle positions as n temp files."""
-    variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
     pds = FelxDataSet(exp)
-
-    # for var in variables:
-    #     for n in range(pds.num_subsets):
-    #         save_felx_BGC_field_subset(exp, var, n)
 
     if exp.file_felx_bgc.exists():
         ds = xr.open_dataset(exp.file_felx_bgc)
     else:
-        ds = pds.get_formatted_felx_file(variables=variables)
+        ds = pds.get_empty_bgc_felx_file()
 
     # Put all temp files together.
     logger.info('{}: Getting OFAM3 BGC fields.'.format(exp.file_felx_bgc.stem))
@@ -204,7 +153,7 @@ def save_felx_BGC_fields(exp):
         file = paths.data / ('test/' + file.stem + '.nc')
 
     logger.info('{}: Setting dataset variables'.format(file.stem))
-    ds = pds.set_dataset_vars_from_tmps(exp, ds, variables)
+    ds = pds.set_bgc_dataset_vars_from_tmps(ds)
 
     ds = ds.where(ds.valid_mask)
     ds['time'] = ds.time_orig
@@ -240,7 +189,8 @@ def parallelise_prereq_files(scenario):
         name = 'felx_bgc'
         exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=r, name=name)
         pds = FelxDataSet(exp)
-        pds.check_prereq_files()
+        pds.check_bgc_prereq_files()
+    return
 
 
 def parallelise_BGC_fields(exp):
@@ -257,17 +207,14 @@ def parallelise_BGC_fields(exp):
     pds = FelxDataSet(exp)
     if rank == 0:
         # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
-        data = [[v, i] for v in variables for i in range(pds.num_subsets)]  # len=35
+        data = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets)]  # len=35
     else:
         data = None
     data = comm.scatter(data, root=0)
     var, n = data
     logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
     save_felx_BGC_field_subset(exp, var, n)
-
-    # for var in variables:
-    #     for n in range(pds.num_subsets):
-    #         save_felx_BGC_field_subset(exp, var, n)
+    return
 
 
 if __name__ == '__main__':
@@ -276,32 +223,36 @@ if __name__ == '__main__':
     p.add_argument('-e', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-r', '--index', default=0, type=int, help='File repeat.')
     p.add_argument('-v', '--version', default=0, type=int, help='FeLX experiment version.')
+    p.add_argument('-func', '--function', default='bgc_fields', type=str,
+                   help='[bgc_fields, prereq_files, save_files]')
     # p.add_argument('-var', '--variable', default=0, type=int, help='FeLX experiment version.')
     args = p.parse_args()
+
+    func = args.function
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
     # var = args.variable
 
     if cfg.test:
+        func = ['bgc_fields', 'prereq_files', 'save_files'][0]
         scenario, lon, version, index, var = 0, 190, 0, 1, 'phy'
+
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
                   out_subdir=name, test=cfg.test)
-
-    variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
 
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
 
     # Step 1.
-    if size == 4:
+    if func == 'prereq_files':
         parallelise_prereq_files(scenario)
 
-    elif size == 35:
-        # Step 2.
+    # Step 2.
+    if func == 'bgc_fields':
         parallelise_BGC_fields(exp)
 
     # Step 3.
-    elif size == 1:
+    if func == 'save_files':
         pds = FelxDataSet(exp)
-        if pds.check_tmp_files_complete(variables):
+        if pds.check_bgc_tmp_files_complete():
             save_felx_BGC_fields(exp)
