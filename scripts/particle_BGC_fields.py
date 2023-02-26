@@ -218,7 +218,7 @@ def save_felx_BGC_fields(exp):
     return
 
 
-def parallelise_prereq_files():
+def parallelise_prereq_files(scenario):
     """Calculate plx subset and inverse_plx files.
 
     Notes:
@@ -230,11 +230,11 @@ def parallelise_prereq_files():
     rank = comm.Get_rank()
 
     if rank == 0:
-        data = [[s, x] for s in [0, 1] for x in [165, 190, 220, 250]]
+        data = [x for x in [165, 190, 220, 250]]
     else:
         data = None
     data = comm.scatter(data, root=0)
-    scenario, lon = data
+    lon = data
 
     for r in range(20):
         name = 'felx_bgc'
@@ -293,8 +293,8 @@ if __name__ == '__main__':
     size = comm.Get_size()
 
     # Step 1.
-    if size == 8:
-        parallelise_prereq_files()
+    if size == 4:
+        parallelise_prereq_files(scenario)
 
     elif size == 35:
         # Step 2.
