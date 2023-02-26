@@ -207,7 +207,7 @@ def parallelise_BGC_fields(exp):
     pds = FelxDataSet(exp)
     if rank == 0:
         # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
-        data = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets)]  # len=35
+        data = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets - 1)]  # len=35
     else:
         data = None
     data = comm.scatter(data, root=0)
