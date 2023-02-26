@@ -134,6 +134,7 @@ class FelxDataSet(object):
             ds.coords['obs'] = np.arange(ds.obs.size, dtype=ds.obs.dtype)
             return ds
 
+        logger.info('{}: Calculating inverse plx file...'.format(self.exp.file_plx.stem))
         # Particle trajectories.
         ds = plx_particle_dataset(self.exp.file_plx)
 
@@ -151,6 +152,7 @@ class FelxDataSet(object):
 
         # Save dataset.
         save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
+        logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
 
     @timeit(my_logger=logger)
     def check_prereq_files(self):
@@ -159,27 +161,25 @@ class FelxDataSet(object):
             file_complete = False
             if file.exists():
                 try:
-                    df = xr.open_dataset(file)
-                    df.close()
+                    df = xr.open_dataset(str(file), chunks='auto')
                     file_complete = True
+                    df.close()
                 except:
-                    os.remove(file)
                     file_complete = False
+                    logger.info('{}: Error - deleting.'.format(file.stem))
+                    os.remove(file)
+
             return file_complete
 
         file = self.exp.file_plx
         file_complete = check_file_complete(file)
         if not file_complete:
-            logger.info('{}: Subsetting plx file...'.format(self.exp.file_plx_orig.stem))
             self.save_plx_file_particle_subset()
-            logger.info('{}: Saved subset plx file'.format(self.exp.file_plx.stem))
 
         file = self.exp.file_plx_inv
         file_complete = check_file_complete(file)
         if not file_complete:
-            logger.info('{}: Calculating inverse plx file...'.format(self.exp.file_plx.stem))
             self.save_inverse_plx_dataset()
-            logger.info('{}: Saved inverse plx file'.format(self.exp.file_plx_inv.stem))
 
     def empty_DataArray(self, name=None, fill_value=np.nan, dtype=np.float32):
         """Add empty DataArray."""
