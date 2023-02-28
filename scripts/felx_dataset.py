@@ -37,6 +37,8 @@ class FelxDataSet(object):
         self.exp = exp
         self.num_subsets = 5
         self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
+        if cfg.test:
+            self.bgc_variables = ['phy', 'zoo', 'det']
         self.bgc_variables_nmap = {'Phy': 'phy', 'Zoo': 'zoo', 'Det': 'det', 'Temp': 'temp',
                                    'Fe': 'fe', 'NO3': 'no3', 'kd': 'kd'}
         self.variables = ['scav', 'fe_src', 'fe_p', 'reg', 'phy_up']
@@ -250,14 +252,15 @@ class FelxDataSet(object):
         def check_file_complete(file):
             file_complete = False
             if file.exists():
-                try:
-                    df = xr.open_dataset(str(file), chunks='auto')
-                    file_complete = True
-                    df.close()
-                except:
-                    file_complete = False
-                    logger.info('{}: Error - deleting.'.format(file.stem))
-                    os.remove(file)
+                file_complete = True
+                # try:
+                #     df = xr.open_dataset(str(file), chunks='auto')
+                #     file_complete = True
+                #     df.close()
+                # except:
+                #     file_complete = False
+                #     logger.info('{}: Error - deleting.'.format(file.stem))
+                #     os.remove(file)
 
             return file_complete
 
