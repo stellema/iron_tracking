@@ -179,7 +179,7 @@ class BGCFields(object):
             else:
                 ofam[var] = ofam3_datasets(self.exp, variables=var)[var]
 
-        setattr(self, 'ofam', ofam)
+        return ofam
 
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
@@ -191,7 +191,7 @@ class BGCFields(object):
         # Subset lat and lons to match ofam3 data.
         kd = kd.sel(lat=slice(-14.95, 14.95), lon=slice(120, 294.95))
         kd = kd.rename({'Kd490': 'kd'})
-        setattr(self, 'kd', kd)
+        return kd
 
 
 def concat_scenario_dimension(ds, add_diff=False):

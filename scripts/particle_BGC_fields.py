@@ -104,12 +104,10 @@ def save_felx_BGC_field_subset(exp, var, n):
     fieldset = BGCFields(exp)
 
     if var in fieldset.vars_ofam:
-        fieldset.ofam_dataset(variables=var)
-        field_dataset = fieldset.ofam
+        field_dataset = fieldset.ofam_dataset(variables=var)
         dim_map = fieldset.dim_map_ofam
     else:
-        fieldset.kd490_dataset()
-        field_dataset = fieldset.kd
+        field_dataset = fieldset.kd490_dataset()
         dim_map = fieldset.dim_map_kd
 
     # Initialise particle dataset.
@@ -240,6 +238,10 @@ if __name__ == '__main__':
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
                   out_subdir=name, test=cfg.test)
+    # if cfg.test:
+    #     n = 0
+    #     var = 'phy'
+    #     save_felx_BGC_field_subset(exp, var, n)
 
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
