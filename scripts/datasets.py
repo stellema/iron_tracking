@@ -16,6 +16,7 @@ Todo:
 """
 import calendar
 import matplotlib.pyplot as plt  # NOQA
+from memory_profiler import profile
 import numpy as np
 import xarray as xr
 
@@ -160,6 +161,7 @@ class BGCFields(object):
         self.dim_map_kd = dict(time='month', lat='lat', lon='lon')
         self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
 
+    @profile
     def ofam_dataset(self, variables):
         """Get OFAM3 field(s) dataset."""
         # Set list of OFAM3 variables to open.
@@ -178,9 +180,9 @@ class BGCFields(object):
                 ofam = ofam3_datasets(self.exp, variables=var)
             else:
                 ofam[var] = ofam3_datasets(self.exp, variables=var)[var]
-
         return ofam
 
+    @profile
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
         kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc', chunks='auto')

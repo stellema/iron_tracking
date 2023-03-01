@@ -16,6 +16,7 @@ Todo:
 import calendar
 from datetime import datetime, timedelta  # NOQA
 import matplotlib.pyplot as plt
+from memory_profiler import profile
 import numpy as np
 import os
 import pandas as pd  # NOQA
@@ -126,6 +127,7 @@ class FelxDataSet(object):
             ds[var] = (['traj', 'obs'], arr)
         return ds
 
+    @profile
     def get_empty_bgc_felx_file(self):
         """Get new felx file (empty BGC data variables)."""
         self.check_bgc_prereq_files()
@@ -177,6 +179,7 @@ class FelxDataSet(object):
             dx.close()
         ds.close()
 
+    @profile
     @timeit(my_logger=logger)
     def save_inverse_plx_dataset(self):
         """Open, reverse and save plx dataset.
@@ -246,7 +249,6 @@ class FelxDataSet(object):
         save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
         logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
 
-    @timeit(my_logger=logger)
     def check_bgc_prereq_files(self):
         """Check needed files saved and can be opened with error."""
         def check_file_complete(file):

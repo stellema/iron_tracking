@@ -28,6 +28,7 @@ TODO:
 from argparse import ArgumentParser
 from datetime import datetime, timedelta  # NOQA
 import matplotlib.pyplot as plt
+from memory_profiler import profile
 import numpy as np
 import pandas as pd  # NOQA
 import xarray as xr  # NOQA
@@ -44,7 +45,7 @@ except ModuleNotFoundError:
 
 logger = mlogger('files_felx')
 
-
+@profile
 @timeit(my_logger=logger)
 def update_field_AAA(ds, field_dataset, var, dim_map):
     """Calculate fields at plx particle positions (using apply_along_axis and xarray).
@@ -66,7 +67,7 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
     dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
     return dx
 
-
+@profile
 @timeit(my_logger=logger)
 def save_felx_BGC_field_subset(exp, var, n):
     """Sample OFAM3 BGC fields at particle positions.
@@ -135,6 +136,7 @@ def save_felx_BGC_field_subset(exp, var, n):
     logger.info('{}: Saved tmp subset field.'.format(tmp_file.stem))
 
 
+@profile
 def save_felx_BGC_fields(exp):
     """Run and save OFAM3 BGC fields at particle positions as n temp files."""
     pds = FelxDataSet(exp)
@@ -165,6 +167,7 @@ def save_felx_BGC_fields(exp):
     return
 
 
+@profile
 def parallelise_prereq_files(scenario):
     """Calculate plx subset and inverse_plx files.
 
@@ -191,6 +194,7 @@ def parallelise_prereq_files(scenario):
     return
 
 
+@profile
 def parallelise_BGC_fields(exp):
     """Parallelise saving particle BGC fields as temp files.
 
