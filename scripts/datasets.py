@@ -162,31 +162,22 @@ class BGCFields(object):
         self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
 
     @profile
-    def ofam_dataset(self, variables):
+    def ofam_dataset(self, variables, **kwargs):
         """Get OFAM3 field(s) dataset."""
         # Set list of OFAM3 variables to open.
-        self._variables_ = variables
-        if not isinstance(self._variables_, list):
-            self._variables_ = [self._variables_]
-
-        if cfg.test:
-            for i, var in enumerate(self._variables_):
-                if var not in ['phy', 'zoo', 'det']:
-                    self._variables_.pop(i)
-
-        for i, var in enumerate(self._variables_):
-            if i == 0:
-                # Initialise ofam3 dataset.
-                ofam = ofam3_datasets(self.exp, variables=var)
-            else:
-                ofam[var] = ofam3_datasets(self.exp, variables=var)[var]
+        if not isinstance(variables, list):
+            ofam = ofam3_datasets(self.exp, variables=variables, **kwargs)
+        else:
+            ofam = ofam3_datasets(self.exp, variables=variables[0], **kwargs)
+            for var in variables[1:]:
+                ofam[var] = ofam3_datasets(self.exp, variables=var, **kwargs)[var]
         return ofam
 
     @profile
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
         chunks = {'month': 12, 'lat': 480, 'lon': 1980}
-        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc')
+        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc', chunks=chunks)
 
         # kd.coords['time'] = kd.time.dt.month
         kd = kd.rename(dict(month='time'))

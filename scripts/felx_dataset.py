@@ -58,15 +58,14 @@ class FelxDataSet(object):
         """
         mask_at_euc = ds.time.dt.year.max('obs') >= self.exp.time_bnds[0].year
         # mask_source = self.ds.isel(obs=0, drop=True).time.dt.year >= self.exp.spinup_bnds[0].year
-        mask = mask_at_euc  # & mask_source # Both 1D mask along traj dim.
 
-        pids = ds.traj.where(mask, drop=True)
+        pids = ds.traj.where(mask_at_euc, drop=True)
         return pids
 
-    def empty_DataArray(self, name=None, fill_value=np.nan, dtype=np.float32):
+    def empty_DataArray(self, ds, name=None, fill_value=np.nan, dtype=np.float32):
         """Add empty DataArray."""
-        return xr.DataArray(np.full((self.ds.traj.size, self.ds.obs.size), fill_value, dtype),
-                            dims=('traj', 'obs'), coords=self.ds.coords, name=name)
+        return xr.DataArray(np.full((ds.traj.size, ds.obs.size), fill_value, dtype),
+                            dims=('traj', 'obs'), coords=ds.coords, name=name)
 
     def override_spinup_particle_times(self, time):
         """Change the year of particle time during spinup to spinup year.
@@ -128,28 +127,28 @@ class FelxDataSet(object):
         return ds
 
     @profile
-    def get_empty_bgc_felx_file(self):
+    def get_empty_bgc_felx_file(self, ds):
         """Get new felx file (empty BGC data variables)."""
         self.check_bgc_prereq_files()
 
-        self.ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=None)
+        ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=None)
 
         if self.exp.test:
             print('Testing 1000 particles.')
-            self.ds = self.ds.isel(traj=slice(100))
+            ds = ds.isel(traj=slice(100))
             # ds = ds.subset_min_time(time='2012-01-01'):
-            self.ds = self.ds.dropna('obs', 'all')
+            ds = ds.dropna('obs', 'all')
 
-        self.ds['valid_mask'] = ~np.isnan(self.ds.trajectory)
+        ds['valid_mask'] = ~np.isnan(ds.trajectory)
         # convert to days since 1979 (same as ofam3)
-        self.ds['month'] = self.ds.time.dt.month
+        ds['month'] = ds.time.dt.month
         # self.ds = self.override_spinup_particle_times(self.exp, self.ds)
-        self.ds['time_orig'] = self.ds.time.copy()  # particle times before modifying
-        self.ds['time'] = self.override_spinup_particle_times(self.ds.time)
+        ds['time_orig'] = ds.time.copy()  # particle times before modifying
+        ds['time'] = self.override_spinup_particle_times(ds.time)
 
         for var in self.bgc_variables:
-            self.ds[var] = self.empty_DataArray()
-        return self.ds
+            ds[var] = self.empty_DataArray(ds)
+        return ds
 
     @timeit(my_logger=logger)
     def save_plx_file_particle_subset(self):
@@ -314,12 +313,13 @@ class FelxDataSet(object):
     def init_felx_bgc_dataset(self):
         """Get finished felx BGC dataset and format."""
         file = self.file_felx_bgc
-        self.ds = xr.open_dataset(file)
+        ds = xr.open_dataset(file)
 
         variables = ['scav', 'src', 'iron', 'reg', 'phyup']
         for var in variables:
-            self.ds[var] = self.empty_DataArray()
+            ds[var] = self.empty_DataArray(ds)
         self.add_iron_model_constants()
+        return ds
 
     def add_iron_model_constants(self):
         """Add a constants to the FieldSet."""

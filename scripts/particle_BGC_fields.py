@@ -105,7 +105,7 @@ def save_felx_BGC_field_subset(exp, var, n):
     fieldset = BGCFields(exp)
 
     if var in fieldset.vars_ofam:
-        field_dataset = fieldset.ofam_dataset(variables=var)
+        field_dataset = fieldset.ofam_dataset(variables=var, chunks='auto')
         dim_map = fieldset.dim_map_ofam
     else:
         field_dataset = fieldset.kd490_dataset()
@@ -179,12 +179,12 @@ def parallelise_prereq_files(scenario):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 
-    if rank == 0:
-        data = [x for x in [165, 190, 220, 250]]
-    else:
-        data = None
-    data = comm.scatter(data, root=0)
-    lon = data
+    # if rank == 0:
+    #     data = [x for x in [165, 190, 220, 250]]
+    # else:
+    #     data = None
+    # data = comm.scatter(data, root=0)
+    lon = [165, 190, 220, 250][rank]
 
     for r in range(8):
         name = 'felx_bgc'
@@ -196,7 +196,7 @@ def parallelise_prereq_files(scenario):
 
 @profile
 def parallelise_BGC_fields(exp):
-    """Parallelise saving particle BGC fields as temp files.
+    """Step 2. Parallelise saving particle BGC fields as temp files.
 
     Notes:
         * Assumes 35 processors
@@ -205,16 +205,10 @@ def parallelise_BGC_fields(exp):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 
-    # Step 2.
-    pds = FelxDataSet(exp)
-    if rank == 0:
-        # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
-        # TODO: put pack to range(pds.num_subsets) & calc last subset
-        data = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets - 1)]  # len=35
-    else:
-        data = None
-    data = comm.scatter(data, root=0)
-    var, n = data
+    # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
+    bgc_variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
+    var_n_all = [[v, i] for v in bgc_variables for i in range(pds.num_subsets)]
+    var, n = var_n_all[rank]
     logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
     save_felx_BGC_field_subset(exp, var, n)
     return
@@ -246,9 +240,6 @@ if __name__ == '__main__':
     #     n = 0
     #     var = 'phy'
     #     save_felx_BGC_field_subset(exp, var, n)
-
-    comm = MPI.COMM_WORLD
-    size = comm.Get_size()
 
     # Step 1.
     if func == 'prereq_files':
