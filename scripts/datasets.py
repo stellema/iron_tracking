@@ -185,14 +185,16 @@ class BGCFields(object):
     @profile
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
-        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc', chunks='auto')
+        chunks = {'month': 12, 'lat': 480, 'lon': 1980}
+        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc')
 
         # kd.coords['time'] = kd.time.dt.month
         kd = kd.rename(dict(month='time'))
 
         # Subset lat and lons to match ofam3 data.
-        kd = kd.sel(lat=slice(-14.95, 14.95), lon=slice(120, 294.95))
+        kd = kd.sel(lat=slice(-10, 10), lon=slice(120, 285))
         kd = kd.rename({'Kd490': 'kd'})
+        kd = kd.coarsen(lon=2, side='right').mean()
         return kd
 
 
