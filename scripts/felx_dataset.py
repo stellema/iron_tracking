@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""
+"""FelxDataSet class contains constants and functions the lagrangian iron model.
+
+Includes functions for sampling and saving BGC fields at particle positions.
 
 Notes:
 
@@ -12,7 +14,6 @@ Todo:
 @created: Sun Feb 19 14:24:37 2023
 
 """
-
 import calendar
 from datetime import datetime, timedelta  # NOQA
 import matplotlib.pyplot as plt
@@ -62,10 +63,9 @@ class FelxDataSet(object):
         pids = ds.traj.where(mask_at_euc, drop=True)
         return pids
 
-    def empty_DataArray(self, ds, name=None, fill_value=np.nan, dtype=np.float32):
+    def empty_DataArray(self, ds, name=None, fill_value=np.nan):
         """Add empty DataArray."""
-        return xr.DataArray(np.full((ds.traj.size, ds.obs.size), fill_value, dtype),
-                            dims=('traj', 'obs'), coords=ds.coords, name=name)
+        return xr.DataArray(fill_value, dims=('traj', 'obs'), coords=ds.coords, name=name)
 
     def override_spinup_particle_times(self, time):
         """Change the year of particle time during spinup to spinup year.
@@ -127,28 +127,21 @@ class FelxDataSet(object):
         return ds
 
     @profile
-    def get_empty_bgc_felx_file(self, ds):
-        """Get new felx file (empty BGC data variables)."""
-        self.check_bgc_prereq_files()
-
+    def save_empty_bgc_felx_file(self):
+        """Save new felx file (empty BGC data variables)."""
         ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=None)
-
-        if self.exp.test:
-            print('Testing 1000 particles.')
-            ds = ds.isel(traj=slice(100))
-            # ds = ds.subset_min_time(time='2012-01-01'):
-            ds = ds.dropna('obs', 'all')
 
         ds['valid_mask'] = ~np.isnan(ds.trajectory)
         # convert to days since 1979 (same as ofam3)
         ds['month'] = ds.time.dt.month
-        # self.ds = self.override_spinup_particle_times(self.exp, self.ds)
         ds['time_orig'] = ds.time.copy()  # particle times before modifying
         ds['time'] = self.override_spinup_particle_times(ds.time)
 
         for var in self.bgc_variables:
             ds[var] = self.empty_DataArray(ds)
-        return ds
+
+        save_dataset(ds, str(self.exp.file_felx_bgc), msg='')
+        return
 
     @timeit(my_logger=logger)
     def save_plx_file_particle_subset(self):
@@ -248,6 +241,7 @@ class FelxDataSet(object):
         save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
         logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
 
+    @profile
     def check_bgc_prereq_files(self):
         """Check needed files saved and can be opened with error."""
         def check_file_complete(file):
@@ -274,6 +268,11 @@ class FelxDataSet(object):
         file_complete = check_file_complete(file)
         if not file_complete:
             self.save_inverse_plx_dataset()
+
+        file = self.exp.file_felx_bgc
+        file_complete = check_file_complete(file)
+        if not file_complete:
+            self.save_empty_bgc_felx_file(self)
 
     def bgc_var_tmp_filenames(self, var):
         """Get tmp filenames for BGC tmp subsets."""

@@ -27,7 +27,7 @@ TODO:
 """
 from argparse import ArgumentParser
 from datetime import datetime, timedelta  # NOQA
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # NOQA
 from memory_profiler import profile
 import numpy as np
 import pandas as pd  # NOQA
@@ -44,6 +44,7 @@ except ModuleNotFoundError:
     MPI = None
 
 logger = mlogger('files_felx')
+
 
 @profile
 @timeit(my_logger=logger)
@@ -66,6 +67,7 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map)
     dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
     return dx
+
 
 @profile
 @timeit(my_logger=logger)
@@ -105,14 +107,13 @@ def save_felx_BGC_field_subset(exp, var, n):
     fieldset = BGCFields(exp)
 
     if var in fieldset.vars_ofam:
-        field_dataset = fieldset.ofam_dataset(variables=var, chunks='auto')
+        field_dataset = fieldset.ofam_dataset(variables=var)
         dim_map = fieldset.dim_map_ofam
     else:
         field_dataset = fieldset.kd490_dataset()
         dim_map = fieldset.dim_map_kd
 
     # Initialise particle dataset.
-
     pds = FelxDataSet(exp)
     # Create temp directory and filenames.
     tmp_files = pds.bgc_var_tmp_filenames(var)
@@ -121,10 +122,8 @@ def save_felx_BGC_field_subset(exp, var, n):
     if tmp_file.exists():
         return
 
-    if exp.file_felx_bgc.exists():
-        ds = xr.open_dataset(exp.file_felx_bgc)
-    else:
-        ds = pds.get_empty_bgc_felx_file()
+    pds.check_bgc_prereq_files()
+    ds = xr.open_dataset(exp.file_felx_bgc)
 
     # Save temp file subset for variable.
     logger.info('{}: Getting field.'.format(tmp_file.stem))
@@ -140,11 +139,9 @@ def save_felx_BGC_field_subset(exp, var, n):
 def save_felx_BGC_fields(exp):
     """Run and save OFAM3 BGC fields at particle positions as n temp files."""
     pds = FelxDataSet(exp)
+    pds.check_bgc_prereq_files()
 
-    if exp.file_felx_bgc.exists():
-        ds = xr.open_dataset(exp.file_felx_bgc)
-    else:
-        ds = pds.get_empty_bgc_felx_file()
+    ds = xr.open_dataset(exp.file_felx_bgc)
 
     # Put all temp files together.
     logger.info('{}: Getting OFAM3 BGC fields.'.format(exp.file_felx_bgc.stem))
@@ -175,15 +172,9 @@ def parallelise_prereq_files(scenario):
         * Assumes 8 processors
         * 10 file x 16 min each = ~2.6 hours.
     """
-    # Step 1.
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 
-    # if rank == 0:
-    #     data = [x for x in [165, 190, 220, 250]]
-    # else:
-    #     data = None
-    # data = comm.scatter(data, root=0)
     lon = [165, 190, 220, 250][rank]
 
     for r in range(8):
@@ -207,7 +198,7 @@ def parallelise_BGC_fields(exp):
 
     # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
     bgc_variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
-    var_n_all = [[v, i] for v in bgc_variables for i in range(pds.num_subsets)]
+    var_n_all = [[v, i] for v in bgc_variables for i in range(5)]
     var, n = var_n_all[rank]
     logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
     save_felx_BGC_field_subset(exp, var, n)
