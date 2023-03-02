@@ -196,9 +196,15 @@ def parallelise_BGC_fields(exp):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 
+    pds = FelxDataSet(exp)
     # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
-    bgc_variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
-    var_n_all = [[v, i] for v in bgc_variables for i in range(5)]
+    var_n_all = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets)]
+
+    # Remove any finished saved subsets from list.
+    for vn in var_n_all:
+        if pds.bgc_var_tmp_filenames(vn[0])[vn[1]].exists():
+            var_n_all.remove(vn)
+
     var, n = var_n_all[rank]
     logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
     save_felx_BGC_field_subset(exp, var, n)
