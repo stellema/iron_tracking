@@ -247,15 +247,14 @@ class FelxDataSet(object):
         def check_file_complete(file):
             file_complete = False
             if file.exists():
-                file_complete = True
-                # try:
-                #     df = xr.open_dataset(str(file), chunks='auto')
-                #     file_complete = True
-                #     df.close()
-                # except:
-                #     file_complete = False
-                #     logger.info('{}: Error - deleting.'.format(file.stem))
-                #     os.remove(file)
+                 try:
+                     df = xr.open_dataset(str(file), chunks='auto')
+                     file_complete = True
+                     df.close()
+                 except:
+                     file_complete = False
+                     logger.info('{}: Error - deleting.'.format(file.stem))
+                     os.remove(file)
 
             return file_complete
 
@@ -272,7 +271,7 @@ class FelxDataSet(object):
         file = self.exp.file_felx_bgc
         file_complete = check_file_complete(file)
         if not file_complete:
-            self.save_empty_bgc_felx_file(self)
+            self.save_empty_bgc_felx_file()
 
     def bgc_var_tmp_filenames(self, var):
         """Get tmp filenames for BGC tmp subsets."""
