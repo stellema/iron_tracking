@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt  # NOQA
 from memory_profiler import profile
 import numpy as np
 import pandas as pd  # NOQA
+import time
 import xarray as xr  # NOQA
 
 import cfg
@@ -203,7 +204,10 @@ def parallelise_BGC_fields(exp):
     rank = comm.Get_rank()
 
     pds = FelxDataSet(exp)
-    pds.rename_bgc_tmp_files()  # TODO: can be deleted after run once.
+    if rank == 0:
+        pds.rename_bgc_tmp_files()  # TODO: can be deleted after run once.
+    else:
+        time.sleep(5)
 
     # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
     var_n_all = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets)]
