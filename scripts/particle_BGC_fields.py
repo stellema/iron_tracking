@@ -213,11 +213,13 @@ def parallelise_BGC_fields(exp):
     var_n_all = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets)]
 
     # Remove any finished saved subsets from list.
-    for vn in var_n_all:
-        if pds.bgc_var_tmp_filenames(vn[0])[vn[1]].exists():
+    for vn in var_n_all.copy():
+        files = pds.bgc_var_tmp_filenames(vn[0])
+        if pds.check_file_complete(files[vn[1]]):
             var_n_all.remove(vn)
+    if rank == 0:
+        logger.info('{}: Number of files to run={}'.format(exp.file_felx_bgc.stem, len(var_n_all)))
 
-    logger.info('{}: Number of files to run={}'.format(exp.file_felx_bgc.stem, len(var_n_all)))
     var, n = var_n_all[rank]
     logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
     save_felx_BGC_field_subset(exp, var, n)
