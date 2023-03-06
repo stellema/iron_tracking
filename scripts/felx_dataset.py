@@ -241,50 +241,55 @@ class FelxDataSet(object):
         save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
         logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
 
+    def check_file_complete(self, file):
+        """Check file exists and can be opened without error."""
+        file_complete = False
+        if file.exists():
+            try:
+                if file.suffix == '.nc':
+                    df = xr.open_dataset(str(file), chunks='auto')
+                    df.close()
+                elif file.suffix == '.npy':
+                    df = np.load(file, allow_pickle=True)
+                file_complete = True
+
+            except Exception as err:
+                file_complete = False
+                os.remove(file)
+                logger.info('{}: File check failed. {}: {}. Deleted.'
+                            .format(file.stem, type(err), err))
+        return file_complete
+
     @profile
     def check_bgc_prereq_files(self):
-        """Check needed files saved and can be opened with error."""
-        def check_file_complete(file):
-            file_complete = False
-            if file.exists():
-                 try:
-                     df = xr.open_dataset(str(file), chunks='auto')
-                     file_complete = True
-                     df.close()
-                 except:
-                     file_complete = False
-                     logger.info('{}: Error - deleting.'.format(file.stem))
-                     os.remove(file)
-
-            return file_complete
-
+        """Check needed files saved and can be opened without error."""
         file = self.exp.file_plx
-        file_complete = check_file_complete(file)
+        file_complete = self.check_file_complete(file)
         if not file_complete:
             self.save_plx_file_particle_subset()
 
         file = self.exp.file_plx_inv
-        file_complete = check_file_complete(file)
+        file_complete = self.check_file_complete(file)
         if not file_complete:
             self.save_inverse_plx_dataset()
 
         file = self.exp.file_felx_bgc
-        file_complete = check_file_complete(file)
+        file_complete = self.check_file_complete(file)
         if not file_complete:
             self.save_empty_bgc_felx_file()
 
     def bgc_var_tmp_filenames(self, var):
         """Get tmp filenames for BGC tmp subsets."""
         tmp_dir = paths.data / 'felx/tmp_{}_{}'.format(self.exp.file_felx_bgc.stem, var)
-        if not tmp_dir.exists():
-            os.mkdir(tmp_dir)
-        tmp_files = [tmp_dir / '{}.np'.format(i) for i in range(self.num_subsets)]
+        if not tmp_dir.is_dir():
+            os.makedirs(tmp_dir, exist_ok=True)
+        tmp_files = [tmp_dir / '{}.npy'.format(i) for i in range(self.num_subsets)]
         return tmp_files
 
     def bgc_tmp_traj_subsets(self, ds):
         """Get traj slices for BGC tmp subsets."""
         traj_bnds = np.linspace(0, ds.traj.size + 1, self.num_subsets + 1, dtype=int)
-        traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(self.num_subsets - 1)]
+        traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(self.num_subsets)]
         return traj_slices
 
     def check_bgc_tmp_files_complete(self):
@@ -292,10 +297,21 @@ class FelxDataSet(object):
         complete = True
         for var in self.bgc_variables:
             for tmp_file in self.bgc_var_tmp_filenames(var):
-                if not tmp_file.exists():
+                file_complete = self.check_file_complete(tmp_file)
+                if not file_complete:
                     complete = False
-                    break
         return complete
+
+    def rename_bgc_tmp_files(self):
+        """Rename error in variable tmp filenames."""
+        for var in self.bgc_variables:
+            tmp_dir = paths.data / 'felx/tmp_{}_{}'.format(self.exp.file_felx_bgc.stem, var)
+            tmp_files = [tmp_dir / '{}.np.npy'.format(i) for i in range(self.num_subsets)]
+            for file in tmp_files:
+                if self.check_file_complete(file):
+                    if '.np.npy' in file.name:
+                        file.rename(file.parent / file.name.replace('.np.npy', '.npy'))
+        return
 
     def set_bgc_dataset_vars_from_tmps(self, ds):
         """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""

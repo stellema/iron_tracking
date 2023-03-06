@@ -16,9 +16,7 @@ Example:
 Questions:
 
 TODO:
-    * Parallelise openmfdataset
-    * Parallelise file index
-    * Estimate computational resources
+    * check monotonic index error
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -61,7 +59,16 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
         loc = {}
         for k, v in dim_map.items():
             loc[k] = dx[v]
-        x = field.sel(loc, method='nearest')
+        try:
+            x = field.sel(loc, method='nearest')
+
+        except ValueError as err:
+            logger.debug('{}'.format(err))
+            logger.debug('traj={}, obs={}, non-NaN obs={}'
+                         .format(dx.traj.item(), dx.obs.size, dx.lat.dropna('obs', 'all').obs.size))
+            for k, v in dim_map.items():
+                logger.debug('{}: {}'.format(k, dx[v].head().values))
+            raise err
         return x
 
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map)
@@ -94,13 +101,12 @@ def save_felx_BGC_field_subset(exp, var, n):
     """
     def save_subset(file, ds, p, field_dataset, var, dim_map):
         """Save temp particle BGC fields subset."""
-        logger.info('{}: Calculating'.format(file.stem))
+        logger.info('{}: Calculating'.format(str(file)))
         dx = ds.isel(traj=slice(*p))
         dx = update_field_AAA(dx, field_dataset, var, dim_map)
 
-        logger.info('{}: Saving...'.format(file.stem))
         np.save(file, dx, allow_pickle=True)
-        logger.info('{}: Saved.'.format(file.stem))
+        logger.info('{}: Saved.'.format(str(file)))
         return
 
     # Create fieldset for variable.
@@ -119,20 +125,20 @@ def save_felx_BGC_field_subset(exp, var, n):
     tmp_files = pds.bgc_var_tmp_filenames(var)
     tmp_file = tmp_files[n]
 
-    if tmp_file.exists():
+    if pds.check_file_complete(tmp_file):
         return
 
     pds.check_bgc_prereq_files()
     ds = xr.open_dataset(exp.file_felx_bgc)
 
     # Save temp file subset for variable.
-    logger.info('{}: Getting field.'.format(tmp_file.stem))
+    logger.info('{}: Getting field.'.format(str(tmp_file)))
     traj_slices = pds.bgc_tmp_traj_subsets(ds)
     traj_slice = traj_slices[n]
 
     # Calculate & save particle subset.
     save_subset(tmp_file, ds, traj_slice, field_dataset, var, dim_map)
-    logger.info('{}: Saved tmp subset field.'.format(tmp_file.stem))
+    logger.info('{}: Saved tmp subset field.'.format(str(tmp_file)))
 
 
 @profile
@@ -191,12 +197,14 @@ def parallelise_BGC_fields(exp):
 
     Notes:
         * Assumes 35 processors
-        * Maybe 5 hours each file.
+        * Arounf 7-8 hours each file.
     """
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 
     pds = FelxDataSet(exp)
+    pds.rename_bgc_tmp_files()  # TODO: can be deleted after run once.
+
     # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
     var_n_all = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets)]
 
@@ -205,6 +213,7 @@ def parallelise_BGC_fields(exp):
         if pds.bgc_var_tmp_filenames(vn[0])[vn[1]].exists():
             var_n_all.remove(vn)
 
+    logger.info('{}: Number of files to run={}'.format(exp.file_felx_bgc.stem, len(var_n_all)))
     var, n = var_n_all[rank]
     logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
     save_felx_BGC_field_subset(exp, var, n)
@@ -228,7 +237,7 @@ if __name__ == '__main__':
 
     if cfg.test:
         func = ['bgc_fields', 'prereq_files', 'save_files'][0]
-        scenario, lon, version, index, var = 0, 190, 0, 1, 'phy'
+        scenario, lon, version, index, var = 0, 250, 0, 0, 'phy'
 
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
