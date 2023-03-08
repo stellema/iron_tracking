@@ -9,43 +9,33 @@ Opens and formats iron observational data from:
 Notes:
     - Only works for pandas
 
+Todo:
+    - Replace/repeat dFe surface depths
+    -
+
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
 @created: Mon Nov  7 17:05:56 2022
 
 """
-from datetime import datetime
-import re
-import pandas as pd
-import numpy as np
-import xarray as xr
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LatitudeFormatter
+from datetime import datetime
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import numpy as np
+import pandas as pd
+import re
+import xarray as xr
 
 import cfg
 from cfg import paths, mon
-from datasets import get_ofam_filenames
+from tools import timeit, mlogger
+from datasets import get_ofam_filenames, add_coord_attrs, save_dataset
 
-
-def subset_obs_data(ds, y=None, x=None, z=None, drop=True):
-    """Subset data array and drop NaNs along dimensions."""
-    for dim, c in zip(['x', 'y', 'z'], [x, y, z]):
-        if c is not None:
-            if isinstance(c, (int, float)):
-                kwargs = {dim: c, 'method': 'nearest'}
-            else:
-                kwargs = {dim: c}
-            ds = ds.sel(**kwargs)
-
-    if drop:
-        for dim in [d for d in ds.dims if d != 't']:
-            ds = ds.dropna(dim, 'all')
-    ds = ds.squeeze()
-    return ds
+logger = mlogger('misc')
 
 
 def GEOTRACES_iron_dataset(var='var88'):
@@ -97,6 +87,8 @@ def GEOTRACES_iron_dataset(var='var88'):
     keep_vars = ['t', 'z', 'y', 'x', 'cruise', var]
     ds = ds.drop([v for v in ds.data_vars if v not in keep_vars])
 
+    ds = ds.where(~np.isnan(ds[var]), drop=True)
+
     # Round coords.
     for var in ['z', 'y', 'x']:
         ds[var] = np.around(ds[var], 1).astype(dtype=np.float32)
@@ -108,9 +100,24 @@ def GEOTRACES_iron_dataset(var='var88'):
     return ds
 
 
-def GEOTRACES_iron_dataset_4D(var='var88', lats=[-15, 15], lons=[120, 290]):
+def GEOTRACES_iron_dataset_4D():
     """Open geotraces data, subset location and convert to multi-dim dataset."""
+    file = paths.obs / 'GEOTRACES_IDP2021_fe_trop_pacific.nc'
+    if file.exists():
+        ds = xr.open_dataset(file)
+        ds = ds.rename(dict(time='t', depth='z', lat='y', lon='x'))
+        return ds.dFe
+
+    var = 'var88'
     ds = GEOTRACES_iron_dataset(var)
+    ds = ds.drop('cruise')
+    ds = ds.where(~np.isnan(ds[var]), drop=True)
+
+    if 'var88' in ds.data_vars:
+        ds = ds.rename(dict(var88='dFe'))
+
+    lons = [110, 290]
+    lats = [-30, 30]
 
     # Subset lat/lons.
     ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1]) &
@@ -121,18 +128,13 @@ def GEOTRACES_iron_dataset_4D(var='var88', lats=[-15, 15], lons=[120, 290]):
     index = pd.MultiIndex.from_arrays(coords, names=['t', 'z', 'y', 'x'],)
     ds = ds.drop_vars({'index', 'x', 'y', 't', 'z'})
     ds = ds.assign_coords({'index': index})
-    # ds = ds.dropna('index', how='all')
     ds = ds.unstack('index')
 
     # Add data var attrs.
-    for v, n, u in zip(['y', 'x', 'z'], ['Latitude', 'Longitude', 'Depth'],
-                       ['°', '°', 'm']):
-        # ds = ds.sortby(ds[v])  # slow - only needed if new coordinates are out of order.
-        # ds = ds.dropna(v, 'all')
-        ds[v].attrs['long_name'] = n
-        ds[v].attrs['standard_name'] = n.lower()
-        ds[v].attrs['units'] = u
-    return ds
+    ds = ds.rename(dict(t='time', z='depth', y='lat', x='lon'))
+    ds = add_coord_attrs(ds)
+    save_dataset(ds, file, msg='Created multi-dimensional tropical Pacific subset.')
+    return ds.dFe
 
 
 def Tagliabue_iron_dataset():
@@ -148,6 +150,8 @@ def Tagliabue_iron_dataset():
     ds['x'] = xr.where(ds.x < 0, ds.x + 360, ds.x, keep_attrs=True)
     ds = ds.where(ds.month > 0, drop=True)  # Remove single -99 month.
 
+    ds = ds.where(~np.isnan(ds.dFe), drop=True)
+
     # Round coords.
     for var in ['z', 'y', 'x']:
         ds[var] = np.around(ds[var], 1).astype(dtype=np.float32)
@@ -161,7 +165,7 @@ def Tagliabue_iron_dataset():
     for i, r in enumerate(ds.Reference.values):
         ref = [s.replace(',', '').replace('.', '') for s in r.split(' ')]
         author = ref[0]
-        year = re.findall('\d+', r)[0]
+        year = re.findall('\d+', r)[0]  # NOQA
 
         if len(year) < 4:
             if author == 'Slemons':
@@ -177,22 +181,35 @@ def Tagliabue_iron_dataset():
     return ds
 
 
-def Tagliabue_iron_dataset_4D(lats=[-15, 15], lons=[120, 290]):
+def Tagliabue_iron_dataset_4D():
     """Open Tagliabue dataset, subset location and convert to multi-dim dataset."""
+    file = paths.obs / 'tagliabue_fe_database_jun2015_trop_pacific.nc'
+    if file.exists():
+        ds = xr.open_dataset(file)
+        ds = ds.rename(dict(time='t', depth='z', lat='y', lon='x'))
+        # ds = ds.sel(y=slice(*lats), x=slice(*lons))
+        return ds.dFe
+
     # Subset to tropical ocean.
     ds = Tagliabue_iron_dataset()
 
+    ds = ds.drop_vars(['month', 'year', 'ref', 'Reference'])
+    lons = [110, 290]
+    lats = [-30, 30]
     ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1]) &
                   (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
 
-    ds = ds.drop_vars(['month', 'year', 'ref', 'Reference'])
     # Convert to multi-dimensional array.
     coords = [ds.t.values, ds.z.values, ds.y.values, ds.x.values]
     index = pd.MultiIndex.from_arrays(coords, names=['t', 'z', 'y', 'x'], )
     ds = ds.drop_vars(['t', 'z', 'y', 'x'])
     ds = ds.assign_coords({'index': index})
-    ds = ds.dropna('index')
+    # ds = ds.dropna('index')
     ds = ds.unstack('index')
+
+    ds = ds.rename(dict(t='time', z='depth', y='lat', x='lon'))
+    ds = add_coord_attrs(ds)
+    save_dataset(ds, file, msg='Created multi-dimensional tropical Pacific subset.')
     return ds.dFe
 
 
@@ -217,7 +234,7 @@ def iron_obs_dataset_information(name='GEOTRACES', lats=[-15, 15], lons=[110, 29
     refs = np.unique(ds.ref)
 
     if name == 'Tagliabue':
-        refs = refs[np.argsort([re.findall('\d+', r)[0] for r in refs])]
+        refs = refs[np.argsort([re.findall('\d+', r)[0] for r in refs])]  # NOQA
 
     for i, ref in enumerate(refs):
         dr = ds.where(ds.ref == ref, drop=True)
@@ -293,6 +310,151 @@ def Huang_iron_dataset():
     return ds.dFe_RF
 
 
+def subset_obs_data(ds, y=None, x=None, z=None, drop=True):
+    """Subset data array and drop NaNs along dimensions."""
+    for dim, c in zip(['x', 'y', 'z'], [x, y, z]):
+        if c is not None:
+            if isinstance(c, (int, float)):
+                kwargs = {dim: c, 'method': 'nearest'}
+            else:
+                kwargs = {dim: c}
+            ds = ds.sel(**kwargs)
+
+    if drop:
+        for dim in [d for d in ds.dims if d != 't']:
+            ds = ds.dropna(dim, 'all')
+    ds = ds.squeeze()
+    return ds
+
+
+@timeit(my_logger=logger)
+def interpolate_depths(ds, method='slinear'):
+    """Interpolate observation depths to OFAM3 depths."""
+    def valid_coord_indexes(dx, dim):
+        """Dimension indexes with non NaN elements."""
+        dim_valid = dx.dropna(dim, 'all')[dim]
+        indexes = dx[dim].searchsorted(dim_valid)
+        return indexes
+
+    def interpolate_depth_array(dx, ds_interp, loc):
+        """Interpolate along depths indexes with non NaN elements."""
+        if dx.z.size >= 3:
+            z_new_subset = ds_interp.z.copy().sel(z=slice(*[dx.z[a].item() for a in [0, -1]]))
+            dx = dx.interp(z=z_new_subset, method=method)
+        else:
+            z_new_subset = ds_interp.z.copy().sel(z=dx.z.values, method='nearest')
+            dx.coords['z'] = z_new_subset
+
+        ds_interp[loc] = dx.broadcast_like(ds_interp[loc])
+        return ds_interp
+
+    # Drop any non-NaN dims (speeds up performance if data was subset).
+    for v in ['t', 'z', 'y', 'x']:
+        ds = ds.dropna(v, how='all')
+
+    # Create all-NaN obs data array with OFAM3 depths.
+    mesh = xr.open_dataset(str(paths.data / 'ofam_mesh_grid.nc'))
+    ds_interp = (ds.copy() * np.nan).interp(z=mesh.st_edges_ocean.values)
+
+    # loc = dict(t=6, y=37, x=197)  # test Tagliabue.
+
+    # Interpolate depths at each point (only iterates through non-NaN dim elements).
+    for t in range(ds.t.size):
+        loc = dict(t=t)
+        for y in valid_coord_indexes(ds.isel(loc), dim='y'):
+            loc = dict(t=t, y=y)
+            for x in valid_coord_indexes(ds.isel(loc), dim='x'):
+                loc = dict(t=t, y=y, x=x)
+                dx = ds.isel(loc).dropna('z')
+
+                if dx.z.size > 0:
+                    # Interpolate depths (unless all NaN).
+                    ds_interp = interpolate_depth_array(dx, ds_interp, loc)
+    return ds_interp
+
+
+@timeit(my_logger=logger)
+def combined_iron_obs_datasets(lats=[-15, 15], lons=[110, 290], add_Huang=False,
+                               interpolate_z=True, pad_uniform_grid=False):
+    """Create combined multi-dim iron observation datasets.
+
+    Merged datasets:
+        * GEOTRACES
+        * Tagliabue et al. (2012)
+        * [Optional] Huange et al. (2022)
+        * [Optional] Evenly spaced (0.5 deg lat x 0.5 deg lon)
+
+    Args:
+        lats (list, optional): Latitude subset range. Defaults to [-15, 15].
+        lons (list, optional): Longitude subset range. Defaults to [110, 290].
+        pad_uniform_grid (bool, optional): Create evenly spaced NaN grid. Defaults to False.
+        add_Huang (bool, optional): Merge data with the Huang et al. . Defaults to False.
+
+    Returns:
+        ds_merged (xarray.Dataset): Dataset with merged
+
+    Notes:
+        * Interpolates to OFAM3 depth grid.
+        * Slice depth AFTER interpolating depths.
+        * Interpolating depths takes around takes ~8 mins for Huang dataset
+        * 00h:08m:38.18s: using pad_uniform_grid=False, add_Huang=True
+        * Resulting grid won't be totally even (requires 0.1 deg spacing - too big).
+
+    """
+    def format_obs_dataset(ds, name):
+        """Format (subset & interpolate) observation dataset."""
+        # Subset to tropical ocean.
+        ds = ds.sel(y=slice(*lats), x=slice(*lons))
+
+        # Interpolate depths.
+        if interpolate_z:
+            ds = interpolate_depths(ds)
+
+        # Drop/rename vars and convert to Datasets (must be after interpolate).
+        ds = ds.to_dataset(name=name)
+
+        # Drop any non-NaN dims (speeds up performance if data was subset).
+        for v in ['t', 'z', 'y', 'x']:
+            ds = ds.dropna(v, how='all')
+
+        # Convert dtype to float32 (except for times).
+        for var in list(ds.variables):
+            if ds[var].dtype not in ['float32', 'datetime64[ns]']:
+                ds[var] = ds[var].astype('float32')
+        return ds
+
+    name = 'fe'
+
+    dss = []
+    dss.append(GEOTRACES_iron_dataset_4D())
+    dss.append(Tagliabue_iron_dataset_4D())
+
+    if add_Huang:
+        dss.append(Huang_iron_dataset())
+        dss[-1] = dss[-1].isel(t=slice(12))
+        dss[-1]['t'] = pd.to_datetime(['2022-{:02d}-01'.format(i + 1) for i in range(12)])
+
+    dss = [format_obs_dataset(ds_, name) for ds_ in dss]
+
+    ds_merged = xr.merge(dss)
+
+    if pad_uniform_grid:
+        # Evenly spaced lat and lon (single level time and depth arrays).
+        y = np.arange(lats[0], lats[-1] + 0.5, 0.5, dtype=np.float32)
+        x = np.arange(lons[0], lons[-1] + 0.5, 0.5, dtype=np.float32)
+        z = np.array([dss[1].z.values[0]])
+        t = np.array([dss[1].t.values[0]])
+
+        coords = dict(t=('t', t), z=('z', z), y=('y', y), x=('x', x))
+        temp = xr.DataArray(np.full((1, 1, y.size, x.size), np.nan),
+                            dims=list(coords.keys()), coords=coords)
+        temp = temp.to_dataset(name=name)
+
+        ds_merged = xr.merge([ds_merged, temp])
+
+    return ds_merged
+
+
 def create_map_axis(fig, ax, extent=[120, 285, -10, 10]):
     """Create a figure and axis with cartopy."""
     proj = ccrs.PlateCarree()
@@ -321,8 +483,10 @@ def create_map_axis(fig, ax, extent=[120, 285, -10, 10]):
 
 def plot_iron_obs_GEOTRACES():
     """Plot geotraces data."""
-    ds = GEOTRACES_iron_dataset_4D(var='var88', lats=[-10, 10], lons=[120, 285])
-    dx = ds.var88  # .where(~np.isnan(ds.var88), drop=True)
+    ds = GEOTRACES_iron_dataset_4D()
+    ds = ds.sel(y=slice(*[-10, 10]), x=slice(*[120, 285]))
+
+    dx = ds.dFe  # .where(~np.isnan(ds.var88), drop=True)
 
     for v in ['x', 'y', 'z', 't']:
         dx = dx.dropna(v, 'all')
@@ -354,7 +518,7 @@ def plot_iron_obs_GEOTRACES():
     plt.show()
 
     # Plot: Vitiaz Strait & Solomon Strait.
-    dx = ds.var88.mean('t', skipna=True)
+    dx = ds.dFe.mean('t', skipna=True)
     da1 = subset_obs_data(dx, -5.9, 147.7)  # Vitiaz Strait
     da2 = subset_obs_data(dx, -5.139, 153.3)  # Solomon Strait
     da3 = subset_obs_data(dx, -6.166, 152.5)  # Solomon Sea
@@ -362,7 +526,7 @@ def plot_iron_obs_GEOTRACES():
     da5 = subset_obs_data(dx, -3.998, 155.6)  # New Ireland
 
     color = ['r', 'darkviolet', 'b', 'dodgerblue', 'deeppink']
-    name = ['Vitiaz Strait', 'Solomon Strait', 'Solomon Sea 6S', 'Solomon Sea 8S',
+    name = ['Vitiaz Strait', 'Solomon Strait', 'Solomon Sea 6S-', 'Solomon Sea 8S',
             'New Ireland']
 
     fig, ax = plt.subplots(1, 1, figsize=(6, 5))
@@ -384,7 +548,8 @@ def plot_iron_obs_GEOTRACES():
 
 def plot_iron_obs_Tagliabue():
     """Plot Tagliabue data."""
-    ds = Tagliabue_iron_dataset_4D(lats=[-10, 10], lons=[120, 285])
+    ds = Tagliabue_iron_dataset_4D()
+    ds = ds.sel(y=slice(*[-10, 10]), x=slice(*[120, 285]))
 
     # Subset: Equatorial Pacific.
     dx = ds.sel(y=0, method='nearest').sel(z=slice(0, 550))
@@ -618,7 +783,8 @@ def plot_iron_obs_maps():
 
     ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
 
-    ax.set_title('Iron observations from (blue) GEOTRACES IDP2021 and (red) Tagliabue et al. (2012) dataset [2015 Update]')
+    ax.set_title('Iron observations from (blue) GEOTRACES IDP2021 and \
+                 (red) Tagliabue et al. (2012) dataset [2015 Update]')
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_pacific.png')
 
@@ -638,11 +804,13 @@ def plot_iron_obs_maps():
         refs = np.unique(ds[var])
         for j, r in enumerate(refs):
             dx = ds.where(ds[var] == r, drop=True)
-            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j], alpha=0.7, transform=proj)
+            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j], alpha=0.7,
+                       transform=proj)
 
     ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=6)
-    ax.set_title('Iron observations from GEOTRACES IDP2021 and Tagliabue et al. (2012) dataset [2015 Update]')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=5)
+    ax.set_title('Iron observations from GEOTRACES IDP2021 and ' +
+                 'Tagliabue et al. (2012) dataset [2015 Update]')
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_references.png', dpi=300)
 
@@ -650,7 +818,7 @@ def plot_iron_obs_maps():
 def plot_iron_obs_straits():
     """Plot Tagliabue & GEOTRACES data positions."""
     # Plot positions of observations in database.
-    ds1 = GEOTRACES_iron_dataset_4D().var88
+    ds1 = GEOTRACES_iron_dataset_4D()
     ds2 = Tagliabue_iron_dataset_4D()
     ds3 = Huang_iron_dataset()
 
@@ -663,8 +831,10 @@ def plot_iron_obs_straits():
 
     # PNG
     # dx1['png'] = ds1
-    dx2['png'] = subset_obs_data(ds2, slice(-4.5, -3), slice(140, 145), drop=drop).mean('y').mean('x')
-    dx3['png'] = subset_obs_data(ds3, slice(-4.5, -3), slice(140, 145), drop=drop).mean('y').mean('x')
+    dx2['png'] = subset_obs_data(ds2, slice(-4.5, -3), slice(140, 145),
+                                 drop=drop).mean('y').mean('x')
+    dx3['png'] = subset_obs_data(ds3, slice(-4.5, -3), slice(140, 145),
+                                 drop=drop).mean('y').mean('x')
 
     # Solomon Strait
     dx1['ss'] = subset_obs_data(ds1, -5.139, 153.3, drop=drop)
@@ -696,7 +866,7 @@ def plot_iron_obs_straits():
     dx3 = dx3.isel(t=-1)
 
     names = ['GEOTRACES', 'Tagliabue', 'Huang']
-    name = ['MC(7N)', 'Vitiaz Strait', 'PNG', 'Solomon Sea', 'Solomon Strait', 'New Ireland']  # 'MC(5N)'
+    name = ['MC(7N)', 'Vitiaz Strait', 'PNG', 'Solomon Sea', 'Solomon Strait', 'New Ireland']
     nvar = ['mc7', 'vs', 'png', 'ssea', 'ss',  'ni']
     # color = ['r', 'deeppink', 'darkviolet', 'b', 'dodgerblue', 'lime', 'g']
 
@@ -732,111 +902,282 @@ def plot_iron_obs_straits():
     plt.show()
 
 
-def interpolate_depths(ds):
-    """Interpolate depths."""
-    # lats = [-8, 3]
-    # lons = [115, 220]
-    # ds = Tagliabue_iron_dataset_4D(lats=lats, lons=lons)
-    mesh = xr.open_dataset(str(paths.data / 'ofam_mesh_grid.nc'))
-    z_new = mesh.st_edges_ocean.values
+def plot_test_spline():
+    """Plot interpolation method differences."""
+    ds = Tagliabue_iron_dataset_4D()
+    lats = [-10, 10]
+    lons = [115, 220]
+    ds = ds.sel(y=slice(*lats), x=slice(*lons))
+    ds_sl = interpolate_depths(ds, method='slinear')
+    ds_quad = interpolate_depths(ds, method='quadratic')
+    ds_cubic = interpolate_depths(ds, method='cubic')
 
-    ds_interp = ds.interp(z=z_new, method='cubic')
-    for t in range(ds.t.size):
-        for j in range(ds.y.size):
-            for i in range(ds.x.size):
-                loc = dict(t=t, y=j, x=i)
-                if not all(np.isnan(ds.isel(loc))):
-                    ds_interp[loc] = ds.isel(loc).dropna('z').interp(z=z_new)
+    x, y = 155, -5  # Solomon Strait
+    f1 = ds.sel(y=y, x=x, method='nearest').dropna('t', 'all').isel(t=0)
 
-    # subset_obs_data(ds, -5, 155).plot()  # Solomon Strait
-    # subset_obs_data(ds_interp, -5, 155).plot()
-    return ds_interp
+    fig, ax = plt.subplots(figsize=(7, 10))
+    ax.scatter(f1, f1.z, c='k', s=100, zorder=10, label='obs')
+    ax.set_title('Solomon Strait')
+    for dx, n, c in zip([ds_cubic, ds_quad, ds_sl], ['cubic', 'quadratic', 'slinear'],
+                        ['g', 'b', 'r']):
+        f2 = dx.sel(y=y, x=x, method='nearest').dropna('t', 'all').isel(t=0)
+        # ax.scatter(f2, f2.z, c=c, s=20, label=n)
+        ax.plot(f2, f2.z, c=c, label=n)
+        # ax.plot(f2, f2.z, c=c, marker='o', markerfacecolor='none', label=n)
 
-
-def combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[117, 285], depths=[0, 600],
-                               resample_coords=False, add_Huang=False):
-    """Merge iron obs datasets (4D; subset over the tropical Pacific)."""
-    # Todo: resample depths
-    dg = GEOTRACES_iron_dataset_4D(lats=lats, lons=lons)
-    dt = Tagliabue_iron_dataset_4D(lats=lats, lons=lons)
-    if add_Huang:
-        dh = Huang_iron_dataset()
-        # Subset to tropical ocean.
-        dh = dh.sel(y=slice(*lats), x=slice(*lons)).isel(t=slice(12))
-        dh = dh.to_dataset(name='fe')
-        dh['t'] = pd.to_datetime(['2030-{:02d}-01'.format(i + 1) for i in range(12)])
-        dh = dh.sel(z=slice(*depths))
-
-    # Drop/rename vars and convert to Datasets.
-    dg = dg.drop_vars(['cruise']).rename({'var88': 'fe'})
-    dt = dt.to_dataset(name='fe')
-
-    # Subset depths.
-    dg = dg.sel(z=slice(*depths))
-    dt = dt.sel(z=slice(*depths))
-
-    # Round obs depths to 1 decimal place.
-    # dg_interp = dg.interp(z=np.unique(np.around(dg.z, 1)), method='cubic')
-    # dt_interp = dt.interp(z=np.unique(np.around(dt.z, 1)), method='cubic')
-    if resample_coords:
-        x = np.arange(115, 286, 1)
-        y = np.arange(-11, 12, 0.5)
-        z = np.array([0])
-        t = np.array([dt.t.values[0]])
-        temp = xr.DataArray(np.full((1, 1, y.size, x.size), np.nan),
-                            dims=['t', 'z', 'y', 'x'],
-                            coords=dict(t=('t', t), z=('z', z),
-                                        y=('y', y), x=('x', x)))
-        temp = temp.to_dataset(name='fe')
-        dm = xr.merge([dg, dt, temp])
-        if add_Huang:
-            dm = xr.merge([dm, dh])
-    else:
-        dm = xr.merge([dg, dt, dh]) if add_Huang else xr.merge([dg, dt])
-        # dm = xr.merge([dg, dt])
-
-    # dmm = dm.sel(z=slice(1498, 1500))
-    # dmmx = dmm.where(~np.isnan(dmm.fe), drop=1)
-    # dmmx.fe.max('t').plot()
-
-    # dmg = dm.groupby_bins('z', np.unique(np.around(dt.z, 1)))
-    # dmg = dm.fe.notnull().groupby_bins('z', np.unique(np.around(dt.z, 1)))
-    # dmg_sum = dmg.sum('z')
-    return dm
+    ax.invert_yaxis()
+    ax.set_ylabel('Depth [m]')
+    ax.set_xlabel('dFe [nmol/L]')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'obs/test_interp_solomon.png', dpi=250)
 
 
-def get_ofam3_land_mask(dm):
-    file = get_ofam_filenames('phy', [datetime(2012, 1, 1), datetime(2012, 1, 1)])
-    df = xr.open_dataset(file[0]).phy
-    df = df.isel(Time=0, st_ocean=0, drop=True).rename({'yt_ocean': 'y', 'xt_ocean': 'x'})
-    df = df.where(np.isnan(df), 1)
+def get_iron_obs_locations(da, lat_slices, lon_slices):
+    """Get iron observation lat & lon positions in observation data array.
 
-    # create mask (n grid cells from nan)
-    n = 9
-    mask = df.copy()
-    JJ, II = np.where(np.isnan(df))
-    for inan in range(len(JJ)):
-        jp, ip = JJ[inan], II[inan]
-        mask[dict(y=slice(jp-n, jp+n+1), x=slice(ip-n, ip+n+1))] = np.nan
-    return mask
+    Args:
+        da (xarray.DataArray): Iron obs dataset to search for observation locations.
+        lat_slice (list of slice): Search region latitude slice(s).
+        lon_slice (list of slice): Search region latitude slice(s).
+
+    Returns:
+        xx
+
+    """
+    dx = []
+    for y, x in zip(lat_slices, lon_slices):
+        dx.append(da.sel(y=slice(*y), x=slice(*x)))
+
+    dx = xr.merge(dx).fe
+    if 't' in dx.dims:
+        dx = dx.mean('t')
+
+    obs_x, obs_y = [], []
+    for x in dx.x.values:
+        for y in dx.y.values:
+            dxx = dx.sel(x=x, y=y).dropna('z', 'all')
+            if dxx.size > 0:
+                obs_x.append(x)
+                obs_y.append(y)
+
+    coords = ['({:.1f}°E, {:.1f}°{})'.format(x, np.fabs(y), 'N' if y > 0 else 'S')
+              for x, y in zip(obs_x, obs_y)]
+    return dx, obs_x, obs_y, coords
 
 
-def plot_combined_iron_obs_datasets():
-    ds = combined_iron_obs_datasets(lats=[-11.5, 11.5], lons=[119, 283], depths=[0, 700])
-    # # Duplicates z: (+-2, 180E) z=10-11, 97; (-10.5, 208); (-10, 190)
+def iron_obs_profiles():
 
+    eps = 0.2
+    loc = {}
+    # loc[''] = dict(x=, y=)
+    loc['mc'] = dict(y=[4, 9.2], x=[118, 135])
+    loc['vs'] = dict(y=[-6, -3], x=[140, 150])
+    loc['ss'] = dict(y=[-6, -3], x=[151, 156])
+    loc['int_s'] = dict(y=[-10, -2.5], x=[170, 290])
+    loc['int_n'] = dict(y=[2.5, 10], x=[138, 295])
+    loc['mcx'] = dict(y=[7-eps, 7+eps], x=[130-eps, 130+eps])
+    loc['vsx'] = dict(y=[-3.3-eps, -3.3+eps], x=[144-eps, 144+eps])
+    loc['ssx'] = dict(y=[-5-eps, -5+eps], x=[155-eps, 155+eps])
+
+    lats = [-15, 15]
+    lons = [110, 290]
+
+    ds = combined_iron_obs_datasets(lats, lons, add_Huang=False, interpolate_z=True)
+    ds = ds.mean('t')
+
+    # LLWBCs: X-Y location of obs.
+    def sel_loc(da, loc, names):
+        dx = []
+        for n in names:
+            dx.append(da.sel(y=slice(*loc[n]['y']), x=slice(*loc[n]['x'])))
+
+        return xr.merge(dx).fe
+
+
+    df = xr.Dataset()
+    for n in loc.keys():
+        df[n] = sel_loc(ds.fe, loc, [n]).mean(['x', 'y'])
+    df['interior'] = sel_loc(ds.fe, loc, ['int_n', 'int_s']).mean(['x', 'y'])
+    df['llwbcs'] = sel_loc(ds.fe, loc, ['mc', 'vs', 'ss']).mean(['x', 'y'])
+
+def plot_combined_iron_obs_datasets_LLWBCs():
+    """Plot combined iron observation datasets."""
+    lats = [-15, 15]
+    lons = [110, 290]
+
+    ds = combined_iron_obs_datasets(lats, lons, add_Huang=False, interpolate_z=True)
+    ds_all = combined_iron_obs_datasets(lats, lons, add_Huang=True, interpolate_z=True)
+    ds_orig = combined_iron_obs_datasets(lats, lons, add_Huang=False, interpolate_z=False)
+    ds = ds.mean('t')
+    ds_all = ds_all.mean('t')
+    ds_orig = ds_orig.mean('t')
+
+    ##############################################################################################
+    ##############################################################################################
     # LLWBCS
-    dx = ds.fe.sel(y=slice(-6, -4), x=slice(147, 155)).dropna('z', 'all')
+    colors = ['wheat', 'rosybrown', 'darkred', 'peru', 'red', 'darkorange', 'salmon', 'gold',
+              'olive', 'lime', 'g', 'aqua', 'b', 'teal', 'dodgerblue', 'indigo', 'm', 'hotpink',
+              'grey']
 
+    # LLWBCs: X-Y location of obs.
+    lat_slices, lon_slices = [[-6, -3], [4, 9.2]], [[140, 156], [118, 135]]
+    dx, obs_x, obs_y, coords = get_iron_obs_locations(ds.fe, lat_slices, lon_slices)
+    dx_all, obs_x, obs_y, coords = get_iron_obs_locations(ds_all.fe, lat_slices, lon_slices)
+
+    ##############################################################################################
+    # LLWBCs: orig vs interp depths (Tag & GEOTRACES)..
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    axes[1].plot(dx.mean(['x', 'y']), dx.z, c='k', lw=4, label='mean', zorder=15)
+    axes[1].plot(dx_all.mean(['x', 'y']), dx_all.z, c='k', lw=3, ls='--', label='mean (+Huang)',
+                 zorder=15)
+
+    for j, ax, ds_ in zip(range(2), axes, [ds_orig, ds]):
+
+        for i, x, y in zip(range(len(obs_x[2:])), obs_x[2:], obs_y[2:]):
+            dxx = ds_.fe.sel(x=x, y=y, method='nearest').dropna('z', 'all')
+            label = coords[i] if j == 1 else None
+            ax.plot(dxx, dxx.z, c=colors[i], label=label)
+        ax.set_ylim(800, 0)
+
+    axes[0].set_title('a) Southern LLWBCs dFe (Tagliabue & GEOTRACES)')
+    axes[1].set_title('b) Southern LLWBCs dFe (interpolated)')
+    fig.legend(ncols=6, loc='lower center', bbox_to_anchor=(0.5, -0.15))  # (x, y, width, height)
+    for ax in axes:
+        ax.set_xlabel('dFe [nmol/kg]')
+        ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
+        ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'obs/iron_obs_combined_LLWBCs_interp.png', bbox_inches='tight')
+
+    ##############################################################################################
+    # LLWBCs: dFe and Map (Tag & GEOTRACES).
+    fig = plt.figure(figsize=(12, 6))
+    # Subplot 1: Map with obs location scatter.
+    ax = fig.add_subplot(121, projection=ccrs.PlateCarree(central_longitude=180))
+    ax.set_title('a) LLWBC dFe observation locations', loc='left')
+    ax.set_extent([117, 160, -7, 9], crs=ccrs.PlateCarree())
+    ax.scatter(obs_x, obs_y, color=colors[:len(obs_x)], transform=ccrs.PlateCarree())
+    ax.legend(ncols=2, loc='upper right', bbox_to_anchor=(1, 1))  # (x, y, width, height)
+    ax.add_feature(cfeature.LAND, color=cfeature.COLORS['land_alt1'])
+    ax.add_feature(cfeature.COASTLINE)
+    xticks = np.arange(120, 165, 5)
+    ax.set_xticks(xticks, crs=ccrs.PlateCarree())
+    ax.set_xticklabels(['{}°E'.format(i) for i in xticks])
+    ax.set_yticks(np.arange(-6, 10, 2), crs=ccrs.PlateCarree())
+    ax.yaxis.set_major_formatter(LatitudeFormatter())
+    ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.set_aspect('auto')
+    # Subplot 2: dFe as a function of depth.
+    ax = fig.add_subplot(122)
+    ax.set_title('b) LLWBC dFe observations', loc='left')
+    ax.plot(dx.mean(['x', 'y']), dx.z, c='k', lw=4, label='mean', zorder=15)
+    ax.plot(dx_all.mean(['x', 'y']), dx_all.z, c='k', lw=3, ls='--', label='mean (+Huang)', zorder=15)
+
+    for i, x, y in zip(range(len(obs_x)), obs_x, obs_y):
+        dxx = dx.sel(x=x, y=y).dropna('z', 'all')
+        ax.plot(dxx, dxx.z, c=colors[i], label=coords[i])
+    ax.set_ylim(500, 0)
+    fig.legend(ncols=6, loc='lower center', bbox_to_anchor=(0.5, -0.15))  # (x, y, width, height)
+    ax.set_xlabel('dFe [nmol/kg]')
+    ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
+    ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'obs/iron_obs_combined_LLWBCs.png', bbox_inches='tight')
+
+    ##############################################################################################
+    ##############################################################################################
 
     # Equator.
-    dx = ds.fe.sel(y=slice(-2.5, 2.5)).dropna('z', 'all').mean('y')
-    fig, ax = plt.subplots(1, 1, figsize=(10, 7))
-    dx.mean('t').plot(ax=ax, yincrease=False, vmin=0, vmax=1.5)
+    dx = ds.fe.sel(y=slice(-2.5, 2.5)).mean('y')
 
-    ax.set_title('Combined iron obs around the equator')
+    fig, ax = plt.subplots(1, 1, figsize=(10, 7))
+    dx.mean('t').plot(ax=ax, yincrease=False, vmin=0, vmax=1.5, cmap=plt.cm.rainbow)
+
+    ax.set_title('Combined iron obs around the equator (time mean - no groupby)')
     ax.set_ylim(600, 0)
     ax.set_xlim(130, 280)
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_equator_combined.png')
     plt.show()
+
+    # Equator.
+    dx = ds.fe.groupby('t.month').mean('t').rename({'month': 't'})
+    dx = dx.sel(y=slice(-2.5, 2.5)).mean('y')
+
+    fig, ax = plt.subplots(4, 3, figsize=(14, 12))
+    ax = ax.flatten()
+    for i in range(12):
+        cs = ax[i].pcolormesh(dx.x, dx.z, dx.isel(t=i), vmin=0, vmax=1.5, cmap=plt.cm.rainbow)
+        ax[i].yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%dm'))
+        ax[i].xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
+        ax[i].set_xlim(130, 280)
+        ax[i].set_title(cfg.mon[i])
+        ax[i].invert_yaxis()
+
+    fig.suptitle('Combined iron obs around the equator (time.month mean)', y=0.92)
+    cax = fig.add_axes([0.25, 0.05, 0.5, 0.025])  # [left, bottom, width, height].
+    cbar = fig.colorbar(cs, cax=cax, orientation='horizontal')
+    fig.subplots_adjust(hspace=0.3, bottom=0.1)
+    plt.savefig(paths.figs / 'obs/iron_obs_equator_combined_months.png', bbox_inches='tight', dpi=350)
+    plt.show()
+
+    ##############################################################################################
+    ##############################################################################################
+    # Interior: X-Y location of obs.
+
+    lat_slices, lon_slices = [[-10, -2.5], [2.5, 10]], [[170, 290], [138, 295]]
+    dx, obs_x, obs_y, coords = get_iron_obs_locations(ds.fe, lat_slices, lon_slices)
+    dx_all, obs_x, obs_y, coords = get_iron_obs_locations(ds_all.fe, lat_slices, lon_slices)
+
+    ##############################################################################################
+    # Interior: dFe and Map (Tag & GEOTRACES).
+    fig = plt.figure(figsize=(12, 6))
+
+    # Subplot 1: Map with obs location scatter.
+    ax = fig.add_subplot(121, projection=ccrs.PlateCarree(central_longitude=180))
+    ax.set_title('a) Interior dFe observation locations', loc='left')
+    ax.set_extent([135, 290, -11, 11], crs=ccrs.PlateCarree())
+    ct = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    N = int(np.ceil(len(ct)*len(obs_x)/len(ct))/10) + 5
+    cols = np.tile(ct, N)[:len(obs_x)]
+    ax.scatter(obs_x, obs_y, color=cols, transform=ccrs.PlateCarree())
+    # ax.legend(ncols=2, loc='upper right', bbox_to_anchor=(1, 1))  # (x, y, width, height)
+    ax.add_feature(cfeature.LAND, color=cfeature.COLORS['land_alt1'])
+    ax.add_feature(cfeature.COASTLINE)
+    xticks = np.arange(130, 295, 20)
+    ax.set_xticks(xticks, crs=ccrs.PlateCarree())
+    ax.set_xticklabels(['{}°E'.format(i) for i in xticks])
+    ax.set_yticks(np.arange(-10, 12, 2), crs=ccrs.PlateCarree())
+    ax.yaxis.set_major_formatter(LatitudeFormatter())
+    ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.set_aspect('auto')
+
+    # Subplot 2: dFe as a function of depth.
+    ax = fig.add_subplot(122)
+    ax.set_title('b) Interior dFe observations', loc='left')
+    ax.plot(dx.mean(['x', 'y']), dx.z, c='k', lw=4, label='mean', zorder=15)
+    ax.plot(dx_all.mean(['x', 'y']), dx_all.z, c='k', lw=3, ls='--',
+            label='mean (+Huang)', zorder=15)
+
+    lss = ['-', '--', ':', '-.', (0, (1, 10)), (0, (5, 10)), (0, (1, 1)), (0, (5, 1)),
+           (0, (3, 10, 1, 10)), (0, (3, 5, 1, 5)), (0, (3, 1, 1, 1)), (0, (3, 5, 1, 5, 1, 5)),
+           (0, (3, 10, 1, 10, 1, 10)), (0, (3, 1, 1, 1, 1, 1))]
+
+    for i, x, y in zip(range(len(obs_x)), obs_x, obs_y):
+        dxx = dx.sel(x=x, y=y).dropna('z', 'all')
+        ax.plot(dxx, dxx.z, color=cols[i], ls=lss[int(np.floor(i/10))], label=coords[i])
+
+    ax.set_ylim(500, 0)
+    ax.set_xlim(0, 1.5)
+    fig.legend(ncols=6, loc='upper center', bbox_to_anchor=(0.5, 0))  # (x, y, width, height)
+    ax.set_xlabel('dFe [nmol/kg]')
+    ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
+    ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'obs/iron_obs_combined_interior_no_euc.png', bbox_inches='tight')
