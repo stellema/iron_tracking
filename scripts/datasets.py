@@ -68,7 +68,8 @@ def get_ofam_filenames(var, times):
             files.append('ocean_{}_{}_{:02d}.nc'.format(var, y, m))
 
     # Check for known missing files and replace with sub files.
-    for var, file in zip(['zoo', 'det'], ['ocean_det_2008_01.nc', 'ocean_zoo_2008_03.nc']):
+    for var, file in zip(['zoo', 'det', 'temp'], ['ocean_det_2008_01.nc', 'ocean_zoo_2008_03.nc',
+                                                  'ocean_temp_2000_04.nc']):
         if file in files:
             i = np.argwhere(np.array(files) == file)[0][0]
             files[i] = file[:-3] + '_sub.nc'
@@ -185,7 +186,7 @@ class BGCFields(object):
         # Subset lat and lons to match ofam3 data.
         kd = kd.sel(lat=slice(-10, 10), lon=slice(120, 285))
         kd = kd.rename({'Kd490': 'kd'})
-        kd = kd.coarsen(lon=2, side='right').mean()
+        # kd = kd.coarsen(lon=2, side='right').mean()
         return kd
 
 
@@ -497,3 +498,22 @@ def sub_missing_files_ofam3():
     ds.close()
     dt.close()
     return
+
+
+def fix_corrupted_files_ofam3():
+    filename = paths.ofam / 'ocean_temp_2000_04.nc'
+    filename_new = paths.ofam / 'ocean_temp_2000_04_sub.nc'
+    ds = xr.open_dataset(filename, decode_cf=True, decode_times=False)
+    ds2 = xr.open_dataset(paths.ofam / 'ocean_temp_2000_05.nc', decode_cf=True, decode_times=False)
+
+    # Replace missing tiem values (ds.Time.diff('Time') = 1).
+    ds['Time'] = np.array([ds.Time[0].item() + i for i in range(30)], dtype=ds.Time.dtype)
+
+    for i in range(3):
+        ds.temp[dict(Time=24+i)] = ds.temp.isel(Time=23, drop=True)
+        ds.temp[dict(Time=24+3+i)] = ds2.temp.isel(Time=0, drop=True)
+
+    msg = 'Original file corrupted - missing last six days of data. Generated substitute' \
+        'using repeat of the last available day.'
+    ds = append_dataset_history(ds, msg)
+    ds.to_netcdf(filename_new, compute=True)
