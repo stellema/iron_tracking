@@ -60,40 +60,17 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
         p = traj[~np.isnan(traj)][0].item()
         dx = ds.sel(traj=p)
 
-        # Map dimension names to particle position arrays for field.sel (ds and field dims may differ).
+        # Map dimension names to particle position arrays (ds and field dims may differ).
         loc = {}
         for dim, dim_dx in dim_map.items():
             loc[dim] = dx[dim_dx]  # Trialing use of ".values" for mono indexing error.
 
-        try:
-            dxx = field.sel(loc, method='nearest')
-
-        except ValueError as err:
-            logger.debug('p={} obs={} non-NaN={}: {}'
-                         .format(p, dx.obs.size, dx.lat.dropna('obs', 'all').obs.size, err))
-
-            try:
-                # Alternate 0: Select time dim last and seperatly.
-                dxx = field.sel(dict(list(loc.items())[1:]), method='nearest')
-                logger.debug('Alternate 0: p={}: Success on multi-dim sel excluding time.'.format(p))
-
-                dim = list(loc.keys())[0]
-                dxx = dxx.sel({dim: loc[dim]}, method='nearest')
-                # rng = dx.obs.astype(dtype=int)
-                # for i in rng:
-                #     dxx[dict(obs=i)] = dxx.sel({dim: loc[dim][i], 'obs': i}, method='nearest')
-                logger.debug('Alternate 2: p={}: Success on time sel.'.format(p))
-
-            except ValueError as err1:
-                logger.debug('Alternate 1 (dims seperated): p={}: Failed on dim={}: {}'.format(p, dim, err1))
-
-            raise ValueError
+        dxx = field.sel(loc, method='nearest')
         return dxx
 
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map)
     dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
     return dx
-
 
 
 @profile
@@ -119,16 +96,6 @@ def save_felx_BGC_field_subset(exp, var, n):
         - Filter spinup?
         - Add kd490 fields
     """
-    def save_subset(file, ds, p, field_dataset, var, dim_map):
-        """Save temp particle BGC fields subset."""
-        logger.info('{}: Calculating'.format(str(file)))
-        dx = ds.isel(traj=slice(*p))
-        dx = update_field_AAA(dx, field_dataset, var, dim_map)
-
-        np.save(file, dx, allow_pickle=True)
-        logger.info('{}: Saved.'.format(str(file)))
-        return
-
     # Create fieldset for variable.
     fieldset = BGCFields(exp)
 
@@ -149,7 +116,8 @@ def save_felx_BGC_field_subset(exp, var, n):
         return
 
     pds.check_bgc_prereq_files()
-    ds = xr.open_dataset(exp.file_felx_bgc)
+    ds = xr.open_dataset(exp.file_felx_bgc, decode_times=True)
+    ds['month'] = ds.month.astype(dtype=np.float32)
 
     # Save temp file subset for variable.
     logger.info('{}: Getting field.'.format(str(tmp_file)))
@@ -157,7 +125,13 @@ def save_felx_BGC_field_subset(exp, var, n):
     traj_slice = traj_slices[n]
 
     # Calculate & save particle subset.
-    save_subset(tmp_file, ds, traj_slice, field_dataset, var, dim_map)
+    """Save temp particle BGC fields subset."""
+    logger.info('{}: Calculating'.format(str(tmp_file)))
+    dx = ds.isel(traj=slice(*traj_slice))
+    dx = update_field_AAA(dx, field_dataset, var, dim_map)
+
+    np.save(tmp_file, dx, allow_pickle=True)
+    logger.info('{}: Saved.'.format(str(tmp_file)))
     logger.info('{}: Saved tmp subset field.'.format(str(tmp_file)))
 
 
@@ -253,7 +227,7 @@ if __name__ == '__main__':
     p.add_argument('-v', '--version', default=0, type=int, help='FeLX experiment version.')
     p.add_argument('-func', '--function', default='bgc_fields', type=str,
                    help='[bgc_fields, bgc_fields_var, prereq_files, save_files]')
-    p.add_argument('-var', '--variable', default=0, type=int, help='FeLX experiment version.')
+    p.add_argument('-var', '--variable', default='temp', type=str, help='FeLX experiment version.')
     p.add_argument('-n', '--n_tmp', default=0, type=int, help='Subset index.')
     args = p.parse_args()
 
