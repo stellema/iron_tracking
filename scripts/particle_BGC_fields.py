@@ -56,19 +56,57 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
     """
     def update_field_particle(traj, ds, field, dim_map):
         """Subset using entire array for a particle."""
-        dx = ds.sel(traj=traj[~np.isnan(traj)][0].item())
+        p = traj[~np.isnan(traj)][0].item()
+        dx = ds.sel(traj=p)
+
+        # Map dimension names to particle position arrays for field.sel (ds and field dims may differ).
         loc = {}
-        for k, v in dim_map.items():
-            loc[k] = dx[v]
+        for dim, dim_dx in dim_map.items():
+            loc[dim] = dx[dim_dx]  # Trialing use of ".values" for mono indexing error.
+
         try:
-            x = field
-            for k, v in list(dim_map.items())[::-1]:
-                x = x.sel({k: dx[v]}, method='nearest')
+            x = field.sel(loc, method='nearest')
 
         except ValueError as err:
-            logger.debug('{}'.format(err))
-            logger.debug('traj={}, obs={}, non-NaN obs={} dim error={}'
-                         .format(dx.traj.item(), dx.obs.size, dx.lat.dropna('obs', 'all').obs.size, k))
+            logger.debug('p={} obs={} non-NaN={}: {}'
+                         .format(p, dx.obs.size, dx.lat.dropna('obs', 'all').obs.size, err))
+            try:
+                # Alternate 1: Select dimensions seperatly.
+                dim = list(loc.keys())[0]
+                x = field.sel({dim: loc[dim]}, method='nearest')
+                logger.debug('Alternate 1: p={}: Success on dim={}.'.format(p, dim))
+
+                for dim in list(loc.keys())[1:]:
+                    x = x.sel({dim: loc[dim]}, method='nearest')
+                    logger.debug('Alternate 1: p={}: Success on dim={}.'.format(p, dim))
+
+            except ValueError as err1:
+                logger.debug('Alternate 1 (dims seperated): p={}: Failed on dim={}: {}'.format(p, dim, err1))
+
+                try:
+                    # Alternate 2: Select time dim last and seperatly.
+                    x = field.sel(dict(list(loc.items())[1:]), method='nearest')
+                    logger.debug('Alternate 2: p={}: Success on multi-dim sel excluding time.'.format(p))
+                    dim = list(loc.keys())[0]
+                    x = x.sel({dim: loc[dim], 'obs': dx.obs}, method='nearest')
+                    logger.debug('Alternate 2: p={}: Success on time sel.'.format(p))
+
+                except ValueError as err2:
+                    logger.debug('Alternate 2 (time dim last): p={}: Failed: {}'.format(p, err2))
+
+                    try:
+                        # Alternate 3: Select dimensions seperatly and use ".values".
+                        dim = list(loc.keys())[0]
+                        x = field.sel({dim: loc[dim].values}, method='nearest')
+                        logger.debug('Alternate 3: p={}: Success on dim={}.values.'.format(p, dim))
+                        for dim in list(loc.keys())[1:]:
+                            x = x.sel({dim: loc[dim].values}, method='nearest')
+                            logger.debug('Alternate 3: p={}: Success on dim={}.values.'.format(p, dim))
+
+                    except ValueError as err3:
+                        logger.debug('Alternate 3 (seperate + .values): p={}: Failed on dim={}. {}'
+                                     .format(p, dim, err3))
+
             raise ValueError
         return x
 
