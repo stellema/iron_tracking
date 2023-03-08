@@ -54,6 +54,7 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
         - doesn't fail when wrong time selected.
 
     """
+
     def update_field_particle(traj, ds, field, dim_map):
         """Subset using entire array for a particle."""
         p = traj[~np.isnan(traj)][0].item()
@@ -65,54 +66,34 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
             loc[dim] = dx[dim_dx]  # Trialing use of ".values" for mono indexing error.
 
         try:
-            x = field.sel(loc, method='nearest')
+            dxx = field.sel(loc, method='nearest')
 
         except ValueError as err:
             logger.debug('p={} obs={} non-NaN={}: {}'
                          .format(p, dx.obs.size, dx.lat.dropna('obs', 'all').obs.size, err))
-            try:
-                # Alternate 1: Select dimensions seperatly.
-                dim = list(loc.keys())[0]
-                x = field.sel({dim: loc[dim]}, method='nearest')
-                logger.debug('Alternate 1: p={}: Success on dim={}.'.format(p, dim))
 
-                for dim in list(loc.keys())[1:]:
-                    x = x.sel({dim: loc[dim]}, method='nearest')
-                    logger.debug('Alternate 1: p={}: Success on dim={}.'.format(p, dim))
+            try:
+                # Alternate 0: Select time dim last and seperatly.
+                dxx = field.sel(dict(list(loc.items())[1:]), method='nearest')
+                logger.debug('Alternate 0: p={}: Success on multi-dim sel excluding time.'.format(p))
+
+                dim = list(loc.keys())[0]
+                dxx = dxx.sel({dim: loc[dim]}, method='nearest')
+                # rng = dx.obs.astype(dtype=int)
+                # for i in rng:
+                #     dxx[dict(obs=i)] = dxx.sel({dim: loc[dim][i], 'obs': i}, method='nearest')
+                logger.debug('Alternate 2: p={}: Success on time sel.'.format(p))
 
             except ValueError as err1:
                 logger.debug('Alternate 1 (dims seperated): p={}: Failed on dim={}: {}'.format(p, dim, err1))
 
-                try:
-                    # Alternate 2: Select time dim last and seperatly.
-                    x = field.sel(dict(list(loc.items())[1:]), method='nearest')
-                    logger.debug('Alternate 2: p={}: Success on multi-dim sel excluding time.'.format(p))
-                    dim = list(loc.keys())[0]
-                    x = x.sel({dim: loc[dim], 'obs': dx.obs}, method='nearest')
-                    logger.debug('Alternate 2: p={}: Success on time sel.'.format(p))
-
-                except ValueError as err2:
-                    logger.debug('Alternate 2 (time dim last): p={}: Failed: {}'.format(p, err2))
-
-                    try:
-                        # Alternate 3: Select dimensions seperatly and use ".values".
-                        dim = list(loc.keys())[0]
-                        x = field.sel({dim: loc[dim].values}, method='nearest')
-                        logger.debug('Alternate 3: p={}: Success on dim={}.values.'.format(p, dim))
-                        for dim in list(loc.keys())[1:]:
-                            x = x.sel({dim: loc[dim].values}, method='nearest')
-                            logger.debug('Alternate 3: p={}: Success on dim={}.values.'.format(p, dim))
-
-                    except ValueError as err3:
-                        logger.debug('Alternate 3 (seperate + .values): p={}: Failed on dim={}. {}'
-                                     .format(p, dim, err3))
-
             raise ValueError
-        return x
+        return dxx
 
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map)
     dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
     return dx
+
 
 
 @profile
@@ -271,17 +252,18 @@ if __name__ == '__main__':
     p.add_argument('-r', '--index', default=0, type=int, help='File repeat.')
     p.add_argument('-v', '--version', default=0, type=int, help='FeLX experiment version.')
     p.add_argument('-func', '--function', default='bgc_fields', type=str,
-                   help='[bgc_fields, prereq_files, save_files]')
-    # p.add_argument('-var', '--variable', default=0, type=int, help='FeLX experiment version.')
+                   help='[bgc_fields, bgc_fields_var, prereq_files, save_files]')
+    p.add_argument('-var', '--variable', default=0, type=int, help='FeLX experiment version.')
+    p.add_argument('-n', '--n_tmp', default=0, type=int, help='Subset index.')
     args = p.parse_args()
 
     func = args.function
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
-    # var = args.variable
+    var, n = args.variable, args.n_tmp
 
     if cfg.test:
         func = ['bgc_fields', 'prereq_files', 'save_files'][0]
-        scenario, lon, version, index, var = 0, 250, 0, 0, 'phy'
+        scenario, lon, version, index, var, n = 0, 250, 0, 0, 'phy', 0
 
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
@@ -298,6 +280,10 @@ if __name__ == '__main__':
     # Step 2.
     if func == 'bgc_fields':
         parallelise_BGC_fields(exp)
+
+    # Step 2.
+    if func == 'bgc_fields_var':
+        save_felx_BGC_field_subset(exp, var, n)
 
     # Step 3.
     if func == 'save_files':
