@@ -133,7 +133,7 @@ class FelxDataSet(object):
 
         ds['valid_mask'] = ~np.isnan(ds.trajectory)
         # convert to days since 1979 (same as ofam3)
-        ds['month'] = ds.time.dt.month
+        ds['month'] = ds.time.dt.month.astype(dtype=np.float32)
         ds['time_orig'] = ds.time.copy()  # particle times before modifying
         ds['time'] = self.override_spinup_particle_times(ds.time)
 
@@ -280,10 +280,10 @@ class FelxDataSet(object):
 
     def bgc_var_tmp_filenames(self, var):
         """Get tmp filenames for BGC tmp subsets."""
-        tmp_dir = paths.data / 'felx/tmp_{}_{}'.format(self.exp.file_felx_bgc.stem, var)
+        tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx_bgc.stem)
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
-        tmp_files = [tmp_dir / '{}.npy'.format(i) for i in range(self.num_subsets)]
+        tmp_files = [tmp_dir / '{}_{}.npy'.format(var, i) for i in range(self.num_subsets)]
         return tmp_files
 
     def bgc_tmp_traj_subsets(self, ds):
@@ -328,6 +328,7 @@ class FelxDataSet(object):
         """Get finished felx BGC dataset and format."""
         file = self.file_felx_bgc
         ds = xr.open_dataset(file)
+
 
         variables = ['scav', 'src', 'iron', 'reg', 'phyup']
         for var in variables:
