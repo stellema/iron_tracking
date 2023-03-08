@@ -100,7 +100,7 @@ def save_felx_BGC_field_subset(exp, var, n):
     fieldset = BGCFields(exp)
 
     if var in fieldset.vars_ofam:
-        field_dataset = fieldset.ofam_dataset(variables=var)
+        field_dataset = fieldset.ofam_dataset(variables=var, decode_times=True)
         dim_map = fieldset.dim_map_ofam
     else:
         field_dataset = fieldset.kd490_dataset()
@@ -120,19 +120,18 @@ def save_felx_BGC_field_subset(exp, var, n):
     ds['month'] = ds.month.astype(dtype=np.float32)
 
     # Save temp file subset for variable.
-    logger.info('{}: Getting field.'.format(str(tmp_file)))
+    logger.info('{}: Getting field.'.format(str(tmp_file.stem)))
     traj_slices = pds.bgc_tmp_traj_subsets(ds)
     traj_slice = traj_slices[n]
 
     # Calculate & save particle subset.
     """Save temp particle BGC fields subset."""
-    logger.info('{}: Calculating'.format(str(tmp_file)))
+    logger.info('{}: Calculating'.format(str(tmp_file.stem)))
     dx = ds.isel(traj=slice(*traj_slice))
     dx = update_field_AAA(dx, field_dataset, var, dim_map)
 
     np.save(tmp_file, dx, allow_pickle=True)
-    logger.info('{}: Saved.'.format(str(tmp_file)))
-    logger.info('{}: Saved tmp subset field.'.format(str(tmp_file)))
+    logger.info('{}: Saved tmp subset field.'.format(str(tmp_file.stem)))
 
 
 @profile

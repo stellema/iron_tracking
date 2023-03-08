@@ -124,7 +124,7 @@ def ofam3_datasets(exp, variables=bgc_vars, chunks=None, **kwargs):
                        # preprocess=rename_ofam3_coords, combine='by_coords',
                        combine='nested', concat_dim='Time',
                        data_vars='minimal', combine_attrs='override',
-                       decode_cf=None, decode_times=False)
+                       decode_cf=None, decode_times=True)
 
     for k, v in kwargs.items():
         open_kwargs[k] = v
@@ -178,7 +178,8 @@ class BGCFields(object):
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
         chunks = {'month': 12, 'lat': 480, 'lon': 1980}
-        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc', chunks=chunks)
+        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc',
+                             chunks=chunks, decode_times=True)
 
         # kd.coords['time'] = kd.time.dt.month
         kd = kd.rename(dict(month='time'))
@@ -515,5 +516,4 @@ def fix_corrupted_files_ofam3():
 
     msg = 'Original file corrupted - missing last six days of data. Generated substitute' \
         'using repeat of the last available day.'
-    ds = append_dataset_history(ds, msg)
-    ds.to_netcdf(filename_new, compute=True)
+    save_dataset(ds, filename_new, msg=msg)
