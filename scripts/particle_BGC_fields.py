@@ -61,15 +61,15 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
         for k, v in dim_map.items():
             loc[k] = dx[v]
         try:
-            x = field.sel(loc, method='nearest')
+            x = field
+            for k, v in list(dim_map.items())[::-1]:
+                x = x.sel({k: dx[v]}, method='nearest')
 
         except ValueError as err:
             logger.debug('{}'.format(err))
-            logger.debug('traj={}, obs={}, non-NaN obs={}'
-                         .format(dx.traj.item(), dx.obs.size, dx.lat.dropna('obs', 'all').obs.size))
-            for k, v in dim_map.items():
-                logger.debug('{}: {}'.format(k, dx[v].head().values))
-            raise err
+            logger.debug('traj={}, obs={}, non-NaN obs={} dim error={}'
+                         .format(dx.traj.item(), dx.obs.size, dx.lat.dropna('obs', 'all').obs.size, k))
+            raise ValueError
         return x
 
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map)
@@ -219,7 +219,7 @@ def parallelise_BGC_fields(exp):
             var_n_all.remove(vn)
     if rank == 0:
         logger.info('{}: Number of files to run={}'.format(exp.file_felx_bgc.stem, len(var_n_all)))
-
+        logger.info('{}'.format(var_n_all))
     var, n = var_n_all[rank]
     logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
     save_felx_BGC_field_subset(exp, var, n)
