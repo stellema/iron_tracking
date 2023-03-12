@@ -15,9 +15,11 @@ Todo:
 
 """
 import calendar
+import datetime
 import matplotlib.pyplot as plt  # NOQA
 from memory_profiler import profile
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 import cfg
@@ -63,16 +65,14 @@ def get_ofam_filenames(var, times):
 
     """
     files = []
-    for y in range(times[0].year, times[1].year + 1):
-        for m in range(times[0].month, times[1].month + 1):
-            files.append('ocean_{}_{}_{:02d}.nc'.format(var, y, m))
+    for t in pd.date_range(times[0], times[1] + pd.offsets.MonthEnd(0), freq='1M'):
+        files.append('ocean_{}_{}_{:02d}.nc'.format(var, t.year, t.month))
 
     # Check for known missing files and replace with sub files.
-    for var, file in zip(['zoo', 'det', 'temp'], ['ocean_det_2008_01.nc', 'ocean_zoo_2008_03.nc',
-                                                  'ocean_temp_2000_04.nc']):
-        if file in files:
-            i = np.argwhere(np.array(files) == file)[0][0]
-            files[i] = file[:-3] + '_sub.nc'
+    for v, f in [['zoo', 'ocean_zoo_2008_03.nc'], ['det', 'ocean_det_2008_01.nc'],
+                 ['temp', 'ocean_temp_2000_04.nc']]:
+        if v == var and f in files:
+            files = np.where(np.array(files) == f, f[:-3] + '_sub.nc', files)
 
     files = [str(paths.ofam / f) for f in files]
     return files
@@ -397,6 +397,7 @@ def add_coord_attrs(ds):
     return ds
 
 
+
 def sub_missing_files_ofam3():
     """Create stand-in OFAM3 fields missing months.
 
@@ -502,18 +503,38 @@ def sub_missing_files_ofam3():
 
 
 def fix_corrupted_files_ofam3():
-    filename = paths.ofam / 'ocean_temp_2000_04.nc'
-    filename_new = paths.ofam / 'ocean_temp_2000_04_sub.nc'
-    ds = xr.open_dataset(filename, decode_cf=True, decode_times=False)
-    ds2 = xr.open_dataset(paths.ofam / 'ocean_temp_2000_05.nc', decode_cf=True, decode_times=False)
+    """Create stand-in file for corrupted OFAM3 ocean_temp_2000_04.nc (missing last 6 days)."""
+    files = [paths.ofam / 'ocean_temp_2000_{:02d}.nc'.format(m) for m in [4, 5]]
+    file_new = paths.ofam / '{}_sub.nc'.format(files[0].stem)
 
-    # Replace missing tiem values (ds.Time.diff('Time') = 1).
-    ds['Time'] = np.array([ds.Time[0].item() + i for i in range(30)], dtype=ds.Time.dtype)
+    ds1, ds2 = [xr.open_dataset(file, decode_cf=True, decode_times=True) for file in files]
+    ds = ds1.copy()
 
+    # Replace missing time values.
+    time = pd.date_range('2000-04-01T12', periods=30, freq='D')
+    # time = np.array([ds.Time[0].item() + i for i in range(30)])  # decode_times=False.
+    # time = np.arange('2000-04-01T12', '2000-05-01T12', np.timedelta64(1, 'D'),
+    #                  dtype='datetime64[ns]')
+    # time = np.array([cftime.DatetimeGregorian(2000, 4, i+1, 12, has_year_zero=False)
+    #                  for i in range(30)])  # import cftime & use_cftime=True.
+
+    ds = ds.assign_coords(Time=time)
+    ds['Time'].attrs = ds1.Time.attrs
+    ds['Time'].encoding = ds1.Time.encoding
+
+    # Fill in first (last) 3 days with previous (next) available day of data.
     for i in range(3):
-        ds.temp[dict(Time=24+i)] = ds.temp.isel(Time=23, drop=True)
+        ds.temp[dict(Time=24+i)] = ds1.temp.isel(Time=23, drop=True)
         ds.temp[dict(Time=24+3+i)] = ds2.temp.isel(Time=0, drop=True)
 
     msg = 'Original file corrupted - missing last six days of data. Generated substitute' \
         'using repeat of the last available day.'
-    save_dataset(ds, filename_new, msg=msg)
+    ds = append_dataset_history(ds, msg)
+    ds.to_netcdf(file_new, compute=True, format='NETCDF4', engine='netcdf4')
+    ds.close()
+    ds1.close()
+    ds2.close()
+
+    # Test file is able to be opened without error.
+    df = xr.open_mfdataset([file_new, files[1]], chunks=False, decode_cf=True, decode_times=1)
+    df.close()
