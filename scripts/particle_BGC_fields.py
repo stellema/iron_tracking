@@ -29,7 +29,6 @@ import matplotlib.pyplot as plt  # NOQA
 from memory_profiler import profile
 import numpy as np
 import pandas as pd  # NOQA
-import time
 import xarray as xr  # NOQA
 
 import cfg
@@ -86,15 +85,6 @@ def save_felx_BGC_field_subset(exp, var, n):
 
     Notes:
         - First save/create plx_inverse file.
-
-    Todo:
-        - Unzip OFAM3 fields [in progress]
-        - Upload formatted Kd490 fields [in progress]a
-        - Save plx reversed datasets
-        - parallelise
-        - add datset encoding [done]
-        - Filter spinup?
-        - Add kd490 fields
     """
     # Create fieldset for variable.
     fieldset = BGCFields(exp)
@@ -108,6 +98,7 @@ def save_felx_BGC_field_subset(exp, var, n):
 
     # Initialise particle dataset.
     pds = FelxDataSet(exp)
+
     # Create temp directory and filenames.
     tmp_files = pds.bgc_var_tmp_filenames(var)
     tmp_file = tmp_files[n]
@@ -117,21 +108,24 @@ def save_felx_BGC_field_subset(exp, var, n):
 
     pds.check_bgc_prereq_files()
     ds = xr.open_dataset(exp.file_felx_bgc, decode_times=True)
-    ds['month'] = ds.month.astype(dtype=np.float32)
+
+    if var == 'kd':
+        ds['month'] = ds.month.astype(dtype=np.float32)
 
     # Save temp file subset for variable.
-    logger.info('{}: Getting field.'.format(str(tmp_file.stem)))
     traj_slices = pds.bgc_tmp_traj_subsets(ds)
     traj_slice = traj_slices[n]
 
     # Calculate & save particle subset.
-    """Save temp particle BGC fields subset."""
-    logger.info('{}: Calculating'.format(str(tmp_file.stem)))
     dx = ds.isel(traj=slice(*traj_slice))
+
+    logger.info('{}/{}: Calculating...'.format(tmp_file.parent.stem, tmp_file.name))
     dx = update_field_AAA(dx, field_dataset, var, dim_map)
 
+    logger.info('{}/{}: Saving...'.format(tmp_file.parent.stem, tmp_file.name))
     np.save(tmp_file, dx, allow_pickle=True)
-    logger.info('{}: Saved tmp subset field.'.format(str(tmp_file.stem)))
+    logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
+    return
 
 
 @profile
@@ -196,10 +190,6 @@ def parallelise_BGC_fields(exp):
     rank = comm.Get_rank()
 
     pds = FelxDataSet(exp)
-    if rank == 0:
-        pds.rename_bgc_tmp_files()  # TODO: can be deleted after run once.
-    else:
-        time.sleep(5)
 
     # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
     var_n_all = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets)]
@@ -209,9 +199,11 @@ def parallelise_BGC_fields(exp):
         files = pds.bgc_var_tmp_filenames(vn[0])
         if pds.check_file_complete(files[vn[1]]):
             var_n_all.remove(vn)
+
     if rank == 0:
         logger.info('{}: Number of files to run={}'.format(exp.file_felx_bgc.stem, len(var_n_all)))
         logger.info('{}'.format(var_n_all))
+
     var, n = var_n_all[rank]
     logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
     save_felx_BGC_field_subset(exp, var, n)
