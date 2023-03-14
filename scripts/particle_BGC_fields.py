@@ -46,7 +46,7 @@ logger = mlogger('files_felx')
 
 @profile
 @timeit(my_logger=logger)
-def update_field_AAA(ds, field_dataset, var, dim_map):
+def update_field_AAA_old(ds, field_dataset, var, dim_map):
     """Calculate fields at plx particle positions (using apply_along_axis and xarray).
 
     Notes:
@@ -68,6 +68,38 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
         return dxx
 
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map)
+    dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
+    return dx
+
+
+@profile
+@timeit(my_logger=logger)
+def update_field_AAA(ds, field_dataset, var, dim_map):
+    """Calculate fields at plx particle positions (using apply_along_axis and xarray).
+
+    Notes:
+        - doesn't fail when wrong time selected.
+
+    """
+
+    def update_field_particle(traj, ds, field, dim_map, var):
+        """Subset using entire array for a particle."""
+        mask = ~np.isnan(traj)
+        p = traj[mask][0].item()
+        dx = ds.sel(traj=p)
+
+        # Map dimension names to particle position arrays (ds and field dims may differ).
+        loc = {}
+        for dim, dim_dx in dim_map.items():
+            loc[dim] = dx[dim_dx]
+
+        n_obs = dx.obs[mask].astype(dtype=int).values
+        for i in n_obs:
+            dx[var][dict(obs=i)] = field.sel(dict([(k, v[i]) for k, v in loc.items()]),
+                                             method='nearest', drop=True)
+        return dx[var]
+
+    kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map, var=var)
     dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
     return dx
 
@@ -201,11 +233,13 @@ def parallelise_BGC_fields(exp):
             var_n_all.remove(vn)
 
     if rank == 0:
-        logger.info('{}: Number of files to run={}'.format(exp.file_felx_bgc.stem, len(var_n_all)))
+        logger.info('{}: Files to save={}/{}'.format(exp.file_felx_bgc.stem, len(var_n_all),
+                                                     len(pds.bgc_variables) * pds.num_subsets))
         logger.info('{}'.format(var_n_all))
 
     var, n = var_n_all[rank]
-    logger.info('{}: Rank={}, var={}, n={}/4'.format(exp.file_felx_bgc.stem, rank, var, n))
+    logger.info('{}: Rank={}, var={}, n={}/{}'.format(exp.file_felx_bgc.stem, rank, var, n,
+                                                      pds.num_subsets - 1))
     save_felx_BGC_field_subset(exp, var, n)
     return
 
@@ -233,25 +267,26 @@ if __name__ == '__main__':
     name = 'felx_bgc'
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name=name,
                   out_subdir=name, test=cfg.test)
-    # if cfg.test:
-    #     n = 0
-    #     var = 'phy'
-    #     save_felx_BGC_field_subset(exp, var, n)
-
-    # Step 1.
-    if func == 'prereq_files':
-        parallelise_prereq_files(scenario)
-
-    # Step 2.
-    if func == 'bgc_fields':
-        parallelise_BGC_fields(exp)
-
-    # Step 2.
-    if func == 'bgc_fields_var':
+    if cfg.test:
+        n = 0
+        var = 'phy'
         save_felx_BGC_field_subset(exp, var, n)
 
-    # Step 3.
-    if func == 'save_files':
-        pds = FelxDataSet(exp)
-        if pds.check_bgc_tmp_files_complete():
-            save_felx_BGC_fields(exp)
+    if not cfg.test:
+        # Step 1.
+        if func == 'prereq_files':
+            parallelise_prereq_files(scenario)
+
+        # Step 2.
+        if func == 'bgc_fields':
+            parallelise_BGC_fields(exp)
+
+        # Step 2.
+        if func == 'bgc_fields_var':
+            save_felx_BGC_field_subset(exp, var, n)
+
+        # Step 3.
+        if func == 'save_files':
+            pds = FelxDataSet(exp)
+            if pds.check_bgc_tmp_files_complete():
+                save_felx_BGC_fields(exp)

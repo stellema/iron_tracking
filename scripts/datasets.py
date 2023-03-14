@@ -18,6 +18,7 @@ import calendar
 import datetime
 import matplotlib.pyplot as plt  # NOQA
 from memory_profiler import profile
+from netCDF4 import num2date, date2num
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -387,6 +388,7 @@ def save_dataset(ds, filename, msg=None):
 
 
 def add_coord_attrs(ds):
+    """Add time, lat, lon and depth coordinates like OFAM3."""
     ds.time.attrs = {'cartesian_axis': 'T', 'long_name': 'time', 'standard_name': 'time'}
     ds.lon.attrs = {'standard_name': 'longitude', 'long_name': 'longitude',
                     'units': 'degrees_east', 'cartesian_axis': 'X'}
@@ -395,7 +397,6 @@ def add_coord_attrs(ds):
     ds.depth.attrs = {'standard_name': 'depth', 'long_name': 'depth',
                       'positive': 'down', 'units': 'm', 'cartesian_axis': 'Z'}
     return ds
-
 
 
 def sub_missing_files_ofam3():
@@ -538,3 +539,30 @@ def fix_corrupted_files_ofam3():
     # Test file is able to be opened without error.
     df = xr.open_mfdataset([file_new, files[1]], chunks=False, decode_cf=True, decode_times=1)
     df.close()
+
+
+def convert_plx_times(dt, obs, attrs, attrs_new):
+    """Convert particle time calendar (use with np.apply_along_axis).
+
+    Args:
+        dt (numpy.array): Particle time array.
+        obs (numpy.array): DESCRIPTION.
+        attrs (dict): DESCRIPTION.
+        attrs_new (dict): DESCRIPTION.
+
+    Returns:
+        time (numpy.array): Converted times for particle.
+
+    Example:
+        attrs = dict(units=ds.time.units, calendar=ds.time.calendar)
+        attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='GREGORIAN')
+        times = np.apply_along_axis(convert_plx_times, 1, arr=ds.time,
+                                    obs=ds.obs.astype(dtype=int),
+                                    attrs=attrs, attrs_new=attrs_new)
+        ds['time'] = (('traj', 'obs'), times)
+    """
+    time = dt.copy().astype(dtype=object)
+    mask = ~np.isnan(dt)
+    time[mask] = num2date(dt[mask], units=attrs['units'], calendar=attrs['calendar'])
+    time[mask] = date2num(time[mask], units=attrs_new['units'], calendar=attrs_new['calendar'])
+    return time

@@ -18,6 +18,7 @@ import calendar
 from datetime import datetime, timedelta  # NOQA
 import matplotlib.pyplot as plt
 from memory_profiler import profile
+
 import numpy as np
 import os
 import pandas as pd  # NOQA
@@ -25,7 +26,7 @@ import xarray as xr  # NOQA
 
 import cfg  # NOQA
 from cfg import paths, ExpData
-from datasets import (plx_particle_dataset, save_dataset)
+from datasets import plx_particle_dataset, save_dataset  # convert_plx_times
 from tools import timeit, mlogger
 
 logger = mlogger('files_felx')
@@ -37,7 +38,7 @@ class FelxDataSet(object):
     def __init__(self, exp):
         """Initialise & format felx particle dataset."""
         self.exp = exp
-        self.num_subsets = 5
+        self.num_subsets = 10
         self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
         if cfg.test:
             self.bgc_variables = ['phy', 'zoo', 'det']
@@ -63,9 +64,10 @@ class FelxDataSet(object):
         pids = ds.traj.where(mask_at_euc, drop=True)
         return pids
 
-    def empty_DataArray(self, ds, name=None, fill_value=np.nan):
+    def empty_DataArray(self, ds, name=None, fill_value=np.nan, dtype=np.float32):
         """Add empty DataArray."""
-        return xr.DataArray(fill_value, dims=('traj', 'obs'), coords=ds.coords, name=name)
+        return xr.DataArray(xr.full_like(ds.z, fill_value, dtype=dtype), dims=('traj', 'obs'),
+                            coords=ds.coords, name=name)
 
     def override_spinup_particle_times(self, time):
         """Change the year of particle time during spinup to spinup year.
@@ -129,8 +131,9 @@ class FelxDataSet(object):
     @profile
     def save_empty_bgc_felx_file(self):
         """Save new felx file (empty BGC data variables)."""
-        ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=None)
+        ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
 
+        # Add data_vars
         ds['valid_mask'] = ~np.isnan(ds.trajectory)
         # convert to days since 1979 (same as ofam3)
         ds['month'] = ds.time.dt.month.astype(dtype=np.float32)
@@ -141,6 +144,33 @@ class FelxDataSet(object):
             ds[var] = self.empty_DataArray(ds)
 
         save_dataset(ds, str(self.exp.file_felx_bgc), msg='')
+        ds.close()
+
+        # ds = xr.open_dataset(self.exp.file_felx_bgc, decode_times=False, use_cftime=True,
+        #                       decode_cf=True)
+        # # Change time encoding (errors - can't overwrite file & doesen't work when not decoded).
+        # attrs = dict(units=ds.time.units, calendar=ds.time.calendar)
+        # attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
+        # times = np.apply_along_axis(convert_plx_times, 1, arr=ds.time,
+        #                             obs=ds.obs.astype(dtype=int), attrs=attrs,
+        #                             attrs_new=attrs_new)
+        # ds['time'] = (('traj', 'obs'), times)
+        # ds['time'].attrs['units'] = attrs_new['units']
+        # ds['time'].attrs['calendar'] = attrs_new['calendar']
+
+        # for var in ds.data_vars:
+        #     if ds[var].dtype == np.float64:
+        #         ds[var] = ds[var].astype(dtype=np.float32)
+        # ds.close()
+        # save_dataset(ds, self.exp.file_plx_inv, msg='Converted time calendar.')
+
+        # # alt
+        # ds = xr.open_dataset(exp.file_felx_bgc, decode_times=False, use_cftime=True,
+        #                       decode_cf=True)
+        # attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
+        # ds['time'].attrs['units'] = attrs_new['units']
+        # ds['time'].attrs['calendar'] = attrs_new['calendar']
+        # save_dataset(ds, 'test.nc', msg='Converted time calendar.')
         return
 
     @timeit(my_logger=logger)
@@ -328,7 +358,6 @@ class FelxDataSet(object):
         """Get finished felx BGC dataset and format."""
         file = self.file_felx_bgc
         ds = xr.open_dataset(file)
-
 
         variables = ['scav', 'src', 'iron', 'reg', 'phyup']
         for var in variables:
