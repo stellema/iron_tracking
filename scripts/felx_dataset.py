@@ -38,8 +38,8 @@ class FelxDataSet(object):
     def __init__(self, exp):
         """Initialise & format felx particle dataset."""
         self.exp = exp
-        self.num_subsets = 10
-        self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'fe', 'no3', 'kd']
+        self.num_subsets = 50
+        self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'no3', 'kd', 'fe']
         if cfg.test:
             self.bgc_variables = ['phy', 'zoo', 'det']
         self.bgc_variables_nmap = {'Phy': 'phy', 'Zoo': 'zoo', 'Det': 'det', 'Temp': 'temp',
@@ -128,7 +128,6 @@ class FelxDataSet(object):
             ds[var] = (['traj', 'obs'], arr)
         return ds
 
-    @profile
     def save_empty_bgc_felx_file(self):
         """Save new felx file (empty BGC data variables)."""
         ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
@@ -201,7 +200,6 @@ class FelxDataSet(object):
             dx.close()
         ds.close()
 
-    @profile
     @timeit(my_logger=logger)
     def save_inverse_plx_dataset(self):
         """Open, reverse and save plx dataset.
@@ -290,7 +288,6 @@ class FelxDataSet(object):
                             .format(file.stem, type(err), err))
         return file_complete
 
-    @profile
     def check_bgc_prereq_files(self):
         """Check needed files saved and can be opened without error."""
         file = self.exp.file_plx
@@ -352,6 +349,7 @@ class FelxDataSet(object):
             arr = np.concatenate(data, axis=0)
 
             ds[name] = (['traj', 'obs'], arr)
+            ds[name] = ds[name].interpolate_na('obs', method='slinear', limit=10)
         return ds
 
     def init_felx_bgc_dataset(self):

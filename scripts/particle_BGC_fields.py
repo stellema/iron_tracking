@@ -44,8 +44,8 @@ except ModuleNotFoundError:
 logger = mlogger('files_felx')
 
 
-@profile
 @timeit(my_logger=logger)
+@profile
 def update_field_AAA_old(ds, field_dataset, var, dim_map):
     """Calculate fields at plx particle positions (using apply_along_axis and xarray).
 
@@ -72,8 +72,8 @@ def update_field_AAA_old(ds, field_dataset, var, dim_map):
     return dx
 
 
-@profile
 @timeit(my_logger=logger)
+@profile
 def update_field_AAA(ds, field_dataset, var, dim_map):
     """Calculate fields at plx particle positions (using apply_along_axis and xarray).
 
@@ -88,15 +88,16 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
         p = traj[mask][0].item()
         dx = ds.sel(traj=p)
 
-        # Map dimension names to particle position arrays (ds and field dims may differ).
+        # # Map dimension names to particle position arrays (ds and field dims may differ).
         loc = {}
         for dim, dim_dx in dim_map.items():
             loc[dim] = dx[dim_dx]
 
         n_obs = dx.obs[mask].astype(dtype=int).values
         for i in n_obs:
-            dx[var][dict(obs=i)] = field.sel(dict([(k, v[i]) for k, v in loc.items()]),
-                                             method='nearest', drop=True)
+            xloc = dict([(k, v[i]) for k, v in loc.items()])
+            dx[var][dict(obs=i)] = field.sel(xloc, method='nearest', drop=True)
+
         return dx[var]
 
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map, var=var)
@@ -104,7 +105,6 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
     return dx
 
 
-@profile
 @timeit(my_logger=logger)
 def save_felx_BGC_field_subset(exp, var, n):
     """Sample OFAM3 BGC fields at particle positions.
@@ -117,6 +117,7 @@ def save_felx_BGC_field_subset(exp, var, n):
 
     Notes:
         - First save/create plx_inverse file.
+
     """
     # Create fieldset for variable.
     fieldset = BGCFields(exp)
@@ -147,11 +148,14 @@ def save_felx_BGC_field_subset(exp, var, n):
     # Save temp file subset for variable.
     traj_slices = pds.bgc_tmp_traj_subsets(ds)
     traj_slice = traj_slices[n]
+    traj_slice = [0, 120]  # !!!
 
     # Calculate & save particle subset.
     dx = ds.isel(traj=slice(*traj_slice))
 
-    logger.info('{}/{}: Calculating...'.format(tmp_file.parent.stem, tmp_file.name))
+    logger.info('{}/{}: Calculating. Subset {} of {} particles={}/{}'
+                .format(tmp_file.parent.stem, tmp_file.name, n, pds.num_subsets,
+                        np.diff(traj_slice)[0], traj_slices[-1][-1]))
     dx = update_field_AAA(dx, field_dataset, var, dim_map)
 
     logger.info('{}/{}: Saving...'.format(tmp_file.parent.stem, tmp_file.name))
@@ -270,7 +274,7 @@ if __name__ == '__main__':
     if cfg.test:
         n = 0
         var = 'phy'
-        save_felx_BGC_field_subset(exp, var, n)
+        # save_felx_BGC_field_subset(exp, var, n)
 
     if not cfg.test:
         # Step 1.

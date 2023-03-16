@@ -163,7 +163,6 @@ class BGCFields(object):
         self.dim_map_kd = dict(time='month', lat='lat', lon='lon')
         self.variables = np.concatenate((self.vars_ofam, self.vars_clim))
 
-    @profile
     def ofam_dataset(self, variables, **kwargs):
         """Get OFAM3 field(s) dataset."""
         # Set list of OFAM3 variables to open.
@@ -175,7 +174,6 @@ class BGCFields(object):
                 ofam[var] = ofam3_datasets(self.exp, variables=var, **kwargs)[var]
         return ofam
 
-    @profile
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
         chunks = {'month': 12, 'lat': 480, 'lon': 1980}
