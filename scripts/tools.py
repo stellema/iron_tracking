@@ -114,9 +114,9 @@ def timeit(_method=None, *, my_logger=None):
             # Log elapsed time.
             if my_logger is None:
                 logger = mlogger(method.__name__)
+                logger = mlogger(Path(sys.argv[0]).stem)
             else:
                 logger = my_logger
-            logger = mlogger(Path(sys.argv[0]).stem)
             logger.info('{}: {:02.0f}h:{:02.0f}m:{:05.2f}s (total={:.2f} seconds).'
                         .format(method.__name__, h, m, s, t_e.total_seconds()))
             return result
@@ -126,8 +126,3 @@ def timeit(_method=None, *, my_logger=None):
         return decorator_timeit
     else:
         return decorator_timeit(_method)
-
-
-def random_string(length=10):
-    A, Z = np.array(['A','Z']).view('int32')
-    return np.random.randint(low=A, high=Z, size=length, dtype='int32').view(f"U{length}")[0]
