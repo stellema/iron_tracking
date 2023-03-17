@@ -178,7 +178,7 @@ class ExpData:
         self.file_felx_bgc = paths.data / 'felx/felx_bgc_{}.nc'.format(self.file_base)
         self.file_plx = paths.data / 'plx/plx_{}_{}_v1_{:02d}.nc'.format(self.scenario_abbr,
                                                                          self.lon, self.file_index)
-        self.file_plx_inv = paths.data / 'felx/{}_inverse.nc'.format(self.file_plx.stem)
+        self.file_plx_inv = paths.data / 'plx/{}_inverse.nc'.format(self.file_plx.stem)
         self.file_plx_orig = paths.plx / 'plx/{}r{:02d}.nc'.format(self.file_plx.stem[:-3],
                                                                    self.file_index_orig)
         self.file_plx_source = paths.plx / 'sources/{}.nc'.format(self.file_plx.stem[:-3])
