@@ -89,7 +89,7 @@ def rename_ofam3_coords(ds):
     for k, v in dims_name_map.items():
         c = [i for i in v if i in ds.dims][0]
         rename_map[c] = k
-        ds.coords[c] = mesh[v[0]].values
+        ds.coords[c] = mesh[v[0]].values[:ds[c].size]
     ds = ds.rename(rename_map)
     return ds
 

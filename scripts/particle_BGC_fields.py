@@ -148,7 +148,7 @@ def save_felx_BGC_field_subset(exp, var, n):
     # Save temp file subset for variable.
     traj_slices = pds.bgc_tmp_traj_subsets(ds)
     traj_slice = traj_slices[n]
-    traj_slice = [0, 120]  # !!!
+    # traj_slice = [0, 120]  # !!!
 
     # Calculate & save particle subset.
     dx = ds.isel(traj=slice(*traj_slice))

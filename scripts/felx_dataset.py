@@ -38,7 +38,7 @@ class FelxDataSet(object):
     def __init__(self, exp):
         """Initialise & format felx particle dataset."""
         self.exp = exp
-        self.num_subsets = 50
+        self.num_subsets = 100
         self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'no3', 'kd', 'fe']
         if cfg.test:
             self.bgc_variables = ['phy', 'zoo', 'det']
