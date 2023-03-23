@@ -17,7 +17,6 @@ Todo:
 import calendar
 from datetime import datetime, timedelta  # NOQA
 import matplotlib.pyplot as plt
-from memory_profiler import profile
 
 import numpy as np
 import os
@@ -26,7 +25,7 @@ import xarray as xr  # NOQA
 
 import cfg  # NOQA
 from cfg import paths, ExpData
-from datasets import plx_particle_dataset, save_dataset  # convert_plx_times
+from datasets import plx_particle_dataset, save_dataset
 from tools import timeit, mlogger
 
 logger = mlogger('files_felx')
@@ -40,8 +39,6 @@ class FelxDataSet(object):
         self.exp = exp
         self.num_subsets = 100
         self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'no3', 'kd', 'fe']
-        if cfg.test:
-            self.bgc_variables = ['phy', 'zoo', 'det']
         self.bgc_variables_nmap = {'Phy': 'phy', 'Zoo': 'zoo', 'Det': 'det', 'Temp': 'temp',
                                    'Fe': 'fe', 'NO3': 'no3', 'kd': 'kd'}
         self.variables = ['scav', 'fe_src', 'fe_p', 'reg', 'phy_up']
@@ -128,50 +125,6 @@ class FelxDataSet(object):
             ds[var] = (['traj', 'obs'], arr)
         return ds
 
-    def save_empty_bgc_felx_file(self):
-        """Save new felx file (empty BGC data variables)."""
-        ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
-
-        # Add data_vars
-        ds['valid_mask'] = ~np.isnan(ds.trajectory)
-        # convert to days since 1979 (same as ofam3)
-        ds['month'] = ds.time.dt.month.astype(dtype=np.float32)
-        ds['time_orig'] = ds.time.copy()  # particle times before modifying
-        ds['time'] = self.override_spinup_particle_times(ds.time)
-
-        for var in self.bgc_variables:
-            ds[var] = self.empty_DataArray(ds)
-
-        save_dataset(ds, str(self.exp.file_felx_bgc), msg='')
-        ds.close()
-
-        # ds = xr.open_dataset(self.exp.file_felx_bgc, decode_times=False, use_cftime=True,
-        #                       decode_cf=True)
-        # # Change time encoding (errors - can't overwrite file & doesen't work when not decoded).
-        # attrs = dict(units=ds.time.units, calendar=ds.time.calendar)
-        # attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
-        # times = np.apply_along_axis(convert_plx_times, 1, arr=ds.time,
-        #                             obs=ds.obs.astype(dtype=int), attrs=attrs,
-        #                             attrs_new=attrs_new)
-        # ds['time'] = (('traj', 'obs'), times)
-        # ds['time'].attrs['units'] = attrs_new['units']
-        # ds['time'].attrs['calendar'] = attrs_new['calendar']
-
-        # for var in ds.data_vars:
-        #     if ds[var].dtype == np.float64:
-        #         ds[var] = ds[var].astype(dtype=np.float32)
-        # ds.close()
-        # save_dataset(ds, self.exp.file_plx_inv, msg='Converted time calendar.')
-
-        # # alt
-        # ds = xr.open_dataset(exp.file_felx_bgc, decode_times=False, use_cftime=True,
-        #                       decode_cf=True)
-        # attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
-        # ds['time'].attrs['units'] = attrs_new['units']
-        # ds['time'].attrs['calendar'] = attrs_new['calendar']
-        # save_dataset(ds, 'test.nc', msg='Converted time calendar.')
-        return
-
     @timeit(my_logger=logger)
     def save_plx_file_particle_subset(self):
         """Divide orig plx dataset & subset FelX time period."""
@@ -255,7 +208,7 @@ class FelxDataSet(object):
 
         # Copy & drop 1D data vars.
         u = ds.u.copy()
-        zone = ds.u.copy()
+        zone = ds.zone.copy()  # Error - wrong variable in saved files.
         ds = ds.drop({'u', 'zone'})
 
         # Reverse particleset.
@@ -268,6 +221,53 @@ class FelxDataSet(object):
         # Save dataset.
         save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
         logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
+
+    def init_bgc_felx_file(self, save_empty=True):
+        """Save new felx file (empty BGC data variables)."""
+        ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
+        ds_plx = plx_particle_dataset(self.exp.file_plx)  # Bug fix (saved u instead of zone).
+        ds['zone'] = ds_plx.zone
+        ds_plx.close()
+
+        # Add data_vars
+        ds['valid_mask'] = ~np.isnan(ds.trajectory)
+        # convert to days since 1979 (same as ofam3).
+        ds['month'] = ds.time.dt.month.astype(dtype=np.float32)
+        ds['time_orig'] = ds.time.copy()  # particle times before modifying
+        ds['time'] = self.override_spinup_particle_times(ds.time)
+
+        for var in self.bgc_variables:
+            ds[var] = self.empty_DataArray(ds)
+
+        if save_empty:
+            save_dataset(ds, str(self.exp.file_felx_bgc_tmp), msg='')
+
+        # ds = xr.open_dataset(self.exp.file_felx_bgc_tmp, decode_times=False, use_cftime=True,
+        #                       decode_cf=True)
+        # # Change time encoding (errors - can't overwrite file & doesen't work when not decoded).
+        # attrs = dict(units=ds.time.units, calendar=ds.time.calendar)
+        # attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
+        # times = np.apply_along_axis(convert_plx_times, 1, arr=ds.time,
+        #                             obs=ds.obs.astype(dtype=int), attrs=attrs,
+        #                             attrs_new=attrs_new)
+        # ds['time'] = (('traj', 'obs'), times)
+        # ds['time'].attrs['units'] = attrs_new['units']
+        # ds['time'].attrs['calendar'] = attrs_new['calendar']
+
+        # for var in ds.data_vars:
+        #     if ds[var].dtype == np.float64:
+        #         ds[var] = ds[var].astype(dtype=np.float32)
+        # ds.close()
+        # save_dataset(ds, self.exp.file_plx_inv, msg='Converted time calendar.')
+
+        # # alt
+        # ds = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=False, use_cftime=True,
+        #                       decode_cf=True)
+        # attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
+        # ds['time'].attrs['units'] = attrs_new['units']
+        # ds['time'].attrs['calendar'] = attrs_new['calendar']
+        # save_dataset(ds, 'test.nc', msg='Converted time calendar.')
+        return ds
 
     def check_file_complete(self, file):
         """Check file exists and can be opened without error."""
@@ -300,24 +300,47 @@ class FelxDataSet(object):
         if not file_complete:
             self.save_inverse_plx_dataset()
 
-        file = self.exp.file_felx_bgc
+        file = self.exp.file_felx_bgc_tmp
         file_complete = self.check_file_complete(file)
         if not file_complete:
-            self.save_empty_bgc_felx_file()
+            ds = self.init_bgc_felx_file(save_empty=True)
+            ds.close()
 
     def bgc_var_tmp_filenames(self, var):
         """Get tmp filenames for BGC tmp subsets."""
         tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx_bgc.stem)
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
-        tmp_files = [tmp_dir / '{}_{}.npy'.format(var, i) for i in range(self.num_subsets)]
+        tmp_files = [tmp_dir / '{}_{:03d}.npy'.format(var, i) for i in range(self.num_subsets)]
+        return tmp_files
+
+    def bgc_var_tmp_filenames_split(self, var, n):
+        """Get tmp filenames for BGC tmp subsets (TMP BUG FIX)."""
+        tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx_bgc.stem)
+        tmp_files = [tmp_dir / '{}_{:03d}{}.npy'.format(var, n, i) for i in ['a', 'b']]
         return tmp_files
 
     def bgc_tmp_traj_subsets(self, ds):
-        """Get traj slices for BGC tmp subsets."""
+        """Particle subsets for BGC tmp files."""
+        # Divide particles into subsets with roughly the same number of total obs per subset.
+        N = self.num_subsets
+        # Count number of obs per particle & group into N subsets.
+        n_obs = ds.z.where(np.isnan(ds.z), 1).sum(dim='obs')
+        n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / N)).astype(dtype=int)
+        # Number of particles per subset.
+        n_traj = [n_obs_grp.where(n_obs_grp == i, drop=True).traj.size for i in range(N)]
+        # Particle index [first, last+1] in each subset.
+        n_traj = np.array([0, *n_traj])
+        traj_bnds = [[np.cumsum(n_traj)[i], np.cumsum(n_traj)[i+1]] for i in range(N)]
+        assert traj_bnds[-1][-1] == ds.traj.size
+        return traj_bnds
+
+    def bgc_tmp_traj_subsets_even(self, ds):
+        """Particle subsets for BGC tmp files (old version - TMP BUG FIX)."""
+        # Divide particles into subsets with same number of particles.
         traj_bnds = np.linspace(0, ds.traj.size + 1, self.num_subsets + 1, dtype=int)
-        traj_slices = [[traj_bnds[i], traj_bnds[i+1] - 1] for i in range(self.num_subsets)]
-        return traj_slices
+        traj_bnds = [[traj_bnds[i], traj_bnds[i+1]] for i in range(self.num_subsets)]
+        return traj_bnds
 
     def check_bgc_tmp_files_complete(self):
         """Check all variable tmp file subsets complete."""
@@ -328,17 +351,6 @@ class FelxDataSet(object):
                 if not file_complete:
                     complete = False
         return complete
-
-    def rename_bgc_tmp_files(self):
-        """Rename error in variable tmp filenames."""
-        for var in self.bgc_variables:
-            tmp_dir = paths.data / 'felx/tmp_{}_{}'.format(self.exp.file_felx_bgc.stem, var)
-            tmp_files = [tmp_dir / '{}.np.npy'.format(i) for i in range(self.num_subsets)]
-            for file in tmp_files:
-                if self.check_file_complete(file):
-                    if '.np.npy' in file.name:
-                        file.rename(file.parent / file.name.replace('.np.npy', '.npy'))
-        return
 
     def set_bgc_dataset_vars_from_tmps(self, ds):
         """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""
@@ -354,7 +366,7 @@ class FelxDataSet(object):
 
     def init_felx_bgc_dataset(self):
         """Get finished felx BGC dataset and format."""
-        file = self.file_felx_bgc
+        file = self.exp.file_felx_bgc
         ds = xr.open_dataset(file)
 
         variables = ['scav', 'src', 'iron', 'reg', 'phyup']

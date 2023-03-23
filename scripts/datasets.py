@@ -70,8 +70,7 @@ def get_ofam_filenames(var, times):
         files.append('ocean_{}_{}_{:02d}.nc'.format(var, t.year, t.month))
 
     # Check for known missing files and replace with sub files.
-    for v, f in [['zoo', 'ocean_zoo_2008_03.nc'], ['det', 'ocean_det_2008_01.nc'],
-                 ['temp', 'ocean_temp_2000_04.nc']]:
+    for v, f in [['zoo', 'ocean_zoo_2008_03.nc'], ['det', 'ocean_det_2008_01.nc']]:
         if v == var and f in files:
             files = np.where(np.array(files) == f, f[:-3] + '_sub.nc', files)
 
@@ -501,42 +500,42 @@ def sub_missing_files_ofam3():
     return
 
 
-def fix_corrupted_files_ofam3():
-    """Create stand-in file for corrupted OFAM3 ocean_temp_2000_04.nc (missing last 6 days)."""
-    files = [paths.ofam / 'ocean_temp_2000_{:02d}.nc'.format(m) for m in [4, 5]]
-    file_new = paths.ofam / '{}_sub.nc'.format(files[0].stem)
+# def fix_corrupted_files_ofam3():
+#     """Create stand-in file for corrupted OFAM3 ocean_temp_2000_04.nc (missing last 6 days)."""
+#     files = [paths.ofam / 'ocean_temp_2000_{:02d}.nc'.format(m) for m in [4, 5]]
+#     file_new = paths.ofam / '{}_sub.nc'.format(files[0].stem)
 
-    ds1, ds2 = [xr.open_dataset(file, decode_cf=True, decode_times=True) for file in files]
-    ds = ds1.copy()
+#     ds1, ds2 = [xr.open_dataset(file, decode_cf=True, decode_times=True) for file in files]
+#     ds = ds1.copy()
 
-    # Replace missing time values.
-    time = pd.date_range('2000-04-01T12', periods=30, freq='D')
-    # time = np.array([ds.Time[0].item() + i for i in range(30)])  # decode_times=False.
-    # time = np.arange('2000-04-01T12', '2000-05-01T12', np.timedelta64(1, 'D'),
-    #                  dtype='datetime64[ns]')
-    # time = np.array([cftime.DatetimeGregorian(2000, 4, i+1, 12, has_year_zero=False)
-    #                  for i in range(30)])  # import cftime & use_cftime=True.
+#     # Replace missing time values.
+#     time = pd.date_range('2000-04-01T12', periods=30, freq='D')
+#     # time = np.array([ds.Time[0].item() + i for i in range(30)])  # decode_times=False.
+#     # time = np.arange('2000-04-01T12', '2000-05-01T12', np.timedelta64(1, 'D'),
+#     #                  dtype='datetime64[ns]')
+#     # time = np.array([cftime.DatetimeGregorian(2000, 4, i+1, 12, has_year_zero=False)
+#     #                  for i in range(30)])  # import cftime & use_cftime=True.
 
-    ds = ds.assign_coords(Time=time)
-    ds['Time'].attrs = ds1.Time.attrs
-    ds['Time'].encoding = ds1.Time.encoding
+#     ds = ds.assign_coords(Time=time)
+#     ds['Time'].attrs = ds1.Time.attrs
+#     ds['Time'].encoding = ds1.Time.encoding
 
-    # Fill in first (last) 3 days with previous (next) available day of data.
-    for i in range(3):
-        ds.temp[dict(Time=24+i)] = ds1.temp.isel(Time=23, drop=True)
-        ds.temp[dict(Time=24+3+i)] = ds2.temp.isel(Time=0, drop=True)
+#     # Fill in first (last) 3 days with previous (next) available day of data.
+#     for i in range(3):
+#         ds.temp[dict(Time=24+i)] = ds1.temp.isel(Time=23, drop=True)
+#         ds.temp[dict(Time=24+3+i)] = ds2.temp.isel(Time=0, drop=True)
 
-    msg = 'Original file corrupted - missing last six days of data. Generated substitute' \
-        'using repeat of the last available day.'
-    ds = append_dataset_history(ds, msg)
-    ds.to_netcdf(file_new, compute=True, format='NETCDF4', engine='netcdf4')
-    ds.close()
-    ds1.close()
-    ds2.close()
+#     msg = 'Original file corrupted - missing last six days of data. Generated substitute' \
+#         'using repeat of the last available day.'
+#     ds = append_dataset_history(ds, msg)
+#     ds.to_netcdf(file_new, compute=True, format='NETCDF4', engine='netcdf4')
+#     ds.close()
+#     ds1.close()
+#     ds2.close()
 
-    # Test file is able to be opened without error.
-    df = xr.open_mfdataset([file_new, files[1]], chunks=False, decode_cf=True, decode_times=1)
-    df.close()
+#     # Test file is able to be opened without error.
+#     df = xr.open_mfdataset([file_new, files[1]], chunks=False, decode_cf=True, decode_times=1)
+#     df.close()
 
 
 def convert_plx_times(dt, obs, attrs, attrs_new):

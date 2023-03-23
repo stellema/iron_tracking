@@ -176,6 +176,7 @@ class ExpData:
 
         self.file_felx = self.out_dir / '{}_{}.nc'.format(self.name, self.file_base)
         self.file_felx_bgc = paths.data / 'felx/felx_bgc_{}.nc'.format(self.file_base)
+        self.file_felx_bgc_tmp = paths.data / 'felx/felx_bgc_{}.nc'.format(self.file_base)  # TODO change to _tmp
         self.file_plx = paths.data / 'plx/plx_{}_{}_v1_{:02d}.nc'.format(self.scenario_abbr,
                                                                          self.lon, self.file_index)
         self.file_plx_inv = paths.data / 'plx/{}_inverse.nc'.format(self.file_plx.stem)
