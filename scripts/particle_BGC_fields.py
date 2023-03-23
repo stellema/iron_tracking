@@ -227,8 +227,8 @@ def parallelise_prereq_files(scenario):
 
 
 @profile
-def parallelise_BGC_fields(exp, split_file=False):
-    """Step 2. Parallelise saving particle BGC fields as temp files.
+def parallelise_BGC_fields(exp, variable_index=0, split_file=False):
+    """Parallelise saving particle BGC fields as tmp files.
 
     Notes:
         * Assumes 35 processors
@@ -241,10 +241,11 @@ def parallelise_BGC_fields(exp, split_file=False):
     # !!! tmp bug fix.
     if split_file and exp.lon == 250 and exp.scenario == 0 and exp.file_index in [0, 1]:
         if exp.file_index == 0:
-            phy_subs = [['phy', n, i] for n in [17, 57, 60, 65, 66, 69, 70, 71, 80, 94,
-                                                95, 96, 97, 98, 99] for i in [0, 1]]
-            zoo_subs = [['zoo', n, i] for n in [0] for i in [0, 1]]  # TODO
-            var_n_all = [*phy_subs, *zoo_subs]
+            phy_subs = [['phy', n, i] for n in [17, 57, 60, 65, 66, 69, 70, 71, 80, 94, 95, 96,
+                                                97, 98, 99] for i in [0, 1]]
+            zoo_subs = [['zoo', n, i] for n in [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 12, 13, 14, 15, 17,
+                                                19, 20, 21, 23] for i in [0, 1]]  # TODO
+            var_n_all = phy_subs  # [*phy_subs, *zoo_subs]
 
         if exp.file_index == 1:
             var_n_all = [['phy', n, i] for n in [19, 23, 24, 27, 28, 30, 31, 34, 35, 37, 38,
@@ -265,7 +266,8 @@ def parallelise_BGC_fields(exp, split_file=False):
 
     else:
         # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
-        var_n_all = [[v, i] for v in pds.bgc_variables for i in range(pds.num_subsets)]
+        var_n_all = [[v, i] for v in pds.bgc_variables[variable_index]
+                     for i in range(pds.num_subsets)]
 
         # Remove any finished saved subsets from list.
         for vn in var_n_all.copy():
@@ -298,11 +300,13 @@ if __name__ == '__main__':
                    help='[bgc_fields, bgc_fields_var, prereq_files, save_files]')
     # Args for tmp 'bgc_fields_var'.
     p.add_argument('-var', '--variable', default='phy', type=str, help='BGC variable.')
+    p.add_argument('-iv', '--variable_index', default=0, type=str, help='BGC variable index(0-7).')
     p.add_argument('-n', '--n_tmp', default=0, type=int, help='Subset index.')
     p.add_argument('-split', '--split_file', default=False, type=bool, help='Split tmp subset.')
     args = p.parse_args()
 
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
+    var = args.variable
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name='felx_bgc',
                   test=cfg.test)
 
@@ -316,7 +320,8 @@ if __name__ == '__main__':
             parallelise_prereq_files(scenario)
 
         elif func == 'bgc_fields':
-            parallelise_BGC_fields(exp, split_file=args.split_file)
+            variable_index = args.variable_index
+            parallelise_BGC_fields(exp, variable_index=variable_index, split_file=args.split_file)
 
         elif func == 'save_files':
             pds = FelxDataSet(exp)
