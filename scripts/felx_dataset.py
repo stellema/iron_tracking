@@ -314,7 +314,7 @@ class FelxDataSet(object):
         tmp_files = [tmp_dir / '{}_{:03d}.npy'.format(var, i) for i in range(self.num_subsets)]
         return tmp_files
 
-    def bgc_var_tmp_filenames_split(self, var, n):
+    def bgc_var_tmp_filenames_split(self, var, n):  # !!! TMP BUG FIX
         """Get tmp filenames for BGC tmp subsets (TMP BUG FIX)."""
         tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx_bgc.stem)
         tmp_files = [tmp_dir / '{}_{:03d}{}.npy'.format(var, n, i) for i in ['a', 'b']]
@@ -335,11 +335,37 @@ class FelxDataSet(object):
         assert traj_bnds[-1][-1] == ds.traj.size
         return traj_bnds
 
-    def bgc_tmp_traj_subsets_even(self, ds):
-        """Particle subsets for BGC tmp files (old version - TMP BUG FIX)."""
+    def bgc_tmp_traj_subsets_even(self, ds):  # !!! TMP BUG FIX
+        """Particle subsets for BGC tmp files (old version."""
         # Divide particles into subsets with same number of particles.
         traj_bnds = np.linspace(0, ds.traj.size + 1, self.num_subsets + 1, dtype=int)
         traj_bnds = [[traj_bnds[i], traj_bnds[i+1]] for i in range(self.num_subsets)]
+        return traj_bnds
+
+
+    def bgc_tmp_traj_subsets_even_half(self, ds):  # !!! TMP BUG FIX
+        """Particle subsets for BGC tmp files (old version."""
+        # Divide particles into subsets with same number of particles.
+        num_subsets = self.num_subsets
+        # First 48 subsets.
+        traj_bnds_1 = np.linspace(0, ds.traj.size + 1, num_subsets + 1, dtype=int)
+        traj_bnds_1 = [[traj_bnds_1[i], traj_bnds_1[i+1]] for i in range(num_subsets)]
+
+        # Last 52 subsets.
+        N = num_subsets - 48
+        p0 = traj_bnds_1[47][-1]
+        dx = ds.z.isel(traj=slice(p0, ds.traj.size))
+
+        n_obs = dx.where(np.isnan(dx), 1).sum(dim='obs')
+        n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / N)).astype(dtype=int)
+        # Number of particles per subset.
+        n_traj = [n_obs_grp.where(n_obs_grp == i, drop=True).traj.size for i in range(N)]
+        # Particle index [first, last+1] in each subset.
+        n_traj = np.array([0, *n_traj])
+        traj_bnds_2 = [[np.cumsum(n_traj)[i] + p0, np.cumsum(n_traj)[i+1] + p0] for i in range(N)]
+
+        traj_bnds = traj_bnds_1.copy()
+        traj_bnds[48:] = traj_bnds_2.copy()
         return traj_bnds
 
     def check_bgc_tmp_files_complete(self):

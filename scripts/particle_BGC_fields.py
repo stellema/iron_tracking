@@ -136,9 +136,11 @@ def save_felx_BGC_field_subset(exp, var, n, split_file=False, split_int=None):
 
     # Save temp file subset for variable.
     traj_bnds = pds.bgc_tmp_traj_subsets(ds)
-    if exp.lon == 250 and exp.scenario == 0 and ((exp.file_index == 0 and var in ['phy', 'zoo']) or
-                                                 (exp.file_index == 1 and var == 'phy')):
-        traj_bnds = pds.bgc_tmp_traj_subsets_even(ds)
+    if exp.lon == 250 and exp.scenario == 0:
+        if exp.file_index == 0 and var == 'phy':
+            traj_bnds = pds.bgc_tmp_traj_subsets_even(ds)
+        if ((exp.file_index == 0 and var == 'zoo') or (exp.file_index == 1 and var == 'phy')):
+            traj_bnds = pds.bgc_tmp_traj_subsets_even_half(ds)
 
     traj_bnd = traj_bnds[n]
 
@@ -238,8 +240,16 @@ def parallelise_BGC_fields(exp, split_file=False):
 
     # !!! tmp bug fix.
     if split_file and exp.lon == 250 and exp.scenario == 0 and exp.file_index in [0, 1]:
-        var_n_all = [[v, n, i] for v in pds.bgc_variables[:2]
-                     for n in range(pds.num_subsets) for i in [0, 1]]
+        if exp.file_index == 0:
+            phy_subs = [['phy', n, i] for n in [17, 57, 60, 65, 66, 69, 70, 71, 80, 94,
+                                                95, 96, 97, 98, 99] for i in [0, 1]]
+            zoo_subs = [['zoo', n, i] for n in [0] for i in [0, 1]]  # TODO
+            var_n_all = [*phy_subs, *zoo_subs]
+
+        if exp.file_index == 1:
+            var_n_all = [['phy', n, i] for n in [19, 23, 24, 27, 28, 30, 31, 34, 35, 37, 38,
+                                                 45, 46] for i in [0, 1]]
+
         # Remove any finished saved subsets from list.
         for v, n, i in var_n_all.copy():
             files = pds.bgc_var_tmp_filenames(v)
@@ -249,6 +259,7 @@ def parallelise_BGC_fields(exp, split_file=False):
                 file = pds.bgc_var_tmp_filenames_split(v, n)[i]
                 if pds.check_file_complete(file):
                     var_n_all.remove([v, n, i])
+
         var, n, i = var_n_all[rank]
         kwargs = dict(split_file=True, split_int=i)
 
@@ -261,6 +272,8 @@ def parallelise_BGC_fields(exp, split_file=False):
             files = pds.bgc_var_tmp_filenames(vn[0])
             if pds.check_file_complete(files[vn[1]]):
                 var_n_all.remove(vn)
+
+
         var, n = var_n_all[rank]
         kwargs = dict(split_file=False, split_int=None)  # !!! tmp bug fix.
 
