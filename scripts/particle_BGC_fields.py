@@ -158,11 +158,13 @@ def save_felx_BGC_field_subset(exp, var, n, split_file=False, split_int=None):
         dx = ds.isel(traj=slice(*traj_bnd))
 
     logger.info('{}/{}: Calculating. Subset {} of {} particles={}/{}'
-                .format(tmp_file.parent.stem, tmp_file.name, n, pds.num_subsets,
+                .format(tmp_file.parent.stem, tmp_file.name, n, pds.n_subsets,
                         np.diff(traj_bnd)[0], ds.traj.size))
+
     dx = update_field_AAA(dx, field_dataset, var, dim_map)
 
-    np.save(tmp_file, dx[var], allow_pickle=True)
+    np.save(tmp_file, dx, allow_pickle=True)
+
     logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
 
     if split_file:
@@ -227,7 +229,7 @@ def parallelise_prereq_files(scenario):
 
 
 @profile
-def parallelise_BGC_fields(exp, variable_index=0, split_file=False):
+def parallelise_BGC_fields(exp, variable_i=0, split_file=False):
     """Parallelise saving particle BGC fields as tmp files.
 
     Notes:
@@ -240,16 +242,17 @@ def parallelise_BGC_fields(exp, variable_index=0, split_file=False):
 
     # !!! tmp bug fix.
     if split_file and exp.lon == 250 and exp.scenario == 0 and exp.file_index in [0, 1]:
-        if exp.file_index == 0:
-            phy_subs = [['phy', n, i] for n in [17, 57, 60, 65, 66, 69, 70, 71, 80, 94, 95, 96,
-                                                97, 98, 99] for i in [0, 1]]
-            zoo_subs = [['zoo', n, i] for n in [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 12, 13, 14, 15, 17,
-                                                19, 20, 21, 23] for i in [0, 1]]  # TODO
-            var_n_all = phy_subs  # [*phy_subs, *zoo_subs]
+        if exp.file_index == 0 and variable_i == 0:
+            var = 'phy'
+            n_list = [17, 57, 60, 65, 66, 69, 70, 71, 80, 94, 95, 96, 97, 98, 99]
+        elif exp.file_index == 0 and variable_i == 1:
+            var = 'zoo'
+            n_list = [0, 1, 2, 3, 5, 6, 7, 9, 10, 12, 13, 14, 17, 19, 20, 21, 23]
+        elif exp.file_index == 1 and variable_i == 0:
+            var = 'phy'
+            n_list = [19, 23, 24, 27, 28, 30, 31, 34, 35, 37, 38, 45, 46]
 
-        if exp.file_index == 1:
-            var_n_all = [['phy', n, i] for n in [19, 23, 24, 27, 28, 30, 31, 34, 35, 37, 38,
-                                                 45, 46] for i in [0, 1]]
+        var_n_all = [[var, n, i] for n in n_list for i in [0, 1]]
 
         # Remove any finished saved subsets from list.
         for v, n, i in var_n_all.copy():
@@ -266,64 +269,64 @@ def parallelise_BGC_fields(exp, variable_index=0, split_file=False):
 
     else:
         # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
-        var_n_all = [[v, i] for v in pds.bgc_variables[variable_index]
-                     for i in range(pds.num_subsets)]
+        var_n_all = [[v, i] for v in pds.bgc_variables[variable_i:] for i in range(pds.n_subsets)]
 
         # Remove any finished saved subsets from list.
-        for vn in var_n_all.copy():
-            files = pds.bgc_var_tmp_filenames(vn[0])
-            if pds.check_file_complete(files[vn[1]]):
-                var_n_all.remove(vn)
-
+        for v, n in var_n_all.copy():
+            files = pds.bgc_var_tmp_filenames(v)
+            if pds.check_file_complete(files[n]):
+                var_n_all.remove([v, n])
 
         var, n = var_n_all[rank]
         kwargs = dict(split_file=False, split_int=None)  # !!! tmp bug fix.
 
     if rank == 0:
         logger.info('{}: Files to save={}/{}'.format(exp.file_felx_bgc.stem, len(var_n_all),
-                                                     len(pds.bgc_variables) * pds.num_subsets))
+                                                     len(pds.bgc_variables) * pds.n_subsets))
         logger.info('{}'.format(var_n_all))
 
     logger.info('{}: Rank={}, var={}, n={}/{}'.format(exp.file_felx_bgc.stem, rank, var, n,
-                                                      pds.num_subsets - 1))
+                                                      pds.n_subsets - 1))
     save_felx_BGC_field_subset(exp, var, n, **kwargs)  # !!! tmp bug fix - delete kwargs
     return
 
 
 if __name__ == '__main__':
     p = ArgumentParser(description="""Particle BGC fields.""")
-    p.add_argument('-x', '--lon', default=250, type=int, help='Particle start longitude(s).')
-    p.add_argument('-e', '--scenario', default=0, type=int, help='Scenario index.')
-    p.add_argument('-v', '--version', default=0, type=int, help='FeLX experiment version.')
-    p.add_argument('-r', '--index', default=0, type=int, help='File repeat.')
+    p.add_argument('-x', '--lon', default=250, type=int,
+                   help='Release longitude [165, 190, 220, 250].')
+    p.add_argument('-e', '--scenario', default=0, type=int, help='Scenario index [0, 1].')
+    p.add_argument('-v', '--version', default=0, type=int, help='Felx experiment version.')
+    p.add_argument('-r', '--index', default=0, type=int, help='File repeat index [0-7].')
     p.add_argument('-func', '--function', default='bgc_fields', type=str,
-                   help='[bgc_fields, bgc_fields_var, prereq_files, save_files]')
-    # Args for tmp 'bgc_fields_var'.
-    p.add_argument('-var', '--variable', default='phy', type=str, help='BGC variable.')
-    p.add_argument('-iv', '--variable_index', default=0, type=str, help='BGC variable index(0-7).')
-    p.add_argument('-n', '--n_tmp', default=0, type=int, help='Subset index.')
-    p.add_argument('-split', '--split_file', default=False, type=bool, help='Split tmp subset.')
+                   help='[bgc_fields, prereq_files, save_files]')
+    # tmp 'bgc_fields_var' args.
+    p.add_argument('-var', '--variable', default='phy', type=str, help='BGC variable.')  # Old.
+    p.add_argument('-n', '--n_tmp', default=0, type=int, help='Subset index [0-100].')  # Old.
+    # 'bgc_fields' args.
+    p.add_argument('-iv', '--variable_i', default=0, type=int, help='BGC variable index [0-7].')
+    p.add_argument('-split', '--split_file', default=0, type=int, help='Split tmp subset [0, 1].')
     args = p.parse_args()
 
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
     var = args.variable
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name='felx_bgc',
                   test=cfg.test)
+    func = args.function
+    variable_i = args.variable_i
+    split_file = args.split_file
 
     if cfg.test:
         func = ['bgc_fields', 'prereq_files', 'save_files'][0]
-    else:
-        func = args.function
 
     if MPI is not None:
         if func == 'prereq_files':
             parallelise_prereq_files(scenario)
 
-        elif func == 'bgc_fields':
-            variable_index = args.variable_index
-            parallelise_BGC_fields(exp, variable_index=variable_index, split_file=args.split_file)
+        if func == 'bgc_fields':
+            parallelise_BGC_fields(exp, variable_i=variable_i, split_file=split_file)
 
-        elif func == 'save_files':
-            pds = FelxDataSet(exp)
-            if pds.check_bgc_tmp_files_complete():
-                save_felx_BGC_fields(exp)
+    if func == 'save_files':
+        pds = FelxDataSet(exp)
+        if pds.check_bgc_tmp_files_complete():
+            save_felx_BGC_fields(exp)
