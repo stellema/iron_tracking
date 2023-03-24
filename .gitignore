@@ -4,3 +4,5 @@ data/felx/
 data/plx/
 data/test/
 plots/dask/
+jobs/*.sh.*
+*.ipy*
