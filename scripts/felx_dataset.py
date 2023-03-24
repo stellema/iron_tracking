@@ -306,18 +306,18 @@ class FelxDataSet(object):
             ds = self.init_bgc_felx_file(save_empty=True)
             ds.close()
 
-    def bgc_var_tmp_filenames(self, var):
+    def bgc_var_tmp_filenames(self, var, suffix='.nc'):
         """Get tmp filenames for BGC tmp subsets."""
         tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx_bgc.stem)
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
-        tmp_files = [tmp_dir / '{}_{:03d}.npy'.format(var, i) for i in range(self.n_subsets)]
+        tmp_files = [tmp_dir / '{}_{:03d}{}'.format(var, i, suffix) for i in range(self.n_subsets)]
         return tmp_files
 
-    def bgc_var_tmp_filenames_split(self, var, n):  # !!! TMP BUG FIX
+    def bgc_var_tmp_filenames_split(self, var, n, suffix='.nc'):  # !!! TMP BUG FIX
         """Get tmp filenames for BGC tmp subsets (TMP BUG FIX)."""
         tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx_bgc.stem)
-        tmp_files = [tmp_dir / '{}_{:03d}{}.npy'.format(var, n, i) for i in ['a', 'b']]
+        tmp_files = [tmp_dir / '{}_{:03d}{}{}'.format(var, n, i, suffix) for i in ['a', 'b']]
         return tmp_files
 
     def bgc_tmp_traj_subsets(self, ds):
@@ -343,7 +343,7 @@ class FelxDataSet(object):
         return traj_bnds
 
     def bgc_tmp_traj_subsets_even_half(self, ds):  # !!! TMP BUG FIX
-        """Particle subsets for BGC tmp files (old version."""
+        """Particle subsets for BGC tmp files (old version)."""
         # Divide particles into subsets with same number of particles.
         # First 48 subsets.
         traj_bnds_1 = np.linspace(0, ds.traj.size + 1, self.n_subsets + 1, dtype=int)

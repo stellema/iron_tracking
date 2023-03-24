@@ -161,23 +161,64 @@ def save_felx_BGC_field_subset(exp, var, n, split_file=False, split_int=None):
                 .format(tmp_file.parent.stem, tmp_file.name, n, pds.n_subsets,
                         np.diff(traj_bnd)[0], ds.traj.size))
 
-    dx = update_field_AAA(dx, field_dataset, var, dim_map)
-
-    np.save(tmp_file, dx, allow_pickle=True)
-
+    result = update_field_AAA(dx, field_dataset, var, dim_map)
+    df = xr.Dataset(coords=dx.coords)
+    df[var] = (['traj', 'obs'], result)
+    save_dataset(df, tmp_file, msg='')
     logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
+    df.close()
 
     if split_file:
         # Concatenate & save split tmp file.
         if all([f.exists() for f in tmp_files_split]):
-            data = []
-            for tmp_file in tmp_files_split:
-                data.append(np.load(tmp_file, allow_pickle=True))
-            arr = np.concatenate(data, axis=0)
-
+            df = xr.open_mfdataset(tmp_files_split)
             tmp_file = pds.bgc_var_tmp_filenames(var)[n]
-            np.save(tmp_file, arr, allow_pickle=True)
+            save_dataset(df, tmp_file, msg='')
             logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
+            df.close()
+    return
+
+
+def convert_file_formats(exp, var, n):
+    # Initialise particle dataset.
+    pds = FelxDataSet(exp)
+
+    # Create temp directory and filenames.
+    tmp_file = pds.bgc_var_tmp_filenames(var)[n]
+    tmp_file_alt = pds.bgc_var_tmp_filenames(var, suffix='.npy')[n]
+    ds = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=True)
+
+    # Save temp file subset for variable.
+    traj_bnds = pds.bgc_tmp_traj_subsets_even(ds)
+    traj_bnd = traj_bnds[n]
+
+    # Calculate & save particle subset.
+    dx = ds.isel(traj=slice(*traj_bnd))
+
+    result = np.load(tmp_file_alt, allow_pickle=True)
+
+    logger.info('{}/{}: shape={}, expected shape={}.'
+                .format(tmp_file.parent.stem, tmp_file.name, result.shape, dx[var].shape))
+
+    if result.shape[0] == dx[var].shape[0] - 1:
+        logger.info('{}/{}: Updating missed particle.'.format(tmp_file.parent.stem, tmp_file.name))
+        fieldset = BGCFields(exp)
+        if var in fieldset.vars_ofam:
+            field_dataset = fieldset.ofam_dataset(variables=var, decode_times=True)
+            dim_map = fieldset.dim_map_ofam
+        else:
+            field_dataset = fieldset.kd490_dataset()
+            dim_map = fieldset.dim_map_kd
+        dxx = dx.isel(traj=[-1])
+        result2 = update_field_AAA(dxx, field_dataset, var, dim_map)
+        result = np.concatenate([result, result2], axis=0)
+
+    df = xr.Dataset(coords=dx.coords)
+    df[var] = (['traj', 'obs'], result)
+    save_dataset(df, tmp_file, msg='')
+    logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
+    df.close()
+    ds.close()
     return
 
 
@@ -330,3 +371,14 @@ if __name__ == '__main__':
         pds = FelxDataSet(exp)
         if pds.check_bgc_tmp_files_complete():
             save_felx_BGC_fields(exp)
+
+    if func == 'convert':
+        pds = FelxDataSet(exp)
+        var_n_all = [[v, i] for v in pds.bgc_variables[variable_i:] for i in range(pds.n_subsets)]
+
+        # Remove any finished saved subsets from list.
+        for v, n in var_n_all.copy():
+            files = pds.bgc_var_tmp_filenames(v)
+            files_alt = pds.bgc_var_tmp_filenames(v, suffix='.npy')
+            if pds.check_file_complete(files_alt[n]):
+                convert_file_formats(exp, var, n)
