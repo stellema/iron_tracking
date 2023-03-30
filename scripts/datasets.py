@@ -176,16 +176,15 @@ class BGCFields(object):
     def kd490_dataset(self):
         """Get Kd490 climatology field."""
         chunks = {'month': 12, 'lat': 480, 'lon': 1980}
-        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month.nc',
+        kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month_interp.nc',
                              chunks=chunks, decode_times=True)
 
         # kd.coords['time'] = kd.time.dt.month
         kd = kd.rename(dict(month='time'))
 
         # Subset lat and lons to match ofam3 data.
-        kd = kd.sel(lat=slice(-10, 10), lon=slice(120, 285))
+        # kd = kd.sel(lat=slice(-10, 10), lon=slice(120, 285))
         kd = kd.rename({'Kd490': 'kd'})
-        # kd = kd.coarsen(lon=2, side='right').mean()
         return kd
 
 
@@ -295,6 +294,7 @@ def merge_interior_sources(ds):
 def format_Kd490_dataset():
     """Merge & add time dimension to Kd490 monthly files."""
     time_dim = ['time', 'month'][1]
+    interp = True
     # Open kd490 dataset.
     files = [paths.obs / 'GMIS_Kd490/GMIS_S_K490_{:02d}.nc'.format(m) for m in range(1, 13)]
     df = xr.open_mfdataset(files, combine='nested', concat_dim='time', decode_cf=0)
@@ -304,6 +304,10 @@ def format_Kd490_dataset():
     df = df.assign_coords(lon=df.lon % 360)
     df = df.sortby(df.lon)
     df = df.drop_duplicates('lon')
+    if interp:
+        df = df.sel(lat=slice(-10, 10), lon=slice(120, 285))
+        dx = 0.1
+        df = df.interp(lon=np.arange(120, 285 + dx, dx), lat=np.arange(-10, 10 + dx, dx))
 
     # Format time coord.
     # Keep as months.
@@ -351,8 +355,10 @@ def format_Kd490_dataset():
     ds.time.encoding['calendar'] = 'proleptic_gregorian'
 
     # Save dataset.
-    ds.to_netcdf(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_{}.nc'.format(time_dim), format='NETCDF4',
-                 encoding={'Kd490': {'shuffle': False, 'chunksizes': [12, 4320, 8640],
+    ds.to_netcdf(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_{}{}.nc'.format(time_dim, '_interp'
+                                                                      if interp else ''),
+                 format='NETCDF4', compute=True,
+                 encoding={'Kd490': {'shuffle': False, 'chunksizes': [12, 41, 331],
                                      'zlib': True, 'complevel': 5}})
 
 
