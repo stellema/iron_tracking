@@ -314,11 +314,6 @@ class FelxDataSet(object):
         tmp_files = [tmp_dir / '{}_{:03d}{}'.format(var, i, suffix) for i in range(self.n_subsets)]
         return tmp_files
 
-    def bgc_var_tmp_filenames_split(self, var, n, suffix='.nc'):  # !!! TMP BUG FIX
-        """Get tmp filenames for BGC tmp subsets (TMP BUG FIX)."""
-        tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx_bgc.stem)
-        tmp_files = [tmp_dir / '{}_{:03d}{}{}'.format(var, n, i, suffix) for i in ['a', 'b']]
-        return tmp_files
 
     def bgc_tmp_traj_subsets(self, ds):
         """Particle subsets for BGC tmp files."""
@@ -335,38 +330,6 @@ class FelxDataSet(object):
         assert traj_bnds[-1][-1] == ds.traj.size
         return traj_bnds
 
-    def bgc_tmp_traj_subsets_even(self, ds):  # !!! TMP BUG FIX
-        """Particle subsets for BGC tmp files (old version."""
-        # Divide particles into subsets with same number of particles.
-        traj_bnds = np.linspace(0, ds.traj.size + 1, self.n_subsets + 1, dtype=int)
-        traj_bnds = [[traj_bnds[i], traj_bnds[i+1]] for i in range(self.n_subsets)]
-        return traj_bnds
-
-    def bgc_tmp_traj_subsets_even_half(self, ds):  # !!! TMP BUG FIX
-        """Particle subsets for BGC tmp files (old version)."""
-        # Divide particles into subsets with same number of particles.
-        # First 48 subsets.
-        traj_bnds_1 = np.linspace(0, ds.traj.size + 1, self.n_subsets + 1, dtype=int)
-        traj_bnds_1 = [[traj_bnds_1[i], traj_bnds_1[i+1]] for i in range(self.n_subsets)]
-
-        # Last 52 subsets.
-        ncpus = 48
-        N = self.n_subsets - ncpus
-        p0 = traj_bnds_1[ncpus - 1][-1]
-        dx = ds.z.isel(traj=slice(p0, ds.traj.size))
-
-        n_obs = dx.where(np.isnan(dx), 1).sum(dim='obs')
-        n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / N)).astype(dtype=int)
-        # Number of particles per subset.
-        n_traj = [n_obs_grp.where(n_obs_grp == i, drop=True).traj.size for i in range(N)]
-        # Particle index [first, last+1] in each subset.
-        n_traj = np.array([0, *n_traj])
-        traj_bnds_2 = [[np.cumsum(n_traj)[i] + p0, np.cumsum(n_traj)[i+1] + p0] for i in range(N)]
-
-        traj_bnds = traj_bnds_1.copy()
-        traj_bnds[ncpus:] = traj_bnds_2.copy()
-        return traj_bnds
-
     def check_bgc_tmp_files_complete(self):
         """Check all variable tmp file subsets complete."""
         complete = True
@@ -379,14 +342,24 @@ class FelxDataSet(object):
 
     def set_bgc_dataset_vars_from_tmps(self, ds):
         """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""
-        for name, var in self.bgc_variables_nmap.items():
-            data = []
-            for tmp_file in self.bgc_var_tmp_filenames(var):
-                data.append(np.load(tmp_file, allow_pickle=True))
-            arr = np.concatenate(data, axis=0)
+        for var in self.bgc_variables:
+            tmp_files = self.bgc_var_tmp_filenames(var)
+            da = xr.open_mfdataset(tmp_files[:3])
+            ds[var] = da[var]
+            ds[var] = ds[var].interpolate_na('obs', method='slinear', limit=10)
 
-            ds[name] = (['traj', 'obs'], arr)
-            ds[name] = ds[name].interpolate_na('obs', method='slinear', limit=10)
+        return ds
+
+    def test_set_bgc_dataset_vars_from_tmps(self, ds, ntraj=100):
+        """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""
+        ds = xr.open_dataset(self.exp.file_felx_bgc_tmp, decode_times=True)
+        ds = ds.isel(traj=slice(ntraj))
+        for var in self.bgc_variables[:-1]:
+            tmp_files = self.bgc_var_tmp_filenames(var)
+            da = xr.open_mfdataset(tmp_files[:3])
+
+            ds[var] = da[var].isel(traj=slice(ntraj))
+            ds[var] = ds[var].interpolate_na('obs', method='slinear', limit=10)
         return ds
 
     def init_felx_bgc_dataset(self):

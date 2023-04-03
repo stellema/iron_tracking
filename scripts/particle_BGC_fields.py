@@ -87,15 +87,13 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
 
 
 @timeit(my_logger=logger)
-def save_felx_BGC_field_subset(exp, var, n, split_file=False, split_int=None):
+def save_felx_BGC_field_subset(exp, var, n):
     """Sample OFAM3 BGC fields at particle positions.
 
     Args:
         exp (cfg.ExpData): Experiment dataclass instance.
-        var (str): DESCRIPTION.
-        n (int): DESCRIPTION.
-        split_file (bool, optional): Divide subset again. Defaults to False.
-        split_int (None or int, optional): Integer of split (0, 1). Defaults to None.
+        var (str): BGC variable.
+        n (int): File tmp subset number.
 
     Returns:
         None.
@@ -120,10 +118,6 @@ def save_felx_BGC_field_subset(exp, var, n, split_file=False, split_int=None):
     tmp_files = pds.bgc_var_tmp_filenames(var)
     tmp_file = tmp_files[n]
 
-    if split_file:
-        tmp_files_split = pds.bgc_var_tmp_filenames_split(var, n)
-        tmp_file = tmp_files_split[split_int]
-
     if pds.check_file_complete(tmp_file):
         return
 
@@ -136,26 +130,11 @@ def save_felx_BGC_field_subset(exp, var, n, split_file=False, split_int=None):
 
     # Save temp file subset for variable.
     traj_bnds = pds.bgc_tmp_traj_subsets(ds)
-    if exp.lon == 250 and exp.scenario == 0:
-        if exp.file_index == 0 and var == 'phy':
-            traj_bnds = pds.bgc_tmp_traj_subsets_even(ds)
-        if ((exp.file_index == 0 and var == 'zoo') or (exp.file_index == 1 and var == 'phy')):
-            traj_bnds = pds.bgc_tmp_traj_subsets_even_half(ds)
 
     traj_bnd = traj_bnds[n]
 
     # Calculate & save particle subset.
     dx = ds.isel(traj=slice(*traj_bnd))
-
-    if split_file:
-        # Divide tmp subset particles (add +10 to help make one file finish quicker).
-        n_obs = dx.z.where(np.isnan(dx.z), 1).sum(dim='obs')
-        n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / 2)).astype(dtype=int)
-        mid = traj_bnd[0] + n_obs_grp.where(n_obs_grp == 0, drop=True).traj.size
-        mid += 10
-        traj_bnds_split = [[traj_bnd[0], mid], [mid, traj_bnd[1]]]
-        traj_bnd = traj_bnds_split[split_int]
-        dx = ds.isel(traj=slice(*traj_bnd))
 
     logger.info('{}/{}: Calculating. Subset {} of {} particles={}/{}'
                 .format(tmp_file.parent.stem, tmp_file.name, n, pds.n_subsets,
@@ -167,58 +146,6 @@ def save_felx_BGC_field_subset(exp, var, n, split_file=False, split_int=None):
     save_dataset(df, tmp_file, msg='')
     logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
     df.close()
-
-    if split_file:
-        # Concatenate & save split tmp file.
-        if all([f.exists() for f in tmp_files_split]):
-            df = xr.open_mfdataset(tmp_files_split)
-            tmp_file = pds.bgc_var_tmp_filenames(var)[n]
-            save_dataset(df, tmp_file, msg='')
-            logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
-            df.close()
-    return
-
-
-def convert_file_formats(exp, var, n):
-    # Initialise particle dataset.
-    pds = FelxDataSet(exp)
-
-    # Create temp directory and filenames.
-    tmp_file = pds.bgc_var_tmp_filenames(var)[n]
-    tmp_file_alt = pds.bgc_var_tmp_filenames(var, suffix='.npy')[n]
-    ds = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=True)
-
-    # Save temp file subset for variable.
-    traj_bnds = pds.bgc_tmp_traj_subsets_even(ds)
-    traj_bnd = traj_bnds[n]
-
-    # Calculate & save particle subset.
-    dx = ds.isel(traj=slice(*traj_bnd))
-
-    result = np.load(tmp_file_alt, allow_pickle=True)
-
-    logger.info('{}/{}: shape={}, expected shape={}.'
-                .format(tmp_file.parent.stem, tmp_file.name, result.shape, dx[var].shape))
-
-    if result.shape[0] == dx[var].shape[0] - 1:
-        logger.info('{}/{}: Updating missed particle.'.format(tmp_file.parent.stem, tmp_file.name))
-        fieldset = BGCFields(exp)
-        if var in fieldset.vars_ofam:
-            field_dataset = fieldset.ofam_dataset(variables=var, decode_times=True)
-            dim_map = fieldset.dim_map_ofam
-        else:
-            field_dataset = fieldset.kd490_dataset()
-            dim_map = fieldset.dim_map_kd
-        dxx = dx.isel(traj=[-1])
-        result2 = update_field_AAA(dxx, field_dataset, var, dim_map)
-        result = np.concatenate([result, result2], axis=0)
-
-    df = xr.Dataset(coords=dx.coords)
-    df[var] = (['traj', 'obs'], result)
-    save_dataset(df, tmp_file, msg='')
-    logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
-    df.close()
-    ds.close()
     return
 
 
@@ -270,7 +197,7 @@ def parallelise_prereq_files(scenario):
 
 
 @profile
-def parallelise_BGC_fields(exp, variable_i=0, split_file=False):
+def parallelise_BGC_fields(exp, variable_i=0):
     """Parallelise saving particle BGC fields as tmp files.
 
     Notes:
@@ -281,45 +208,16 @@ def parallelise_BGC_fields(exp, variable_i=0, split_file=False):
     rank = comm.Get_rank()
     pds = FelxDataSet(exp)
 
-    # !!! tmp bug fix.
-    if split_file and exp.lon == 250 and exp.scenario == 0 and exp.file_index in [0, 1]:
-        if exp.file_index == 0 and variable_i == 0:
-            var = 'phy'
-            n_list = [17, 57, 60, 65, 66, 69, 70, 71, 80, 94, 95, 96, 97, 98, 99]
-        elif exp.file_index == 0 and variable_i == 1:
-            var = 'zoo'
-            n_list = [0, 1, 2, 3, 5, 6, 7, 9, 10, 12, 13, 14, 17, 19, 20, 21, 23]
-        elif exp.file_index == 1 and variable_i == 0:
-            var = 'phy'
-            n_list = [19, 23, 24, 27, 28, 30, 31, 34, 35, 37, 38, 45, 46]
+    # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
+    var_n_all = [[v, i] for v in pds.bgc_variables[variable_i:] for i in range(pds.n_subsets)]
 
-        var_n_all = [[var, n, i] for n in n_list for i in [0, 1]]
+    # Remove any finished saved subsets from list.
+    for v, n in var_n_all.copy():
+        files = pds.bgc_var_tmp_filenames(v)
+        if pds.check_file_complete(files[n]):
+            var_n_all.remove([v, n])
 
-        # Remove any finished saved subsets from list.
-        for v, n, i in var_n_all.copy():
-            files = pds.bgc_var_tmp_filenames(v)
-            if pds.check_file_complete(files[n]):
-                var_n_all.remove([v, n, i])
-            else:
-                file = pds.bgc_var_tmp_filenames_split(v, n)[i]
-                if pds.check_file_complete(file):
-                    var_n_all.remove([v, n, i])
-
-        var, n, i = var_n_all[rank]
-        kwargs = dict(split_file=True, split_int=i)
-
-    else:
-        # Input ([[var0, 0], [var0, 1], ..., [varn, n]).
-        var_n_all = [[v, i] for v in pds.bgc_variables[variable_i:] for i in range(pds.n_subsets)]
-
-        # Remove any finished saved subsets from list.
-        for v, n in var_n_all.copy():
-            files = pds.bgc_var_tmp_filenames(v)
-            if pds.check_file_complete(files[n]):
-                var_n_all.remove([v, n])
-
-        var, n = var_n_all[rank]
-        kwargs = dict(split_file=False, split_int=None)  # !!! tmp bug fix.
+    var, n = var_n_all[rank]
 
     if rank == 0:
         logger.info('{}: Files to save={}/{}'.format(exp.file_felx_bgc.stem, len(var_n_all),
@@ -328,7 +226,7 @@ def parallelise_BGC_fields(exp, variable_i=0, split_file=False):
 
     logger.info('{}: Rank={}, var={}, n={}/{}'.format(exp.file_felx_bgc.stem, rank, var, n,
                                                       pds.n_subsets - 1))
-    save_felx_BGC_field_subset(exp, var, n, **kwargs)  # !!! tmp bug fix - delete kwargs
+    save_felx_BGC_field_subset(exp, var, n)
     return
 
 
@@ -346,16 +244,14 @@ if __name__ == '__main__':
     p.add_argument('-n', '--n_tmp', default=0, type=int, help='Subset index [0-100].')  # Old.
     # 'bgc_fields' args.
     p.add_argument('-iv', '--variable_i', default=0, type=int, help='BGC variable index [0-7].')
-    p.add_argument('-split', '--split_file', default=0, type=int, help='Split tmp subset [0, 1].')
     args = p.parse_args()
 
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
-    var = args.variable
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name='felx_bgc',
                   test=cfg.test)
+    var = args.variable
     func = args.function
     variable_i = args.variable_i
-    split_file = args.split_file
 
     if cfg.test:
         func = ['bgc_fields', 'prereq_files', 'save_files'][0]
@@ -365,23 +261,25 @@ if __name__ == '__main__':
             parallelise_prereq_files(scenario)
 
         if func == 'bgc_fields':
-            parallelise_BGC_fields(exp, variable_i=variable_i, split_file=split_file)
+            parallelise_BGC_fields(exp, variable_i=variable_i)
 
     if func == 'save_files':
         pds = FelxDataSet(exp)
         if pds.check_bgc_tmp_files_complete():
             save_felx_BGC_fields(exp)
 
-    if func == 'convert':
-        import os
-        pds = FelxDataSet(exp)
-        var_n_all = [[v, i] for v in pds.bgc_variables[variable_i:] for i in range(pds.n_subsets)]
+    if func == 'check':
+        n = 0
+        files = pds.bgc_var_tmp_filenames(var)
+        files_alt = pds.bgc_var_tmp_filenames(var, suffix='.npy')
+        ds = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=True)
+        for n in range(10):
+            dx = xr.open_dataset(files[n], decode_times=True)
+            print('n={}: traj={}-{}'.format(n, dx.traj.min().item(), dx.traj.max().item()))
+            p = dx.isel(traj=-1).traj.item()
+            dsx = ds.isel(traj=int(p))
 
-        # Remove any finished saved subsets from list.
-        for v, n in var_n_all.copy():
-            files = pds.bgc_var_tmp_filenames(v)
-            files_alt = pds.bgc_var_tmp_filenames(v, suffix='.npy')
-            if pds.check_file_complete(files_alt[n]) and not pds.check_file_complete(files[n]):
-                convert_file_formats(exp, v, n)
-            if pds.check_file_complete(files_alt[n]) and pds.check_file_complete(files[n]):
-                os.remove(files_alt[n])
+            dsx.z.plot(yincrease=0)
+            dx.isel(traj=-1).phy.plot()
+            plt.show()
+            plt.clf()
