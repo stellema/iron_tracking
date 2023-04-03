@@ -373,6 +373,7 @@ if __name__ == '__main__':
             save_felx_BGC_fields(exp)
 
     if func == 'convert':
+        import os
         pds = FelxDataSet(exp)
         var_n_all = [[v, i] for v in pds.bgc_variables[variable_i:] for i in range(pds.n_subsets)]
 
@@ -380,5 +381,7 @@ if __name__ == '__main__':
         for v, n in var_n_all.copy():
             files = pds.bgc_var_tmp_filenames(v)
             files_alt = pds.bgc_var_tmp_filenames(v, suffix='.npy')
-            if pds.check_file_complete(files_alt[n]):
-                convert_file_formats(exp, var, n)
+            if pds.check_file_complete(files_alt[n]) and not pds.check_file_complete(files[n]):
+                convert_file_formats(exp, v, n)
+            if pds.check_file_complete(files_alt[n]) and pds.check_file_complete(files[n]):
+                os.remove(files_alt[n])
