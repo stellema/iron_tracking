@@ -37,9 +37,10 @@ import numpy as np
 import pandas as pd  # NOQA
 import xarray as xr  # NOQA
 
+
 import cfg
 from cfg import paths, ExpData
-from datasets import save_dataset, BGCFields
+from datasets import save_dataset, BGCFields, plx_particle_dataset
 from felx_dataset import FelxDataSet
 from tools import timeit, mlogger
 try:
@@ -141,6 +142,7 @@ def save_felx_BGC_field_subset(exp, var, n):
     df[var] = (['traj', 'obs'], result)
     save_dataset(df, tmp_file, msg='')
     logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
+    ds.close()
     df.close()
     return
 
@@ -148,27 +150,34 @@ def save_felx_BGC_field_subset(exp, var, n):
 def save_felx_BGC_fields(exp):
     """Run and save OFAM3 BGC fields at particle positions as n temp files."""
     pds = FelxDataSet(exp)
+    assert pds.check_bgc_tmp_files_complete()
 
     file = exp.file_felx_bgc
     if cfg.test:
         file = paths.data / ('test/' + file.stem + '.nc')
 
-    ds = pds.init_bgc_felx_file(save_empty=False)
-    # Put all temp files together.
-    logger.info('{}: Setting dataset variables.'.format(file.stem))
-    ds = pds.set_bgc_dataset_vars_from_tmps(ds)
+    ds = xr.open_dataset(pds.exp.file_felx_bgc_tmp, decode_times=True, decode_cf=True)
 
-    ds = ds.rename({v: k for k, v in pds.bgc_variables_nmap.items()})
+    ds_plx = plx_particle_dataset(pds.exp.file_plx)  # Bug fix (saved u instead of zone).
+    ds['zone'] = ds_plx.zone
+    ds['zone'] = ds.zone.isel(obs=0)
+    ds_plx.close()
+
+    # Put all temp files together.
+    ds = pds.set_bgc_dataset_vars_from_tmps(ds)
 
     ds = ds.where(ds.valid_mask)
     ds['time'] = ds.time_orig
-    ds = ds.drop('valid_mask')
-    ds = ds.drop('time_orig')
+
+    # ds = ds.rename({k: v for k, v in pds.bgc_variables_nmap.items()})
+    ds = ds.drop(['time_orig', 'valid_mask', 'month', 'fe', 'distance', 'unbeached'])
+
+    for var in ds.data_vars:
+        if ds[var].dtype == 'float64':
+            ds[var] = ds[var].astype('float32')
 
     # Save file.
-    logger.info('{}: Saving...'.format(file.stem))
     save_dataset(ds, file, msg='Added BGC fields at paticle positions.')
-    logger.info('{}: Felx BGC fields file saved.'.format(file.stem))
     return
 
 
@@ -201,20 +210,17 @@ def parallelise_BGC_fields(exp, variable_i=0, check=False):
     var_n_all = [[v, i] for v in pds.bgc_variables[variable_i:] for i in range(pds.n_subsets)]
 
     # Remove any finished saved subsets from list.
-    v_list, n_list, tmp = [], [], ''  # Log remaining files.
     for v, n in var_n_all.copy():
         files = pds.bgc_var_tmp_filenames(v)
 
         if files[n].exists():
             var_n_all.remove([v, n])
-        else:
-            if tmp != v:
-                if len(n_list) > 0:
-                    v_list.append([v, n_list])
-                tmp = v
-                n_list = []
-            n_list.append(n)
 
+    v_list = []  # Log remaining files.
+    for v in np.unique(np.array(var_n_all)[:, 0]):
+        inds = np.where(np.array(var_n_all)[:, 0] == v)
+        n_list = list(np.array(var_n_all)[inds][:, 1])
+        v_list.append([v, n_list])
     v_list = ['{} (unsaved={}): {}'.format(v[0], len(v[1]), v[1]) for v in v_list]
 
     var, n = var_n_all[rank]

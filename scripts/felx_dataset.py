@@ -222,14 +222,11 @@ class FelxDataSet(object):
         save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
         logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
 
-    def init_bgc_felx_file(self, save_empty=True):
-        """Save new felx file (empty BGC data variables)."""
+    def init_felx_bgc_tmp_dataset(self):
+        """Create felx_bgc file (empty BGC data variables)."""
         ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
-        ds_plx = plx_particle_dataset(self.exp.file_plx)  # Bug fix (saved u instead of zone).
-        ds['zone'] = ds_plx.zone
-        ds_plx.close()
 
-        # Add data_vars
+        # Add data_vars.
         ds['valid_mask'] = ~np.isnan(ds.trajectory)
         # convert to days since 1979 (same as ofam3).
         ds['month'] = ds.time.dt.month.astype(dtype=np.float32)
@@ -239,8 +236,7 @@ class FelxDataSet(object):
         for var in self.bgc_variables:
             ds[var] = self.empty_DataArray(ds)
 
-        if save_empty:
-            save_dataset(ds, str(self.exp.file_felx_bgc_tmp), msg='')
+        save_dataset(ds, str(self.exp.file_felx_bgc_tmp), msg='')
 
         # ds = xr.open_dataset(self.exp.file_felx_bgc_tmp, decode_times=False, use_cftime=True,
         #                       decode_cf=True)
@@ -302,7 +298,7 @@ class FelxDataSet(object):
         file = self.exp.file_felx_bgc_tmp
         file_complete = self.check_file_complete(file)
         if not file_complete:
-            ds = self.init_bgc_felx_file(save_empty=True)
+            ds = self.init_felx_bgc_tmp_dataset()
             ds.close()
 
     def bgc_var_tmp_filenames(self, var, suffix='.nc'):
@@ -343,7 +339,7 @@ class FelxDataSet(object):
 
     def set_bgc_dataset_vars_from_tmps(self, ds):
         """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""
-        for var in self.bgc_variables[:-2]:
+        for var in self.bgc_variables:
             tmp_files = self.bgc_var_tmp_filenames(var)
             da = xr.open_mfdataset(tmp_files)
             ds[var] = da[var].interpolate_na('obs', method='slinear', limit=10)
