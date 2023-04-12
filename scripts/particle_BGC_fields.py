@@ -51,7 +51,6 @@ logger = mlogger('files_felx')
 
 
 @timeit(my_logger=logger)
-@profile
 def update_field_AAA(ds, field_dataset, var, dim_map):
     """Calculate fields at plx particle positions (using apply_along_axis and xarray).
 
@@ -63,23 +62,24 @@ def update_field_AAA(ds, field_dataset, var, dim_map):
     def update_field_particle(traj, ds, field, dim_map, var):
         """Subset using entire array for a particle."""
         mask = ~np.isnan(traj)
-        p = traj[mask][0].item()
-        dx = ds.sel(traj=p)
+        ds = ds.sel(traj=traj[mask][0].item())
 
         # Map dimension names to particle position arrays (ds and field dims may differ).
         loc = {}
-        for dim, dim_dx in dim_map.items():
-            loc[dim] = dx[dim_dx]
+        for dim, dim_ds in dim_map.items():
+            loc[dim] = ds[dim_ds]
+
+        ds = ds[var]
 
         # Version 1 (quickest because of all the padded NaNs).
-        n_obs = dx.obs[mask].astype(dtype=int).values
+        n_obs = ds.obs[mask].astype(dtype=int).values
         for i in n_obs:
             xloc = dict([(k, v[i]) for k, v in loc.items()])
-            dx[var][dict(obs=i)] = field.sel(xloc, method='nearest', drop=True)
+            ds[dict(obs=i)] = field.sel(xloc, method='nearest', drop=True)
 
         # Version 2.
-        # dx[var] = field.sel(loc, method='nearest', drop=True)
-        return dx[var]
+        # ds = field.sel(loc, method='nearest', drop=True)
+        return ds
 
     kwargs = dict(ds=ds, field=field_dataset[var], dim_map=dim_map, var=var)
     dx = np.apply_along_axis(update_field_particle, 1, arr=ds.trajectory, **kwargs)
@@ -101,27 +101,25 @@ def save_felx_BGC_field_subset(exp, var, n):
     Notes:
         - First save/create plx_inverse file.
     """
-    # Create fieldset for variable.
-    fieldset = BGCFields(exp)
-
-    if var in fieldset.vars_ofam:
-        field_dataset = fieldset.ofam_dataset(variables=var, decode_times=True)
-        dim_map = fieldset.dim_map_ofam
-    else:
-        field_dataset = fieldset.kd490_dataset()
-        dim_map = fieldset.dim_map_kd
-
     # Initialise particle dataset.
     pds = FelxDataSet(exp)
 
     # Create temp directory and filenames.
-    tmp_files = pds.bgc_var_tmp_filenames(var)
-    tmp_file = tmp_files[n]
+    tmp_file = pds.bgc_var_tmp_filenames(var)[n]
 
-    if pds.check_file_complete(tmp_file):
-        return
+    # if pds.check_file_complete(tmp_file):
+    #     return
+    # pds.check_bgc_prereq_files()
 
-    pds.check_bgc_prereq_files()
+    # Create fieldset for variable.
+    fieldset = BGCFields(exp)
+
+    if var in fieldset.vars_ofam:
+        field_dataset = fieldset.ofam_dataset(variables=var, decode_times=True, chunks='auto')
+        dim_map = fieldset.dim_map_ofam
+    else:
+        field_dataset = fieldset.kd490_dataset(chunks='auto')
+        dim_map = fieldset.dim_map_kd
 
     ds = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=True)
 
@@ -129,9 +127,7 @@ def save_felx_BGC_field_subset(exp, var, n):
         ds['month'] = ds.month.astype(dtype=np.float32)
 
     # Save temp file subset for variable.
-    traj_bnds = pds.bgc_tmp_traj_subsets(ds)
-
-    traj_bnd = traj_bnds[n]
+    traj_bnd = pds.bgc_tmp_traj_subsets(ds)[n]
 
     # Calculate & save particle subset.
     dx = ds.isel(traj=slice(*traj_bnd))
@@ -149,7 +145,6 @@ def save_felx_BGC_field_subset(exp, var, n):
     return
 
 
-@profile
 def save_felx_BGC_fields(exp):
     """Run and save OFAM3 BGC fields at particle positions as n temp files."""
     pds = FelxDataSet(exp)
@@ -163,6 +158,8 @@ def save_felx_BGC_fields(exp):
     logger.info('{}: Setting dataset variables.'.format(file.stem))
     ds = pds.set_bgc_dataset_vars_from_tmps(ds)
 
+    ds = ds.rename({v: k for k, v in pds.bgc_variables_nmap.items()})
+
     ds = ds.where(ds.valid_mask)
     ds['time'] = ds.time_orig
     ds = ds.drop('valid_mask')
@@ -175,12 +172,10 @@ def save_felx_BGC_fields(exp):
     return
 
 
-@profile
 def parallelise_prereq_files(scenario):
     """Calculate plx subset and inverse_plx files.
 
     Notes:
-        * Assumes 8 processors
         * 10 file x 16 min each = ~2.6 hours.
     """
     comm = MPI.COMM_WORLD
@@ -196,14 +191,8 @@ def parallelise_prereq_files(scenario):
     return
 
 
-@profile
-def parallelise_BGC_fields(exp, variable_i=0):
-    """Parallelise saving particle BGC fields as tmp files.
-
-    Notes:
-        * Assumes 35 processors
-        * Arounf 7-8 hours each file.
-    """
+def parallelise_BGC_fields(exp, variable_i=0, check=False):
+    """Parallelise saving particle BGC fields as tmp files."""
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     pds = FelxDataSet(exp)
@@ -212,21 +201,33 @@ def parallelise_BGC_fields(exp, variable_i=0):
     var_n_all = [[v, i] for v in pds.bgc_variables[variable_i:] for i in range(pds.n_subsets)]
 
     # Remove any finished saved subsets from list.
+    v_list, n_list, tmp = [], [], ''  # Log remaining files.
     for v, n in var_n_all.copy():
         files = pds.bgc_var_tmp_filenames(v)
-        if pds.check_file_complete(files[n]):
+
+        if files[n].exists():
             var_n_all.remove([v, n])
+        else:
+            if tmp != v:
+                if len(n_list) > 0:
+                    v_list.append([v, n_list])
+                tmp = v
+                n_list = []
+            n_list.append(n)
+
+    v_list = ['{} (unsaved={}): {}'.format(v[0], len(v[1]), v[1]) for v in v_list]
 
     var, n = var_n_all[rank]
 
     if rank == 0:
         logger.info('{}: Files to save={}/{}'.format(exp.file_felx_bgc.stem, len(var_n_all),
                                                      len(pds.bgc_variables) * pds.n_subsets))
-        logger.info('{}'.format(var_n_all))
+        logger.info('{}'.format(v_list))
 
     logger.info('{}: Rank={}, var={}, n={}/{}'.format(exp.file_felx_bgc.stem, rank, var, n,
                                                       pds.n_subsets - 1))
-    save_felx_BGC_field_subset(exp, var, n)
+    if not check:
+        save_felx_BGC_field_subset(exp, var, n)
     return
 
 
@@ -244,6 +245,7 @@ if __name__ == '__main__':
     p.add_argument('-n', '--n_tmp', default=0, type=int, help='Subset index [0-100].')  # Old.
     # 'bgc_fields' args.
     p.add_argument('-iv', '--variable_i', default=0, type=int, help='BGC variable index [0-7].')
+    p.add_argument('-c', '--check', default=False, type=bool, help='Check remaining files')
     args = p.parse_args()
 
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
@@ -261,7 +263,7 @@ if __name__ == '__main__':
             parallelise_prereq_files(scenario)
 
         if func == 'bgc_fields':
-            parallelise_BGC_fields(exp, variable_i=variable_i)
+            parallelise_BGC_fields(exp, variable_i=variable_i, check=args.check)
 
     if func == 'save_files':
         pds = FelxDataSet(exp)

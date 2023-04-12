@@ -173,9 +173,10 @@ class BGCFields(object):
                 ofam[var] = ofam3_datasets(self.exp, variables=var, **kwargs)[var]
         return ofam
 
-    def kd490_dataset(self):
+    def kd490_dataset(self, chunks=None):
         """Get Kd490 climatology field."""
-        chunks = {'month': 12, 'lat': 480, 'lon': 1980}
+        if chunks not in ['auto', False]:
+            chunks = {'month': 12, 'lat': 480, 'lon': 1980}
         kd = xr.open_dataset(paths.obs / 'GMIS_Kd490/GMIS_S_Kd490_month_interp.nc',
                              chunks=chunks, decode_times=True)
 
