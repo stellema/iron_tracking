@@ -216,18 +216,17 @@ def parallelise_BGC_fields(exp, variable_i=0, check=False):
         if files[n].exists():
             var_n_all.remove([v, n])
 
-    v_list = []  # Log remaining files.
-    for v in np.unique(np.array(var_n_all)[:, 0]):
-        inds = np.where(np.array(var_n_all)[:, 0] == v)
-        n_list = list(np.array(var_n_all)[inds][:, 1])
-        v_list.append([v, n_list])
-    v_list = ['{} (unsaved={}): {}'.format(v[0], len(v[1]), v[1]) for v in v_list]
-
     var, n = var_n_all[rank]
 
     if rank == 0:
         logger.info('{}: Files to save={}/{}'.format(exp.file_felx_bgc.stem, len(var_n_all),
                                                      len(pds.bgc_variables) * pds.n_subsets))
+        v_list = []  # Log remaining files.
+        for v in np.unique(np.array(var_n_all)[:, 0]):
+            inds = np.where(np.array(var_n_all)[:, 0] == v)
+            n_list = list(np.array(var_n_all)[inds][:, 1])
+            v_list.append([v, n_list])
+        v_list = ['{} (unsaved={}): {}'.format(v[0], len(v[1]), v[1]) for v in v_list]
         logger.info('{}'.format(v_list))
 
     logger.info('{}: Rank={}, var={}, n={}/{}'.format(exp.file_felx_bgc.stem, rank, var, n,
