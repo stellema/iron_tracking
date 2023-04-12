@@ -153,8 +153,8 @@ def save_felx_BGC_fields(exp):
     assert pds.check_bgc_tmp_files_complete()
 
     file = exp.file_felx_bgc
-    if cfg.test:
-        file = paths.data / ('test/' + file.stem + '.nc')
+    # if cfg.test:
+    #     file = paths.data / ('test/' + file.stem + '.nc')
 
     ds = xr.open_dataset(pds.exp.file_felx_bgc_tmp, decode_times=True, decode_cf=True)
 
@@ -164,6 +164,7 @@ def save_felx_BGC_fields(exp):
     ds_plx.close()
 
     # Put all temp files together.
+    logger.info('{}: Setting dataset variables.'.format(file.stem))
     ds = pds.set_bgc_dataset_vars_from_tmps(ds)
 
     ds = ds.where(ds.valid_mask)
@@ -177,7 +178,10 @@ def save_felx_BGC_fields(exp):
             ds[var] = ds[var].astype('float32')
 
     # Save file.
+    logger.info('{}: Saving...'.format(file.stem))
     save_dataset(ds, file, msg='Added BGC fields at paticle positions.')
+    logger.info('{}: Felx BGC fields file saved.'.format(file.stem))
+    ds.close()
     return
 
 
@@ -271,11 +275,10 @@ if __name__ == '__main__':
             parallelise_BGC_fields(exp, variable_i=variable_i, check=args.check)
 
     if func == 'save_files':
-        pds = FelxDataSet(exp)
-        if pds.check_bgc_tmp_files_complete():
-            save_felx_BGC_fields(exp)
+        save_felx_BGC_fields(exp)
 
     if func == 'check':
+        pds = FelxDataSet(exp)
         n = 0
         files = pds.bgc_var_tmp_filenames(var)
         files_alt = pds.bgc_var_tmp_filenames(var, suffix='.npy')
