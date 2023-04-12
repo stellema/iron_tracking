@@ -85,8 +85,8 @@ class ProjectPaths():
         if self.home.drive == 'C:':
             self.repo = self.home / 'Projects/felx/'
             self.plx = self.home / 'Projects/plx/data/'
-            self.ofam = self.home / 'datasets/OFAM/trop_pac'
-            self.obs = self.home / 'datasets/obs'
+            self.ofam = pathlib.Path('D:') / 'datasets/OFAM/trop_pac'
+            self.obs = pathlib.Path('D:') / 'datasets/obs'
         else:
             self.home = pathlib.Path('/g/data/e14/as3189')
             self.repo = self.home / 'stellema/felx'
