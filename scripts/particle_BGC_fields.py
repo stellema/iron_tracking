@@ -158,7 +158,7 @@ def save_felx_BGC_fields(exp):
     Notes:
         * Pre-req files: felx_bgc_*_tmp.nc and all tmp subsets files.
         * Job script: felx_ds.py
-        * Requires: 42GB memory for 1-2 hours. (35 GB for 250h)
+        * Requires: 42GB memory for >1 hour. (250h: 35GB, 165h: 42GB)
         * Adds metadata as found in original parcels output, OFAM3 files and Kd490 fields.
             * N.B. formatted plx files convert particle velocity to transport [Sv].
             * Time units are already encoded.

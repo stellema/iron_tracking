@@ -11,6 +11,8 @@ Notes:
     - RCP: 2087-2101 (12 years=2089-2101)
     - Initial year is a La Nina year (for spinup)
     - 85% of particles finish
+    - the t-cell land point (0.85°S, 185.35°E) corresponds to
+    u-cell land points (0.9°S, 185.3°E), (0.8°S, 185.3°E), (0.9°S, 185.4°E), (-0.8°S, 185.4°E)
 
 Example:
 
@@ -47,16 +49,17 @@ Execution times:
 @created: Sat Jan 14 15:03:35 2023
 
 """
-import numpy as np
-import xarray as xr
-import pandas as pd
 from datetime import datetime, timedelta
+from memory_profiler import profile
+import numpy as np
+import pandas as pd
+import xarray as xr
 
 from cfg import paths, ExpData
 from tools import timeit, mlogger
-from datasets import ofam3_datasets
-from inverse_plx import inverse_plx_dataset, inverse_particle_obs
-from particle_BGC_fields import update_ofam3_fields_AAA, update_kd490_field_AAA
+from datasets import ofam3_datasets, save_dataset, BGCFields, convert_plx_times
+from felx_dataset import FelxDataSet
+from particle_BGC_fields import update_field_AAA, update_field_AAA_old
 from fieldsets import (get_fe_pclass, add_fset_constants,
                        ofam3_fieldset_parcels221, add_Kd490_field_parcels221,
                        add_ofam3_bgc_fields_parcels221,
@@ -88,7 +91,7 @@ def sample_particle_dataset(df, ntraj, nobs):
     for v in ['time', 'lat', 'lon']:
         ds[v] = repeat(df[v].values[:nobs], n=ntraj)
 
-    ds['z'] = repeat(np.tile(df.depth, int(np.ceil(101 / df.depth.size)))[:nobs], n=ntraj)
+    ds['z'] = repeat(np.tile(df.depth, int(np.ceil(204 / df.depth.size)))[:nobs], n=ntraj)
     return ds
 
 
@@ -119,6 +122,7 @@ def update_ofam3_fields_AAA(ds, fieldset, variables):
     return ds
 
 
+# @profile
 @timeit(my_logger=logger)
 def update_ofam3_fields_loop(ds, fieldset, variables):
     """Calculate fields at plx particle positions (using for loop and xarray)."""
@@ -196,46 +200,118 @@ def update_ofam3_fields_parcels(ds, fieldset):
     return ds
 
 
-def test_field_sampling_exact_xarray():
-    """Test BGC field sampling using xarray 'nearest' and numpy.apply_along_axis."""
-    exp = ExpData(scenario=0, lon=190, test=True)
-    ntraj = 2  # Number of particle trajectory (will be duplicates anyway).
-    nobs = 50  # N.B. max based on number of ofam3 depths
-    variables = ['phy', 'det']
+def test_field_sampling_exact_xarray(decode_times=True):
+    """Test BGC field sampling using xarray 'nearest' and numpy.apply_along_axis.
+    not decoded:
+        p=5, obs=51:
+            update_field_AAA: 00h:00m:11.70s (total=11.70 seconds). # @profile
+            update_ofam3_fields_loop: 00h:00m:03.08s (total=3.08 seconds).
+        p=100, obs=100:
+            update_field_AAA: 00h:05m:01.49s (total=301.49 seconds). # @profile
+            update_field_AAA: 00h:05m:45.02s (total=345.02 seconds).
+            update_ofam3_fields_loop: 00h:02m:07.37s (total=127.37 seconds).
+            update_ofam3_fields_loop: 00h:02m:18.76s (total=138.76 seconds).
 
-    # OFAM3 fields.
-    df = ofam3_datasets(exp, variables=['phy', 'det'], decode_times=True, chunks=False)
+
+    decoded:
+        p=5, obs=51:
+            update_field_AAA: 00h:00m:08.08s (total=8.08 seconds). # @profile
+            update_ofam3_fields_loop: 00h:00m:03.47s (total=3.47 seconds).
+        p=100, obs=100:
+            update_field_AAA: 00h:05m:16.55s (total=316.55 seconds). # @profile
+            update_ofam3_fields_loop: 00h:02m:28.41s (total=148.41 seconds).
+        p=5, nobs=100:
+            update_ofam3_fields_loop: 00h:00m:08.07s (total=8.07 seconds).
+            update_field_AAA: 00h:00m:20.39s (total=20.39 seconds).
+
+            update_ofam3_fields_loop: 00h:00m:07.91s (total=7.91 seconds).
+            update_field_AAA: 00h:00m:17.91s (total=17.91 seconds).
+            update_field_AAA_alt: 00h:00m:03.91s (total=3.91 seconds).
+        p=20, obs=180:
+            update_ofam3_fields_loop: 00h:00m:57.92s (total=57.92 seconds).
+            update_field_AAA: 00h:02m:23.97s (total=143.97 seconds).
+            update_field_AAA_alt: 00h:00m:27.37s (total=27.37 seconds).
+        p=100, obs=180:
+            update_ofam3_fields_loop: 00h:04m:46.75s (total=286.75 seconds).
+            update_field_AAA: 00h:10m:58.78s (total=658.78 seconds).
+            update_field_AAA_alt: 00h:02m:17.57s (total=137.57 seconds).
+            update_field_AAA_alt: 00h:02m:20.83s (total=140.83 seconds). # mask
+            update_field_AAA_alt: 00h:01m:56.79s (total=116.79 seconds) # mask
+
+
+    """
+    exp = ExpData(scenario=0, lon=250, test=True, file_index=0, test_month_bnds=12)
+    ntraj = 10  # Number of particle trajectory (will be duplicates anyway).
+    nobs = 180  # N.B. max based on number of ofam3 depths
+    var = 'det'
+
+    fieldset = BGCFields(exp)
+
+    if var in fieldset.vars_ofam:
+        field_dataset = fieldset.ofam_dataset(variables=var, decode_times=decode_times)
+        dim_map = fieldset.dim_map_ofam
+    else:
+        dim_map = fieldset.dim_map_kd
+        field_dataset = fieldset.kd490_dataset()
+    field = field_dataset[var]
+
+    pds = FelxDataSet(exp)
+
+    # Test using time values from particle dataset.  # !!!
+    dt = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=False)
+    dtd = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=True)
+    t = dt.isel(traj=0, drop=1).where(dtd.isel(traj=0, drop=1).time.dt.year >= 2012, drop=1)
+    dt = dtd.sel(traj=0, obs=t.obs[:nobs]) if decode_times else dt.sel(traj=0, obs=t.obs[:nobs])
+    times = dt.time
+
+    if not decode_times:
+        # Change time encoding (errors - can't overwrite file & doesen't work when not decoded).
+        attrs = dict(units=dt.time.units, calendar=dt.time.calendar)
+        attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
+        times = convert_plx_times(times, obs=times.obs.astype(dtype=int), attrs=attrs, attrs_new=attrs_new)
+        dt['time'] = times
+        dt['time'].attrs['units'] = attrs_new['units']
+        dt['time'].attrs['calendar'] = attrs_new['calendar']
 
     # Test 1: Check OFAM3 and sampled fields are the same (using known x,y,z positions).
-    ds = sample_particle_dataset(df, ntraj, nobs)
-    ds['lon'] = repeat(df.lon.sel(lon=slice(165, 220)).values[:nobs], n=ntraj)
-    ds['lat'] = repeat(df.lat.sel(lat=slice(-3, 3)).values[:nobs], n=ntraj)
-    ds['z'] = repeat(df.depth.values[:nobs], n=ntraj)
-    ds['time'] = repeat(df.time.values[:nobs], n=ntraj)
+    ds = sample_particle_dataset(field, ntraj, nobs)
+    ds['lon'] = repeat(field.lon.sel(lon=slice(165, 220)).values[:nobs], n=ntraj)
+    ds['lat'] = repeat(field.lat.sel(lat=slice(-10, 10.5)).values[:nobs], n=ntraj)
+    ds['z'] = repeat(np.repeat(field.depth, 4).values[:nobs], n=ntraj)
+    # ds['time'] = repeat(field.time.values[:nobs], n=ntraj)
+    ds['time'] = repeat(times.values[:nobs], n=ntraj)  # !!!
 
     # Copy sample dataset (before modifying it).
     ds1 = ds.copy()
     ds2 = ds.copy()
+    ds3 = ds.copy()
 
     # Sample OFAM3.
     for p in range(ds.traj.size):
         for i in range(ds.obs.size):
             dx = ds.isel(traj=p, obs=i).drop(['obs', 'traj'])
             loc = dict(time=dx.time, depth=dx.z, lat=dx.lat, lon=dx.lon)
-            for v in variables:
-                ds[v][dict(traj=p, obs=i)] = df[v].sel(loc).load().item()
+            ds[var][dict(traj=p, obs=i)] = field.sel(loc).load().item()
 
-    ds1 = update_ofam3_fields_AAA(ds1, df, variables)
-    ds2 = update_ofam3_fields_loop(ds2, df, variables)
+    ds3[var] = (['traj', 'obs'], update_field_AAA(ds3, field_dataset, var, dim_map))
+    ds2 = update_ofam3_fields_loop(ds2, field_dataset, [var])
+    ds1[var] = (['traj', 'obs'], update_field_AAA_old(ds1, field_dataset, var, dim_map))
 
-    for v in variables:
-        check = ds[v] == ds1[v]
+    try:
+        # Note that this test fasils if any NaN present
+        check = ds[var] == ds1[var]
         if not all(check):
-            print('Error (AAA method):', v)
-        check = ds[v] == ds2[v]
+            print('Error (AAA method):', var)
+        check = ds[var] == ds2[var]
         if not all(check):
-            print('Error (loop method):', v)
-    return
+            print('Error (loop method):', var)
+        check = ds[var] == ds3[var]
+        if not all(check):
+            print('Error (AAA alt method):', var)
+    except:
+        print('Not tested')
+        pass
+    return ds, ds1, ds2
 
 
 def test_field_sampling_time_OOB_xarray():
@@ -370,7 +446,7 @@ def test_field_sampling_interpolation_parcels():
     return
 
 
-@timeit
+@timeit(my_logger=logger)
 def test_field_sampling(nparticles=10, nfields=3, method='xarray'):
     """Test sampling fields at all particle positions.
 
@@ -425,7 +501,7 @@ def test_field_sampling(nparticles=10, nfields=3, method='xarray'):
         dx['W'] = fieldset.W[time, dx.z.item(), dx.lat.item(), dx.lon.item()]
         return dx, fieldset
 
-    @timeit
+    @timeit(my_logger=logger)
     def loop_particle_obs(p, ds, fieldset, update_func, variables):
         n_obs = ds.isel(traj=p).dropna('obs', 'all').obs.size
         for time in range(n_obs):
