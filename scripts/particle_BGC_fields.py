@@ -39,8 +39,8 @@ import xarray as xr  # NOQA
 
 
 import cfg
-from cfg import paths, ExpData
-from datasets import save_dataset, BGCFields, plx_particle_dataset
+from cfg import ExpData
+from datasets import save_dataset, BGCFields, plx_particle_dataset, convert_plx_times
 from felx_dataset import FelxDataSet
 from tools import timeit, mlogger
 try:
@@ -147,35 +147,126 @@ def save_felx_BGC_field_subset(exp, var, n):
     return
 
 
+@profile
 def save_felx_BGC_fields(exp):
-    """Run and save OFAM3 BGC fields at particle positions as n temp files."""
+    """Save OFAM3 BGC fields at particle positions by merging saved tmp subsets.
+
+    Example:
+        module use /g/data3/hh5/public/modules
+        module load conda/analysis3-22.04
+        python3 ./particle_BGC_fields.py -e $EXP -x $LON -v 0 -r $R -func 'save_files'
+
+    Notes:
+        * Pre-req files: felx_bgc_*_tmp.nc and all tmp subsets files.
+        * Job script: felx_ds.py
+        * Requires: XGB memory for X hours.
+        * Adds metadata as found in original parcels output, OFAM3 files and Kd490 fields.
+            * N.B. formatted plx files convert particle velocity to transport [Sv].
+            * Time units are already encoded.
+        * Updates wrong source ids saved in felx_bgc_*_tmp.nc.
+        * Reverts to original time variable after changes for spinup years.
+        * Changes dtype of BGC fields to float32.
+        * After saving files, can delete felx_bgc_*_tmp.nc and all tmp subsets files.
+        * Linearlly interpolates NaN fields (i.e., at positions when beached).
+
+    """
     pds = FelxDataSet(exp)
     assert pds.check_bgc_tmp_files_complete()
 
     file = exp.file_felx_bgc
-    # if cfg.test:
-    #     file = paths.data / ('test/' + file.stem + '.nc')
 
     ds = xr.open_dataset(pds.exp.file_felx_bgc_tmp, decode_times=True, decode_cf=True)
 
-    ds_plx = plx_particle_dataset(pds.exp.file_plx)  # Bug fix (saved u instead of zone).
-    ds['zone'] = ds_plx.zone
-    ds['zone'] = ds.zone.isel(obs=0)
-    ds_plx.close()
-
     # Put all temp files together.
     logger.info('{}: Setting dataset variables.'.format(file.stem))
-    ds = pds.set_bgc_dataset_vars_from_tmps(ds)
 
-    ds = ds.where(ds.valid_mask)
+    for var in pds.bgc_variables:
+        logger.debug('{}-{}: Opening files...'.format(file.stem, var))
+        da = xr.open_mfdataset(pds.bgc_var_tmp_filenames(var), chunks='auto')
+
+        # Interpolate missing any missing particle observations (e.g., when beached).
+        logger.debug('{}-{}: Interpolating...'.format(file.stem, var))
+        ds[var] = da[var].interpolate_na('obs', method='linear', max_gap=10)
+        da.close()
+
+        # Re-apply NaN mask.
+        logger.debug('{}-{}: Re-applying NaN mask...'.format(file.stem, var))
+        ds[var] = ds[var].where(ds.valid_mask)
+
+        # Convert dtype.
+        if ds[var].dtype == 'float64':
+            logger.debug('{}-{}: Converting dtype....'.format(file.stem, var))
+            ds[var] = ds[var].astype('float32')
+
+    # Setting source region IDs (bug fix).
+    logger.debug('{}: Setting source region IDs.'.format(file.stem))
+    ds_plx = plx_particle_dataset(pds.exp.file_plx)  # Bug fix (saved u instead of zone).
+    ds['zone'] = ds_plx.zone
+    ds_plx.close()
+
+    # Revert time array (due to repeat spinup sampling).
+    logger.debug('{}: Reverting time array.'.format(file.stem))
     ds['time'] = ds.time_orig
 
     # ds = ds.rename({k: v for k, v in pds.bgc_variables_nmap.items()})
-    ds = ds.drop(['time_orig', 'valid_mask', 'month', 'fe', 'distance', 'unbeached'])
+    ds = ds.drop(['time_orig', 'valid_mask', 'month', 'fe', 'age', 'distance', 'unbeached'])
 
-    for var in ds.data_vars:
-        if ds[var].dtype == 'float64':
-            ds[var] = ds[var].astype('float32')
+    # Add metadata.
+    attrs = {'trajectory': {'long_name': 'Unique identifier for each particle',
+                            'cf_role': 'trajectory_id'},
+             'time': {'long_name': 'time', 'standard_name': 'time', 'axis': 'T'},
+             'lat': {'long_name': 'latitude', 'standard_name': 'latitude',
+                     'units': 'degrees_north', 'axis': 'Y'},
+             'lon': {'long_name': 'longitude', 'standard_name': 'longitude',
+                     'units': 'degrees_east', 'axis': 'X'},
+             'z': {'long_name': 'depth', 'standard_name': 'depth', 'units': 'm',
+                   'axis': 'Z', 'positive': 'down'},
+             'age': {'long_name': 'Particle transit time', 'standard_name': 'age', 'units': 's'},
+             'u': {'long_name': 'Transport', 'standard_name': 'u', 'units': 'Sv'},
+             'zone': {'long_name': 'Source location ID', 'standard_name': 'zone'},
+             'phy': {'long_name': 'Phytoplankton', 'standard_name': 'phy',
+                     'units': 'mmol/m^3', 'source': 'OFAM3-WOMBAT'},
+             'zoo': {'long_name': 'Zooplankton', 'standard_name': 'zoo',
+                     'units': 'mmol/m^3', 'source': 'OFAM3-WOMBAT'},
+             'det': {'long_name': 'Detritus', 'standard_name': 'det',
+                     'units': 'mmol/m^3', 'source': 'OFAM3-WOMBAT'},
+             'temp': {'long_name': 'Potential temperature',
+                      'standard_name': 'sea_water_potential_temperature', 'units': 'degrees C',
+                      'source': 'OFAM3-WOMBAT'},
+             'no3': {'long_name': 'Nitrate', 'standard_name': 'no3',
+                     'units': 'mmol/m^3', 'source': 'OFAM3-WOMBAT'},
+             'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm',
+                    'standard_name': 'Kd490', 'units': 'm^-1', 'scaling': 'log10',
+                    'source': 'SeaWiFS-GMIS'},
+             }
+
+    for k, v in attrs.items():
+        if k in ds.data_vars:
+            ds[k].attrs = v
+
+    # Change time encoding.
+    logger.info('{}: Converting time encoding...'.format(file.stem))
+    dt = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=False, use_cftime=True,
+                         decode_cf=True)
+    dt = dt.time
+
+    # Change time encoding (errors - can't overwrite file & doesen't work when not decoded).
+    attrs = dict(units=dt.units, calendar=dt.calendar)
+    attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
+    times = np.apply_along_axis(convert_plx_times, 1, arr=dt, obs=dt.obs.astype(dtype=int),
+                                attrs=attrs, attrs_new=attrs_new)
+    times = times.astype(dtype=np.float32)
+    ds['time'] = (('traj', 'obs'), times)
+    ds['time'].attrs['units'] = attrs_new['units']
+    ds['time'].attrs['calendar'] = attrs_new['calendar']
+    dt.close()
+    logger.info('{}: Converted time encoding.'.format(file.stem))
+
+    # basic checks.
+    if np.diff(ds.traj).max() > 1:
+        logger.info('Error check: Missing some particles?')
+    if np.diff(ds.obs).max() > 1:
+        logger.info('Error check: Missing some obs?')
 
     # Save file.
     logger.info('{}: Saving...'.format(file.stem))
@@ -186,10 +277,22 @@ def save_felx_BGC_fields(exp):
 
 
 def parallelise_prereq_files(scenario):
-    """Calculate plx subset and inverse_plx files.
+    """Calculate prerequisite files for saving BGC fields using MPI.
+
+    Args:
+        scenario (int): Scenario index {0-1}.
+
+    Example:
+        module use /g/data3/hh5/public/modules
+        module load conda/analysis3-unstable
+        mpiexec -n $PBS_NCPUS python3 ./particle_BGC_fields.py -e $EXP -func 'prereq_files'
 
     Notes:
-        * 10 file x 16 min each = ~2.6 hours.
+        * Checks/saves plx subset, inverse_plx and felx_bgc*_tmp files.
+        * Run using 4 CPUs on gadi for each scenario.
+        * Job script: felx_prereq.sh
+        * Particle dataset requires ~172GB for historical & ~190GB for RCP for 4 hours.
+
     """
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -205,7 +308,14 @@ def parallelise_prereq_files(scenario):
 
 
 def parallelise_BGC_fields(exp, variable_i=0, check=False):
-    """Parallelise saving particle BGC fields as tmp files."""
+    """Save particle BGC fields tmp subsets using MPI.
+
+    Args:
+        exp (ExpData): Experiment information class.
+        variable_i (int, optional): BGC variable integer {0-5}. Defaults to 0.
+        check (bool, optional): Only log remaining files to save. Defaults to False.
+
+    """
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     pds = FelxDataSet(exp)
@@ -249,9 +359,6 @@ if __name__ == '__main__':
     p.add_argument('-r', '--index', default=0, type=int, help='File repeat index [0-7].')
     p.add_argument('-func', '--function', default='bgc_fields', type=str,
                    help='[bgc_fields, prereq_files, save_files]')
-    # tmp 'bgc_fields_var' args.
-    p.add_argument('-var', '--variable', default='phy', type=str, help='BGC variable.')  # Old.
-    p.add_argument('-n', '--n_tmp', default=0, type=int, help='Subset index [0-100].')  # Old.
     # 'bgc_fields' args.
     p.add_argument('-iv', '--variable_i', default=0, type=int, help='BGC variable index [0-7].')
     p.add_argument('-c', '--check', default=False, type=bool, help='Check remaining files')
@@ -260,9 +367,7 @@ if __name__ == '__main__':
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, name='felx_bgc',
                   test=cfg.test)
-    var = args.variable
     func = args.function
-    variable_i = args.variable_i
 
     if cfg.test:
         func = ['bgc_fields', 'prereq_files', 'save_files'][0]
@@ -272,24 +377,7 @@ if __name__ == '__main__':
             parallelise_prereq_files(scenario)
 
         if func == 'bgc_fields':
-            parallelise_BGC_fields(exp, variable_i=variable_i, check=args.check)
+            parallelise_BGC_fields(exp, variable_i=args.variable_i, check=args.check)
 
     if func == 'save_files':
         save_felx_BGC_fields(exp)
-
-    if func == 'check':
-        pds = FelxDataSet(exp)
-        n = 0
-        files = pds.bgc_var_tmp_filenames(var)
-        files_alt = pds.bgc_var_tmp_filenames(var, suffix='.npy')
-        ds = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=True)
-        for n in range(10):
-            dx = xr.open_dataset(files[n], decode_times=True)
-            print('n={}: traj={}-{}'.format(n, dx.traj.min().item(), dx.traj.max().item()))
-            p = dx.isel(traj=-1).traj.item()
-            dsx = ds.isel(traj=int(p))
-
-            dsx.z.plot(yincrease=0)
-            dx.isel(traj=-1).phy.plot()
-            plt.show()
-            plt.clf()
