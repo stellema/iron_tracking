@@ -147,7 +147,6 @@ def save_felx_BGC_field_subset(exp, var, n):
     return
 
 
-@profile
 def save_felx_BGC_fields(exp):
     """Save OFAM3 BGC fields at particle positions by merging saved tmp subsets.
 
@@ -159,11 +158,12 @@ def save_felx_BGC_fields(exp):
     Notes:
         * Pre-req files: felx_bgc_*_tmp.nc and all tmp subsets files.
         * Job script: felx_ds.py
-        * Requires: XGB memory for X hours.
+        * Requires: 42GB memory for 1-2 hours. (35 GB for 250h)
         * Adds metadata as found in original parcels output, OFAM3 files and Kd490 fields.
             * N.B. formatted plx files convert particle velocity to transport [Sv].
             * Time units are already encoded.
         * Updates wrong source ids saved in felx_bgc_*_tmp.nc.
+        * Merges interior source IDs.
         * Reverts to original time variable after changes for spinup years.
         * Changes dtype of BGC fields to float32.
         * After saving files, can delete felx_bgc_*_tmp.nc and all tmp subsets files.
@@ -179,23 +179,18 @@ def save_felx_BGC_fields(exp):
 
     # Put all temp files together.
     logger.info('{}: Setting dataset variables.'.format(file.stem))
-
     for var in pds.bgc_variables:
-        logger.debug('{}-{}: Opening files...'.format(file.stem, var))
         da = xr.open_mfdataset(pds.bgc_var_tmp_filenames(var), chunks='auto')
 
         # Interpolate missing any missing particle observations (e.g., when beached).
-        logger.debug('{}-{}: Interpolating...'.format(file.stem, var))
         ds[var] = da[var].interpolate_na('obs', method='linear', max_gap=10)
         da.close()
 
         # Re-apply NaN mask.
-        logger.debug('{}-{}: Re-applying NaN mask...'.format(file.stem, var))
         ds[var] = ds[var].where(ds.valid_mask)
 
         # Convert dtype.
         if ds[var].dtype == 'float64':
-            logger.debug('{}-{}: Converting dtype....'.format(file.stem, var))
             ds[var] = ds[var].astype('float32')
 
     # Setting source region IDs (bug fix).
@@ -204,8 +199,15 @@ def save_felx_BGC_fields(exp):
     ds['zone'] = ds_plx.zone
     ds_plx.close()
 
+    # Merge South and North interior Source IDs.
+    for i in range(4):
+        # South interior: 7, 8, 9, 10, 11 -> 7.
+        ds['zone'] = xr.where(ds.zone == 8 + i, 7, ds.zone)
+    for i in range(5):
+        # North Interior: 12, 13, 14, 15, 16 -> 8
+        ds['zone'] = xr.where(ds.zone == 12 + i, 8, ds.zone)
+
     # Revert time array (due to repeat spinup sampling).
-    logger.debug('{}: Reverting time array.'.format(file.stem))
     ds['time'] = ds.time_orig
 
     # ds = ds.rename({k: v for k, v in pds.bgc_variables_nmap.items()})
@@ -260,7 +262,6 @@ def save_felx_BGC_fields(exp):
     ds['time'].attrs['units'] = attrs_new['units']
     ds['time'].attrs['calendar'] = attrs_new['calendar']
     dt.close()
-    logger.info('{}: Converted time encoding.'.format(file.stem))
 
     # basic checks.
     if np.diff(ds.traj).max() > 1:
@@ -269,7 +270,6 @@ def save_felx_BGC_fields(exp):
         logger.info('Error check: Missing some obs?')
 
     # Save file.
-    logger.info('{}: Saving...'.format(file.stem))
     save_dataset(ds, file, msg='Added BGC fields at paticle positions.')
     logger.info('{}: Felx BGC fields file saved.'.format(file.stem))
     ds.close()
