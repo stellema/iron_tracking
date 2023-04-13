@@ -35,7 +35,7 @@ import warnings
 
 # from collections import namedtuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import namedtuple
 import numpy as np
 
@@ -155,9 +155,9 @@ class ExpData:
         self.year_bnds = [[2000, 2012], [2089, 2101]][self.scenario]
         self.time_bnds = [datetime(self.year_bnds[0], 1, 1),
                           datetime(self.year_bnds[1], 12, 31)]
-        self.test_time_bnds = [datetime(2012, 1, 1),
-                               datetime(2012, self.test_month_bnds, 28)]
-
+        self.test_time_bnds = [datetime(2012, 1, 1), datetime(2012, min(12, self.test_month_bnds), 28)]
+        if self.test_month_bnds > 12:
+            self.test_time_bnds[0] = self.test_time_bnds[1] - timedelta(days=30) * self.test_month_bnds
         if self.test:
             self.time_bnds = self.test_time_bnds
 
@@ -201,7 +201,7 @@ class ZoneData:
                                              [-8.7, -8.7, 120.1, 142]])
     sc = Zone(6, 'sc', 'Solomon Islands', [-6.1, -6.1, 155.2, 158])
     sth = Zone(7, 'sth', 'South Interior', [-6.1, -6.1, 158, 283])
-    nth = Zone(12, 'nth', 'North Interior', [8, 8, 129.1, 278.5])
+    nth = Zone(8, 'nth', 'North Interior', [8, 8, 129.1, 278.5])
 
     sgc = Zone(99, 'sgc', 'St Georges Channel', [-4.6, -4.6, 152.3, 152.7])
     ssx = Zone(99, 'ssx', 'Solomon Strait', [-4.8, -4.8, 153, 154.7])
