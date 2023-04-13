@@ -337,14 +337,6 @@ class FelxDataSet(object):
         print(f_list)
         return complete
 
-    def set_bgc_dataset_vars_from_tmps(self, ds):
-        """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""
-        for var in self.bgc_variables:
-            tmp_files = self.bgc_var_tmp_filenames(var)
-            da = xr.open_mfdataset(tmp_files)
-            ds[var] = da[var].interpolate_na('obs', method='slinear', limit=10)
-        return ds
-
     def test_set_bgc_dataset_vars_from_tmps(self, ds, n_tmps=20):
         """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""
         ntraj = self.bgc_tmp_traj_subsets(ds)[n_tmps][-1]
@@ -360,26 +352,29 @@ class FelxDataSet(object):
         """Get finished felx BGC dataset and format."""
         file = self.exp.file_felx_bgc
         ds = xr.open_dataset(file)
-        ds = ds.rename({v: k for k, v in self.bgc_variables_nmap.items()})
+        # ds = ds.rename({v: k for k, v in self.bgc_variables_nmap.items()})
 
-        variables = ['scav', 'src', 'iron', 'reg', 'phyup']
+        variables = ['fe_src', 'fe_scav', 'fe_reg', 'fe_phy', 'fe']
         for var in variables:
             ds[var] = self.empty_DataArray(ds)
+        ds['fe_src'] = ds.fe_src.isel(obs=0, drop=True)
+
         self.add_iron_model_constants()
         return ds
 
     def init_test_felx_bgc_dataset(self):
         """Get finished felx BGC dataset and format."""
-        ds = xr.open_dataset(self.exp.file_felx_bgc, decode_times=True, decode_cf=True)
+        ds = xr.open_dataset(self.exp.file_felx_bgc_tmp, decode_times=True, decode_cf=True)
         ds_plx = plx_particle_dataset(self.exp.file_plx)  # Bug fix (saved u instead of zone).
         ds['zone'] = ds_plx.zone
         ds_plx.close()
         ds = self.test_set_bgc_dataset_vars_from_tmps(ds, n_tmps=20)
         # ds = ds.rename({v: k for k, v in self.bgc_variables_nmap.items()})
         ds = ds.drop(['month', 'time_orig', 'unbeached', 'distance', 'age', 'valid_mask'])
-        variables = ['scav', 'src', 'iron', 'reg', 'phyup']
+        variables = ['fe_src', 'fe_scav', 'fe_reg', 'fe_phy', 'fe']
         for var in variables:
             ds[var] = self.empty_DataArray(ds)
+        ds['fe_src'] = ds.src.isel(obs=0, drop=True)
         self.add_iron_model_constants()
         return ds
 
@@ -395,10 +390,10 @@ class FelxDataSet(object):
         constants['a'] = 0.6  # Growth rate at 0C [day^-1] (Qin=0.27?)
         constants['b'] = 1.066  # Temperature sensitivity of growth [no units]
         constants['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
-        constants['k_fe'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
-        constants['k_N'] = 1.0  # Half saturation constant for Fe uptake [day^-1]
-        constants['k_org'] = 1.0521e-4  # !!!
-        constants['k_inorg'] = 6.10e-4  # !!!
+        constants['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [needs converting to mmol Fe m^-3?]
+        constants['k_N'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
+        constants['k_org'] = 1.0521e-4  # !!! (Qin: 1.0521e-4, Galbraith: 4e-4) [(nM Fe m)^-0.58 day^-1]
+        constants['k_inorg'] = 6.10e-4  # !!! (Qin: 6.10e-4, Galbraith: 6e-4) [nM Fe^-0.5 day^-1]
 
         # Detritus paramaters.
         # Detritus sinking velocity
@@ -410,13 +405,9 @@ class FelxDataSet(object):
         constants['E'] = 1.1
         constants['u_Z'] = 0.06
 
-        # # Not constant.
+        # Not constant.
         constants['I_0'] = 300  # Surface incident solar radiation [W/m^2]!!!
-        # constants['Kd_490'] = 0.43
-        # constants['u_D'] = 0.02  # depends on depth & not constant.
-        # constants['u_D_180'] = 0.01  # depends on depth & not constant.
-        # constants['u_P'] = 0.01  # Not constant.
-        # constants['y_2'] = 0.01  # Not constant.
+
         for name, value in constants.items():
             setattr(self, name, value)
 
