@@ -382,33 +382,33 @@ class FelxDataSet(object):
     def add_iron_model_constants(self):
         """Add a constants to the FieldSet.
         Redfield ratio of 1 P: 16 C: 106 C: −172 O2: 3.2 """
-        constants = {}
-        """Add fieldset constantss."""
-        # Phytoplankton paramaters.
-        constants['alpha'] = 0.025  # Initial slope of P-I curve [day^-1/ (Wm^-2)]. (Qin=0.256)
-        constants['PAR'] = 0.43  # !!! Photosynthetically active radiation (0.34/0.43) [no unit]
-        constants['a'] = 0.6  # Growth rate at 0C [day^-1] (Qin=0.27?)
-        constants['b'] = 1.066  # Temperature sensitivity of growth [no units]
-        constants['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
-        constants['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [needs converting to mmol Fe m^-3?]
-        constants['k_N'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
-        constants['k_org'] = 1.0521e-4  # !!! (Qin: 1.0521e-4, Galbraith: 4e-4) [(nM Fe m)^-0.58 day^-1]
-        constants['k_inorg'] = 6.10e-4  # !!! (Qin: 6.10e-4, Galbraith: 6e-4) [nM Fe^-0.5 day^-1]
+        params = {}
+        # Scavenging paramaters.
+        params['tau_scav'] = 1.24e-2  # [day^-1] (Oke: 1, other: 1.24e-2)
 
         # Detritus paramaters.
-        # Detritus sinking velocity
-        constants['w_det'] = 10  # 10 or 5 !!!
+        params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
+        # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
+
+        # Phytoplankton paramaters.
+        params['I_0'] = 300  # Surface incident solar radiation [W/m^2] (not actually constant)
+        params['alpha'] = 0.025  # Initial slope of P-I curve [day^-1 / (Wm^-2)]. (Qin: 0.256)
+        params['PAR'] = 0.43  # !!! Photosynthetically active radiation (0.34/0.43) [no unit]
+        params['a'] = 0.6  # Growth rate at 0C [day^-1] (Qin: 0.27?)
+        params['b'] = 1.066  # Temperature sensitivity of growth [no units]
+        params['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
+        params['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [??? needs converting to mmol Fe m^-3]
+        params['k_N'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
+        params['k_org'] = 1.0521e-4  # Organic Iron scavenging rate constant [(nM Fe m)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
+        params['k_inorg'] = 6.10e-4  # Inorganic Iron scavenging rate constant [nM Fe^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
 
         # Zooplankton paramaters.
-        constants['y_1'] = 0.85
-        constants['g'] = 2.1
-        constants['E'] = 1.1
-        constants['u_Z'] = 0.06
+        params['gamma_1'] = 0.852  # Assimilation efficiency [no units]
+        params['g'] = 2.1  # Maximum grazing rate [day^-1]
+        params['epsilon'] = 1.1  # Prey capture rate [(mmol N m^-3)^-1 day^-1]
+        params['mu_Z'] = 0.06  # Quadratic mortality [(mmol N m^-3)^-1 day^-1]
 
-        # Not constant.
-        constants['I_0'] = 300  # Surface incident solar radiation [W/m^2]!!!
-
-        for name, value in constants.items():
+        for name, value in params.items():
             setattr(self, name, value)
 
     def test_plot_variable(self, var='det'):
