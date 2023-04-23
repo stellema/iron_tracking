@@ -279,15 +279,9 @@ def plot_combined_iron_obs_datasets_LLWBCs(dfs):
     if not hasattr(dfs, 'dfe'):
         setattr(dfs, 'dfe', FeObsDataset(dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)))
     if not hasattr(dfs, 'dfe_all'):
-        setattr(dfs, 'dfe', FeObsDataset(dfs.combined_iron_obs_datasets(add_Huang=True, interp_z=True)))
-    if not hasattr(dfs, 'dfe_orig'):
-        setattr(dfs, 'dfe', FeObsDataset(dfs.combined_iron_obs_datasets(add_Huang=True, interp_z=False)))
-    # ds = combined_iron_obs_datasets(lats, lons, add_Huang=False, interp_z=True)
-    # ds_all = combined_iron_obs_datasets(lats, lons, add_Huang=True, interp_z=True)
-    # ds_orig = combined_iron_obs_datasets(lats, lons, add_Huang=False, interp_z=False)
-    # dfe = FeObsDataset(ds)
-    # dfe_all = FeObsDataset(ds_all)
-    # dfe_orig = FeObsDataset(ds_orig)
+        setattr(dfs, 'dfe_all', FeObsDataset(dfs.combined_iron_obs_datasets(add_Huang=True, interp_z=True)))
+    # if not hasattr(dfs, 'dfe_orig'):
+    #     setattr(dfs, 'dfe_orig', FeObsDataset(dfs.combined_iron_obs_datasets(add_Huang=True, interp_z=False)))
 
     ##############################################################################################
     # LLWBCS
@@ -329,7 +323,7 @@ def plot_combined_iron_obs_datasets_LLWBCs(dfs):
     ax = fig.add_subplot(121, projection=ccrs.PlateCarree(central_longitude=180))
     ax.set_title('a) LLWBC dFe observation locations', loc='left')
     ax.set_extent([117, 160, -7, 9], crs=ccrs.PlateCarree())
-    ax.scatter(obs[0], obs[1], color=dfs.colors[:len(obs[0])], transform=ccrs.PlateCarree())
+    ax.scatter(obs[0], obs[1], color=dfs.dfe.colors[:len(obs[0])], transform=ccrs.PlateCarree())
     ax.legend(ncols=2, loc='upper right', bbox_to_anchor=(1, 1))  # (x, y, width, height)
     ax.add_feature(cfeature.LAND, color=cfeature.COLORS['land_alt1'])
     ax.add_feature(cfeature.COASTLINE)
@@ -348,9 +342,11 @@ def plot_combined_iron_obs_datasets_LLWBCs(dfs):
     ax.plot(dx.mean(['x', 'y']), dx.z, c='k', lw=4, label='mean', zorder=15)
     ax.plot(dx_all.mean(['x', 'y']), dx_all.z, c='k', lw=3, ls='--', label='mean (+Huang)', zorder=15)
 
-    for i, x, y in enumerate(obs):
-        dxx = dx.sel(x=x, y=y).dropna('z', 'all')
-        ax.plot(dxx, dxx.z, c=dfs.colors[i], label=coords[i])
+    j = 0
+    for i, xy in enumerate(obs[:22]):
+        dxx = dx.sel(x=xy[1], y=xy[0]).dropna('z', 'all')
+        ax.plot(dxx, dxx.z, c=dfs.dfe.colors[i], label=coords[i])
+
     ax.set_ylim(500, 0)
     fig.legend(ncols=6, loc='lower center', bbox_to_anchor=(0.5, -0.15))  # (x, y, width, height)
     ax.set_xlabel('dFe [nmol/kg]')
@@ -381,7 +377,7 @@ def plot_combined_iron_obs_datasets_LLWBCs(dfs):
 
     fig, ax = plt.subplots(4, 3, figsize=(14, 12))
     ax = ax.flatten()
-    for i in range(12):
+    for i in range(dx.t.size):
         cs = ax[i].pcolormesh(dx.x, dx.z, dx.isel(t=i), vmin=0, vmax=1.5, cmap=plt.cm.rainbow)
         ax[i].yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%dm'))
         ax[i].xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
@@ -451,8 +447,8 @@ def plot_combined_iron_obs_datasets_LLWBCs(dfs):
 
 logger = mlogger('iron_observations')
 dfs = FeObsDatasets()
-# setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
-# setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
+setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
+setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
 
 setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
 setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
@@ -462,7 +458,7 @@ setattr(dfs, 'dfe_geo', FeObsDataset(dfs.GEOTRACES_iron_dataset_4D()))
 setattr(dfs, 'dfe_tag', FeObsDataset(dfs.Tagliabue_iron_dataset_4D()))
 
 
-# plot_iron_obs_Huang(dfs.dfe_ml.ds)
-# plot_iron_obs_maps(dfs.ds_geo, dfs.ds_tag)
+plot_iron_obs_Huang(dfs.dfe_ml.ds)
+plot_iron_obs_maps(dfs.ds_geo, dfs.ds_tag)
 plot_iron_obs_straits(dfs.dfe_geo, dfs.dfe_tag, dfs.dfe_ml)
 plot_combined_iron_obs_datasets_LLWBCs(dfs)
