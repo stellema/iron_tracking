@@ -24,43 +24,11 @@ import cfg
 from cfg import ExpData
 from datasets import BGCFields
 from felx_dataset import FelxDataSet
-from fe_obs_dataset import FeObsDatasets, FeObsDataset
+from fe_obs_dataset import FeObsDatasets, FeObsDataset, get_merged_FeObsDataset
 from particle_BGC_fields import update_field_AAA
 
 
-def test_plot_iron_output(ds, ntraj=5):
-    # Plot output (for testing).
-    fig, ax = plt.subplots(3, 2, figsize=(16, 16), squeeze=True)
-    ax = ax.flatten()
-
-    for j, p in enumerate(range(ntraj)):
-        c = ['k', 'b', 'r', 'g', 'm', 'y', 'darkorange', 'hotpink', 'lime', 'navy'][j]
-        dx = ds.isel(traj=p).dropna('obs', 'all')
-        ax[0].plot(dx.lon, dx.lat, c=c, label=p)  # map
-        ax[1].plot(dx.obs, dx.z, c=c, label=p)  # Depth
-        ax[2].plot(dx.obs, dx.fe, c=c, label=p)  # lagrangian iron
-        ax[2].plot(dx.obs, dx.Fe, c=c, ls='--', label=p)  # ofam iron
-
-        for i, var in zip([3, 4, 5], ['fe_reg', 'fe_scav', 'fe_phy']):
-            ax[i].set_title(var)
-            ax[i].plot(dx.obs, dx[var], c=c, label=p)
-
-    ax[0].set_title('Particle lat & lon')
-    ax[1].set_title('Particle depth')
-    ax[2].set_title('lagrangian iron (solid) & OFAM3 iron (dashed)')
-
-    for i in range(1, 5):
-        ax[i].set_ylabel('[mmol Fe m^-3]')
-        ax[i].set_xlabel('obs')
-    ax[1].set_ylabel('Depth')
-    ax[1].invert_yaxis()
-    ax[0].set_xlabel('lon')
-    ax[0].set_ylabel('lat')
-    ax[0].set_ylabel('Fe [nM Fe]')
-    ax[1].legend()
-
-
-def UpdateIron(pds, ds, p, t, df, k_org, k_inorg, c, dt=2, scav_method='notofam'):
+def UpdateIron(pds, ds, p, t, df, dt=2, scav_method='notofam'):
     """Update iron at a particle location.
 
     Args:
@@ -103,7 +71,6 @@ def UpdateIron(pds, ds, p, t, df, k_org, k_inorg, c, dt=2, scav_method='notofam'
                          for v in ['temp', 'det', 'zoo', 'phy', 'no3', 'kd']]
 
 
-
     # Iron at previous particle location.
     Fe = ds['fe'].isel(loc_prev, drop=True)  # Lagrangian Iron.
     z = ds['z'].isel(loc_prev, drop=True)  # Depth.
@@ -132,7 +99,7 @@ def UpdateIron(pds, ds, p, t, df, k_org, k_inorg, c, dt=2, scav_method='notofam'
         # ([umol Fe m^-3] * [(nM Fe m)^-0.58 day^-1] * [((umol Fe m^-3)/(m day^-1))^0.58]) + ([(nM Fe m)^-0.5 day^-1] * [(umol Fe m^-3)^1.5])
         # = ([umol Fe m^-3] * [(umol Fe m^-2)^-0.58 day^-1] * [(umol Fe m^-2)^0.58]) + ([(umol Fe m^-3)^-0.5 day^-1] * [(umol Fe m^-3)^1.5])
         # = [umol Fe m^-3 day^-1] + [umol Fe m^-3 day^-1] - (Note that (nM Fe)^-0.5 * (nM Fe)^1.5 = (nM Fe)^1)
-        ds['fe_scav'][loc] = (Fe * k_org * (dD_dz)**0.58) + (k_inorg * Fe**c)
+        ds['fe_scav'][loc] = (Fe * pds.k_org * (dD_dz)**0.58) + (pds.k_inorg * Fe**pds.c)
 
     # --------------------------------------------------------------------------------
     # Iron Phytoplankton Uptake.
@@ -235,7 +202,7 @@ def SourceIron(pds, ds, p, ds_fe):
     return ds
 
 
-def update_particles_iron(pds, ds, ds_fe, df, k_org, k_inorg, c):
+def update_particles_iron(pds, ds, ds_fe, df):
     """ Run iron model for each particle."""
     num_particles = ds.traj.size
     for p in range(num_particles):
@@ -243,17 +210,16 @@ def update_particles_iron(pds, ds, ds_fe, df, k_org, k_inorg, c):
 
         num_obs = ds.isel(traj=p).dropna('obs', 'all').obs.size
         for t in range(num_obs):
-            ds = UpdateIron(pds, ds, p, t, df, k_org, k_inorg, c)  # Update Iron.
+            ds = UpdateIron(pds, ds, p, t, df)  # Update Iron.
     return ds
+
 
 def run_iron_model():
     exp = ExpData(scenario=0, lon=250, test=True, test_month_bnds=12)
 
     # Source Iron fields.
     # Observations.
-    dfs = FeObsDatasets()
-    setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
-    setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
+    dfs = get_merged_FeObsDataset()
     ds_fe_obs = dfs.dfe.ds_avg.mean('t')
     # 1nM = 1e-3 mmol/m3  (1nM = 1e-9M = 1e-6 mol -- 1M = 1e3mol)
 
@@ -262,7 +228,7 @@ def run_iron_model():
     ds_fe_ofam = fieldset.ofam_dataset(variables=['det', 'phy', 'zoo', 'fe'], decode_times=True, chunks='auto')
     ds_fe_ofam = ds_fe_ofam.rename({'depth': 'z', 'fe': 'Fe'})  # For SourceIron compatability.
 
-    ds_fe = [ds_fe_obs, ds_fe_ofam][1]  # Pick source iron dataset.
+    ds_fe = [ds_fe_obs, ds_fe_ofam][0]  # Pick source iron dataset.
 
     # particle dataset
     pds = FelxDataSet(exp)
@@ -273,7 +239,7 @@ def run_iron_model():
     # Cut off particles in early years to load less ofam fields.
     trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
     ds = ds.sel(traj=trajs)
-    ntraj = 10  # num particles to run.
+    ntraj = 50  # num particles to run.
     ds = ds.isel(traj=slice(ntraj)).dropna('obs', 'all')
 
     # Sample OFAM3 iron along trajectories (for testing).
@@ -284,22 +250,68 @@ def run_iron_model():
     ds['Fe'] = (['traj', 'obs'], fe)
 
     df = ds_fe_ofam
+    ds = update_particles_iron(pds, ds, ds_fe, df)
 
     # paramters to optmise
+    test_plot_iron_paths(ds, ntraj=10)
+    test_plot_iron_final_obs(exp, ds, ds_fe_obs)
 
-    cc = np.arange(1.5, 2, 0.1)[::-1]
-    rmse = np.zeros(cc.size)
+    # cc = np.arange(1.5, 2, 0.1)[::-1]
+    # rmse = np.zeros(cc.size)
+    # for i, c in enumerate(cc):
+    #     for k_org in np.arange(0.01e-4, 8e-4, 0.0001):
+    #         for k_inorg in np.arange(0.01e-4, 8e-4, 0.0001):
+    #             pds['k_org'] = k_org  # (Qin: 1.0521e-4, Galbraith: 4e-4)
+    #             pds['k_inorg'] = k_inorg  # (Qin: 6.10e-4, Galbraith: 6e-4)
+    #             pds['c'] = c
+    #             ds = update_particles_iron(pds, ds, ds_fe, df)
+    #             rms = np.mean(np.sqrt(((ds.Fe-ds.fe)**2).mean('obs')))
+    #             print('k_org={}, k_inorg={}, c={}, rms={}'.format(k_org, k_inorg, c, rms.item()))
+    #             # test_plot_iron_output(ds, ntraj=5)
+    #             rmse[i] = rms
 
-    for i, c in enumerate(cc):
-        for k_org in np.arange(0.01e-4, 8e-4, 0.0001):
-            for k_inorg in np.arange(0.01e-4, 8e-4, 0.0001):
 
-                # k_org = 1e-4  # (Qin: 1.0521e-4, Galbraith: 4e-4)
-                # k_inorg = 6e-4  #  (Qin: 6.10e-4, Galbraith: 6e-4)
-                # c = 1.7
+def test_plot_iron_paths(ds, ntraj=5):
+    # Plot output (for testing).
+    fig, ax = plt.subplots(3, 2, figsize=(16, 16), squeeze=True)
+    ax = ax.flatten()
 
-                ds = update_particles_iron(pds, ds, ds_fe, df, k_org, k_inorg, c)
-                rms = np.mean(np.sqrt(((ds.Fe-ds.fe)**2).mean('obs')))
-                print('k_org={}, k_inorg={}, c={}, rms={}'.format(k_org, k_inorg, c, rms.item()))
-                # test_plot_iron_output(ds, ntraj=5)
-                rmse[i] = rms
+    for j, p in enumerate(range(ntraj)):
+        c = ['k', 'b', 'r', 'g', 'm', 'y', 'darkorange', 'hotpink', 'lime', 'navy'][j]
+        dx = ds.isel(traj=p).dropna('obs', 'all')
+        ax[0].plot(dx.lon, dx.lat, c=c, label=p)  # map
+        ax[1].plot(dx.obs, dx.z, c=c, label=p)  # Depth
+        ax[2].plot(dx.obs, dx.fe, c=c, label=p)  # lagrangian iron
+        ax[2].plot(dx.obs, dx.Fe, c=c, ls='--', label=p)  # ofam iron
+
+        for i, var in zip([3, 4, 5], ['fe_reg', 'fe_scav', 'fe_phy']):
+            ax[i].set_title(var)
+            ax[i].plot(dx.obs, dx[var], c=c, label=p)
+
+    ax[0].set_title('Particle lat & lon')
+    ax[1].set_title('Particle depth')
+    ax[2].set_title('lagrangian iron (solid) & OFAM3 iron (dashed)')
+
+    for i in range(1, 5):
+        ax[i].set_ylabel('[mmol Fe m^-3]')
+        ax[i].set_xlabel('obs')
+    ax[1].set_ylabel('Depth')
+    ax[1].invert_yaxis()
+    ax[0].set_xlabel('lon')
+    ax[0].set_ylabel('lat')
+    ax[0].set_ylabel('Fe [nM Fe]')
+    ax[1].legend()
+
+def test_plot_iron_final_obs(exp, ds, ds_fe_obs):
+    # inds_f = ds.time.idxmax('obs')
+    dx = ds.ffill('obs').isel(obs=-1)
+
+    # Plot output (for testing).
+    fig, ax = plt.subplots(1, 1, figsize=(10, 7), squeeze=True)
+    ax.scatter(dx.fe, dx.z, c='k', label='obs')
+    ax.scatter(ds_fe_obs.EUC.sel(x=exp.lon, method='nearest'), ds_fe_obs.z, c='r')
+
+    ax.set_title('{} EUC dFe at {}'.format(exp.scenario_name, exp.lon_str))
+    ax.set_ylabel('Depth [m]')
+    ax.set_xlabel('dFe [nM]')
+    ax.set_ylim(355, 20)
