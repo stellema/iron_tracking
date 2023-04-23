@@ -380,4 +380,5 @@ if __name__ == '__main__':
             parallelise_BGC_fields(exp, variable_i=args.variable_i, check=args.check)
 
     if func == 'save_files':
-        save_felx_BGC_fields(exp)
+        if not exp.file_felx_bgc.exists():
+            save_felx_BGC_fields(exp)
