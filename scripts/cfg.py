@@ -148,6 +148,7 @@ class ExpData:
 
     def __post_init__(self):
         """Modify or change property values after the object has been initialized."""
+        self.lon_str = '{}°E'.format(self.lon)
         self.scenario_name = ['Historical', 'RCP8.5'][self.scenario]
         self.scenario_abbr = ['hist', 'rcp'][self.scenario]
 
