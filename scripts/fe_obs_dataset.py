@@ -421,7 +421,8 @@ class FeObsDatasets():
                 ds = self.interpolate_depths(ds)
 
             # Drop/rename vars and convert to Datasets (must be after interpolate).
-            ds = ds.to_dataset(name=name)
+            if not isinstance(ds, xr.Dataset):
+                ds = ds.to_dataset(name=name)
 
             # Drop any non-NaN dims (speeds up performance if data was subset).
             for v in ['t', 'z', 'y', 'x']:
@@ -445,7 +446,7 @@ class FeObsDatasets():
         dss.append(self.Tagliabue_iron_dataset_4D().fe)
 
         if add_Huang:
-            dss.append(self.Huang_iron_dataset())
+            dss.append(self.Huang_iron_dataset().fe)
             dss[-1] = dss[-1].isel(t=slice(12))
             dss[-1]['t'] = pd.to_datetime(['2022-{:02d}-01'.format(i + 1) for i in range(12)])
 
@@ -513,6 +514,13 @@ class FeObsDataset(object):
         obs_site['ni'] = dict(y=[-4, -3], x=[152, 156], name='New Ireland', c='pink')
         obs_site['png'] = dict(y=[-6.6, -6.1], x=[152, 153], name='PNG', c='r')
         obs_site['ssea'] = dict(y=[-4.5, -3], x=[140, 145], name='Solomon Sea', c='y')
+
+        # Specific observation sites.
+        obs_site['mcx'] = dict(y=[7-c, 7+c], x=[130-c, 130+c], name='Mindanao Current', c='mediumspringgreen')
+        obs_site['mc5x'] = dict(y=[5.2-c, 5.2+c], x=[125-c, 127+c], name='Mindanao Current', c='mediumspringgreen')
+        obs_site['vsx'] = dict(y=[-3.3-c, -3.3+c], x=[144-c, 144+c], name='Vitiaz Strait', c='darkorange')
+        obs_site['ssx'] = dict(y=[-5-c, -5+c], x=[155-c, 155+c], name='Solomon Strait', c='deeppink')
+
         obs_site['int_s'] = dict(y=[-10, -2.5], x=[170, 290], name='South Interior', c='darkviolet')
         obs_site['int_n'] = dict(y=[2.5, 10], x=[138, 295], name='North Interior', c='b')
         obs_site['eq'] = dict(y=[-0.5, 0.5], x=[145, 295], name='Equator', c='k')
@@ -521,11 +529,6 @@ class FeObsDataset(object):
         #                             x=[obs_site['int_s']['x'], obs_site['int_n']['x']],
         #                             name='Interior', c='seagreen')
 
-        # Specific observation sites.
-        obs_site['mcx'] = dict(y=[7-c, 7+c], x=[130-c, 130+c], name='Mindanao Current', c='mediumspringgreen')
-        obs_site['mc5x'] = dict(y=[5.2-c, 5.2+c], x=[125-c, 127+c], name='Mindanao Current', c='mediumspringgreen')
-        obs_site['vsx'] = dict(y=[-3.3-c, -3.3+c], x=[144-c, 144+c], name='Vitiaz Strait', c='darkorange')
-        obs_site['ssx'] = dict(y=[-5-c, -5+c], x=[155-c, 155+c], name='Solomon Strait', c='deeppink')
         self.obs_site = obs_site
 
     def get_obs_locations(self, name):
@@ -588,12 +591,54 @@ class FeObsDataset(object):
         for n in self.obs_site.keys():
             df[n] = self.sel_site([n]).mean(['x', 'y'])
 
-        df['interior'] = self.sel_site(['int_n', 'int_s']).mean(['x', 'y'])
-        df['llwbcs'] = self.sel_site(['mc', 'vs', 'ss']).mean(['x', 'y'])
+            # Fix top depths
+            z_inds = np.arange(df[n].mean('t').z.size, dtype=int)
+            n_obs = (~np.isnan(self.sel_site([n]).mean('t'))).sum('x').sum('y')
+            try:
+                z_valid = z_inds[n_obs > 2][0]
+            except IndexError:
+                z_valid = z_inds[n_obs >= 1][0]
+            for z in range(z_valid):
+                if n_obs[z] < 1:
+                    df[n][dict(z=z)] = df[n][dict(z=z_valid)]
+
+        for n, nn in zip(['interior', 'llwbcs'], [['int_n', 'int_s'], ['mc', 'vs', 'ss']]):
+            df[n] = self.sel_site(nn).mean(['x', 'y'])
+            # Fix top depths
+            z_inds = np.arange(df[n].mean('t').z.size, dtype=int)
+            n_obs = (~np.isnan(self.sel_site(nn).mean('t'))).sum('x').sum('y')
+            try:
+                z_valid = z_inds[n_obs > 2][0]
+            except IndexError:
+                z_valid = z_inds[n_obs >= 1][0]
+
+            for z in range(z_valid):
+                if n_obs[z] < 1:
+                    df[n][dict(z=z)] = df[n][dict(z=z_valid)]
+
+        df['EUC'] = self.sel_site(['euc']).mean(['y'])
+        df = df.dropna('z', 'all')
         return df
 
 
+def get_merged_FeObsDataset():
+    dfs = FeObsDatasets()
+    setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
+    setattr(dfs, 'ds_all', dfs.combined_iron_obs_datasets(add_Huang=True, interp_z=True))
+    setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
+    setattr(dfs, 'dfe_all', FeObsDataset(dfs.ds_all))
 
-# dfs = FeObsDatasets()
-# setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
-# setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
+    interior_vars = ['int_s', 'int_n', 'eq', 'euc', 'interior']
+    for n in ['eq', 'euc']:
+        var = 'euc'
+        dfs.dfe.ds_avg[n] = xr.where(~np.isnan(dfs.dfe.ds_avg[n]), dfs.dfe.ds_avg[n],
+                                     dfs.dfe_all.ds_avg[var].mean('t'))
+    for n in [n for n in dfs.dfe.ds_avg.data_vars if n not in interior_vars]:
+        var = 'llwbcs'
+        dfs.dfe.ds_avg[n] = xr.where(~np.isnan(dfs.dfe.ds_avg[n]), dfs.dfe.ds_avg[n],
+                                     dfs.dfe_all.ds_avg[var].mean('t'))
+    for n in interior_vars:
+        var = 'interior'
+        dfs.dfe.ds_avg[n] = xr.where(~np.isnan(dfs.dfe.ds_avg[n]), dfs.dfe.ds_avg[n],
+                                     dfs.dfe_all.ds_avg[var].mean('t'))
+    return dfs
