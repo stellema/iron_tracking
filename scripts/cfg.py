@@ -32,6 +32,7 @@ import pathlib
 import string
 import sys
 import warnings
+import xarray as xr
 
 # from collections import namedtuple
 from dataclasses import dataclass, field
@@ -39,6 +40,7 @@ from datetime import datetime, timedelta
 from collections import namedtuple
 import numpy as np
 
+xr.set_options(keep_attrs=True)
 dask.config.set({"array.slicing.split_large_chunks": True})
 
 # Filter warnings.
@@ -54,11 +56,26 @@ np.set_printoptions(suppress=True)
 test = True if pathlib.Path.home().drive == 'C:' else False
 loggers = {}
 # exp_abr = ['hist', 'rcp']
-scenario_time_bnds = [[datetime(2000, 1, 1), datetime(2012, 12, 31)],
-                      [datetime(2089, 1, 1), datetime(2101, 12, 31)]]
 ltr = [i + ')' for i in list(string.ascii_lowercase)]
 mon = list(calendar.month_abbr)[1:]  # Month abbreviations.
 
+
+# Sverdrup.
+SV = 1e6
+
+# Radius of Earth [m].
+EARTH_RADIUS = 6378137
+
+# Metres in 1 degree of latitude [m].
+LAT_DEG = (2 * np.pi / 360) * EARTH_RADIUS
+
+
+def LON_DEG(lat):
+    """Metres in 1 degree of latitude [m]."""
+    return LAT_DEG * np.cos(np.radians(lat))
+
+
+DXDY = 25 * 0.1 * LAT_DEG / 1e6
 
 # OFAM3 dimensions for NetcdfFileBuffer namemaps (chunkdims_name_map).
 # chunkdims_name_map (opt.): gives a name map to the FieldFileBuffer that
@@ -145,6 +162,9 @@ class ExpData:
     spinup_num_years: int = field(default=10)
     out_subdir: str = field(default='felx')
     test_month_bnds: int = field(default=3)
+    # Iron model params
+    scav_eq: str = field(default='Galibraith')
+    ntraj: int = field(default=100)
 
     def __post_init__(self):
         """Modify or change property values after the object has been initialized."""

@@ -17,10 +17,10 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 
+import cfg
 from cfg import ExpData
 from tools import mlogger
-from datasets import (ofam3_datasets, merge_interior_sources, concat_exp_dimension)
-from inverse_plx import inverse_plx_dataset
+from datasets import (ofam3_datasets, merge_interior_sources)
 
 logger = mlogger('files_plx')
 
@@ -51,16 +51,19 @@ def source_dataset(exp):
     return ds
 
 
-scenario, lon = 1, 220
-exp = ExpData(scenario=scenario, lon=lon)
-ds = source_dataset(exp)
-times = ds.time_at_zone.values[pd.notnull(ds.time_at_zone)]
-traj = ds.traj[times >= np.datetime64(['2000-01-01', '2089-01-01'][exp])]
-dx = ds.sel(traj=traj)
-
-ni = ds.traj.size
-nf = dx.traj.size
-logger.info('lon={} exp={}: n_traj initial={}, remaining={} %={:.1%}'.format(lon, exp, ni, nf, (nf-ni)/ni))
+for scenario in [0, 1]:
+    for lon in [165, 190, 220, 250]:
+        exp = ExpData(scenario=scenario, lon=lon)
+        ds = source_dataset(exp)
+        ni = ds.traj.size
+        times = ds.time_at_zone.values[pd.notnull(ds.time_at_zone)]
+        traj = ds.traj[times >= np.datetime64(['2000-01-01', '2089-01-01'][exp.scenario])]
+        ds = ds.sel(traj=traj)
+        traj = ds.u.where((ds.u.sum('zone') / cfg.DXDY) > 0.1, drop=True).traj
+        ds = ds.sel(traj=traj)
+        nf = ds.traj.size
+        logger.info('lon={} exp={}: n_traj initial={}, remaining={} %={:.1%}'
+                    .format(exp.lon, exp.scenario, ni, nf, (nf - ni) / ni))
 
 # lon=165 exp=0: n_traj initial=537823, remaining=195704 %=-63.6%
 # lon=165 exp=1: n_traj initial=623943, remaining=221389 %=-64.5%

@@ -128,7 +128,7 @@ def save_felx_BGC_field_subset(exp, var, n):
         ds['month'] = ds.month.astype(dtype=np.float32)
 
     # Save temp file subset for variable.
-    traj_bnd = pds.bgc_tmp_traj_subsets(ds)[n]
+    traj_bnd = pds.particle_subsets(ds, pds.n_subsets)[n]
 
     # Calculate & save particle subset.
     dx = ds.isel(traj=slice(*traj_bnd))
@@ -158,7 +158,7 @@ def save_felx_BGC_fields(exp):
     Notes:
         * Pre-req files: felx_bgc_*_tmp.nc and all tmp subsets files.
         * Job script: felx_ds.py
-        * Requires: 42GB memory for >1 hour. (250h: 35GB, 165h: 42GB)
+        * Requires: 42GB memory for >1 hour per file. (250h: 27-35GB, 165-190h: 42GB)
         * Adds metadata as found in original parcels output, OFAM3 files and Kd490 fields.
             * N.B. formatted plx files convert particle velocity to transport [Sv].
             * Time units are already encoded.

@@ -148,6 +148,23 @@ def ofam3_datasets(exp, variables=bgc_vars, chunks=None, **kwargs):
     return ds
 
 
+def ofam_clim():
+    var_list = ['phy', 'zoo', 'det', 'fe', 'no3', 'temp']
+    ds = xr.open_mfdataset(cfg.paths.ofam / 'clim/ocean_{}_2000-2012_climo.nc'.format(v) for v in var_list)
+    ds = rename_ofam3_coords(ds)
+    ds = ds.where(~np.isnan(ds.no3))
+
+    fieldset = BGCFields(cfg.ExpData(scenario=0))
+    kd = fieldset.kd490_dataset(chunks='auto')
+    kd = kd.sel(lon=ds.lon.values, lat=ds.lat.values, method='nearest')
+    kd.coords['lon'] = ds.lon.values
+    kd.coords['lat'] = ds.lat.values
+    kd['time'] = ds.time.copy()
+
+    ds['kd'] = 10**kd.kd
+    return ds
+
+
 class BGCFields(object):
     """Biogeochemistry field datasets from OFAM3 and Kd490."""
 
@@ -306,7 +323,7 @@ def format_Kd490_dataset():
     df = df.sortby(df.lon)
     df = df.drop_duplicates('lon')
     if interp:
-        df = df.sel(lat=slice(-10, 10), lon=slice(120, 285))
+        df = df.sel(lat=slice(-10, 10), lon=slice(120, 285))  # , keep_attrs=True
         dx = 0.1
         df = df.interp(lon=np.arange(120, 285 + dx, dx), lat=np.arange(-10, 10 + dx, dx))
 
