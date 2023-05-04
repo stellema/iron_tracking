@@ -1,0 +1,279 @@
+2023-04-28 04:31:15:update_particles_iron: 00h:39m:42.68s (total=2382.68 seconds).
+2023-04-28 05:10:13:update_particles_iron: 00h:38m:58.62s (total=2338.62 seconds).
+2023-04-28 05:49:10:update_particles_iron: 00h:38m:56.89s (total=2336.89 seconds).
+2023-04-28 06:37:04:update_particles_iron: 00h:32m:27.87s (total=1947.87 seconds).
+2023-04-28 07:09:46:update_particles_iron: 00h:32m:42.15s (total=1962.15 seconds).
+2023-04-28 07:42:50:update_particles_iron: 00h:33m:04.42s (total=1984.42 seconds).
+2023-04-28 08:17:01:update_particles_iron: 00h:34m:10.91s (total=2050.91 seconds).
+2023-04-28 08:47:57:update_particles_iron: 00h:30m:55.84s (total=1855.84 seconds).
+2023-04-28 09:19:24:update_particles_iron: 00h:31m:27.27s (total=1887.27 seconds).
+2023-04-28 09:50:58:update_particles_iron: 00h:31m:33.68s (total=1893.68 seconds).
+2023-04-28 10:22:27:update_particles_iron: 00h:31m:28.45s (total=1888.45 seconds).
+2023-04-28 10:53:54:update_particles_iron: 00h:31m:27.47s (total=1887.47 seconds).
+2023-04-28 11:25:26:update_particles_iron: 00h:31m:31.45s (total=1891.45 seconds).
+2023-04-28 11:56:54:update_particles_iron: 00h:31m:28.13s (total=1888.13 seconds).
+2023-04-28 12:28:29:update_particles_iron: 00h:31m:35.75s (total=1895.75 seconds).
+2023-04-28 13:00:12:update_particles_iron: 00h:31m:42.02s (total=1902.02 seconds).
+2023-04-28 15:00:35:update_particles_iron: 02h:00m:23.85s (total=7223.85 seconds).
+2023-04-28 15:32:11:update_particles_iron: 00h:31m:35.43s (total=1895.43 seconds).
+2023-04-28 16:03:41:update_particles_iron: 00h:31m:30.48s (total=1890.48 seconds).
+2023-04-28 16:35:10:update_particles_iron: 00h:31m:28.72s (total=1888.72 seconds).
+2023-04-28 18:31:40:hist_165_v0_00(84 particles): Optmimal c_scav=1.5)
+2023-04-28 18:33:06:hist_165_v0_00(84 particles): Optmimal {'c_scav': 1.5, 'k_org': 5e-07, 'k_inorg': 8.2e-06, 'mu_D': 0.01, 'mu_D_180': 0.02})
+2023-04-28 19:33:30:update_particles_MPI: 00h:05m:43.21s (total=343.21 seconds).
+2023-04-28 19:59:57:hist_250_v0_00(61 particles): Optmimal {'c_scav': 2.0, 'k_org': 5e-07, 'k_inorg': 8.2e-06, 'mu_D': 0.01, 'mu_D_180': 0.02})
+2023-04-28 20:09:51:optimise_iron_model_params: 01h:01m:26.78s (total=3686.78 seconds).
+2023-04-28 21:44:18:update_particles: 00h:13m:33.09s (total=813.09 seconds).
+2023-04-28 22:01:56:update_particles_MPI: 00h:05m:59.36s (total=359.36 seconds).
+2023-04-28 22:07:48:update_particles_MPI: 00h:05m:51.29s (total=351.29 seconds).
+2023-04-28 22:13:34:update_particles_MPI: 00h:05m:46.53s (total=346.53 seconds).
+2023-04-28 22:19:06:update_particles_MPI: 00h:05m:31.28s (total=331.28 seconds).
+2023-04-28 22:24:36:update_particles_MPI: 00h:05m:30.95s (total=330.95 seconds).
+2023-04-28 22:24:36:hist_250_v0_00(31 particles): Optmimal {'c_scav': 2.0, 'k_org': 1e-08, 'k_inorg': 8.2e-06, 'mu_D': 0.01, 'mu_D_180': 0.02})
+2023-04-28 22:30:11:update_particles_MPI: 00h:05m:34.38s (total=334.38 seconds).
+2023-04-28 22:31:40:optimise_iron_model_params: 00h:36m:03.90s (total=2163.90 seconds).
+2023-04-28 22:47:00:update_particles_MPI: 00h:08m:37.21s (total=517.21 seconds).
+2023-04-28 22:55:38:update_particles_MPI: 00h:08m:37.42s (total=517.42 seconds).
+2023-04-28 23:04:18:update_particles_MPI: 00h:08m:40.59s (total=520.59 seconds).
+2023-04-28 23:12:58:update_particles_MPI: 00h:08m:40.27s (total=520.27 seconds).
+2023-04-28 23:12:58:hist_250_v0_00(61 particles): Optmimal {'k_org': 5e-07, 'k_inorg': 8.2e-06, 'mu_D_180': 0.02})
+2023-04-28 23:21:30:update_particles_MPI: 00h:08m:31.93s (total=511.93 seconds).
+2023-04-28 23:23:10:optimise_iron_model_params: 00h:45m:07.72s (total=2707.72 seconds).
+2023-04-28 23:37:51:hist_250_v0_00(61 particles): Optmimal {'k_org': 2.0, 'k_inorg': 1e-08, 'mu_D_180': 8.2e-06})
+2023-04-28 23:46:43:update_particles_MPI: 00h:08m:51.91s (total=531.91 seconds).
+2023-04-29 00:21:58:update_particles_MPI: 00h:10m:55.76s (total=655.76 seconds).
+2023-04-29 00:32:50:update_particles_MPI: 00h:10m:52.13s (total=652.13 seconds).
+2023-04-29 00:43:35:update_particles_MPI: 00h:10m:44.47s (total=644.47 seconds).
+2023-04-29 00:54:21:update_particles_MPI: 00h:10m:46.37s (total=646.37 seconds).
+2023-04-29 01:05:47:update_particles_MPI: 00h:11m:25.54s (total=685.54 seconds).
+2023-04-29 01:16:46:update_particles_MPI: 00h:10m:59.86s (total=659.86 seconds).
+2023-04-29 01:27:51:update_particles_MPI: 00h:11m:04.70s (total=664.70 seconds).
+2023-04-29 01:38:49:update_particles_MPI: 00h:10m:58.15s (total=658.15 seconds).
+2023-04-29 01:49:33:update_particles_MPI: 00h:10m:43.66s (total=643.66 seconds).
+2023-04-29 02:00:14:update_particles_MPI: 00h:10m:41.21s (total=641.21 seconds).
+2023-04-29 02:10:59:update_particles_MPI: 00h:10m:44.36s (total=644.36 seconds).
+2023-04-29 02:22:33:update_particles_MPI: 00h:11m:34.53s (total=694.53 seconds).
+2023-04-29 02:34:15:update_particles_MPI: 00h:11m:41.98s (total=701.98 seconds).
+2023-04-29 02:46:16:update_particles_MPI: 00h:12m:01.27s (total=721.27 seconds).
+2023-04-29 02:58:17:update_particles_MPI: 00h:12m:00.93s (total=720.93 seconds).
+2023-04-29 03:09:40:update_particles_MPI: 00h:11m:23.15s (total=683.15 seconds).
+2023-04-29 03:21:19:update_particles_MPI: 00h:11m:38.52s (total=698.52 seconds).
+2023-04-29 03:33:18:update_particles_MPI: 00h:11m:59.45s (total=719.45 seconds).
+2023-04-29 03:46:30:update_particles_MPI: 00h:13m:11.33s (total=791.33 seconds).
+2023-04-29 03:57:51:update_particles_MPI: 00h:11m:20.81s (total=680.81 seconds).
+2023-04-29 04:09:23:update_particles_MPI: 00h:11m:32.21s (total=692.21 seconds).
+2023-04-29 04:20:39:update_particles_MPI: 00h:11m:16.69s (total=676.69 seconds).
+2023-04-29 04:32:09:update_particles_MPI: 00h:11m:29.46s (total=689.46 seconds).
+2023-04-29 04:43:06:update_particles_MPI: 00h:10m:56.72s (total=656.72 seconds).
+2023-04-29 04:53:49:update_particles_MPI: 00h:10m:43.68s (total=643.68 seconds).
+2023-04-29 05:04:44:update_particles_MPI: 00h:10m:55.14s (total=655.14 seconds).
+2023-04-29 05:15:30:update_particles_MPI: 00h:10m:45.06s (total=645.06 seconds).
+2023-04-29 05:26:11:update_particles_MPI: 00h:10m:41.85s (total=641.85 seconds).
+2023-04-29 05:37:14:update_particles_MPI: 00h:11m:02.35s (total=662.35 seconds).
+2023-04-29 05:48:17:update_particles_MPI: 00h:11m:03.46s (total=663.46 seconds).
+2023-04-29 05:48:17:hist_250_v0_00(76 particles): Init [0.0001, 0.00061, 0.5]
+2023-04-29 05:48:17:hist_250_v0_00(76 particles): Optimimal {'k_org': 0.0009442719657272487, 'k_inorg': 0.0009442719657272488, 'mu_D_180': 0.14996582605145975} (Powell)
+2023-04-29 05:59:18:update_particles_MPI: 00h:11m:00.48s (total=660.48 seconds).
+2023-04-29 06:01:00:optimise_iron_model_params: 05h:50m:24.11s (total=21024.11 seconds).
+2023-04-29 16:13:16:update_particles_MPI: 00h:05m:44.52s (total=344.52 seconds).
+2023-04-29 16:43:54:update_particles_MPI: 00h:05m:14.58s (total=314.58 seconds).
+2023-04-29 17:08:05:update_particles_MPI: 00h:05m:29.53s (total=329.53 seconds).
+2023-04-29 19:00:18:update_particles_MPI: 00h:05m:13.11s (total=313.11 seconds).
+2023-04-29 19:00:18:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.03', 'mu_D_180=0.02', 'I_0=350']
+2023-04-29 19:16:01:update_particles_MPI: 00h:05m:29.41s (total=329.41 seconds).
+2023-04-29 19:16:01:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.03', 'mu_D_180=0.02', 'I_0=350', 'a=0.8']
+2023-04-29 20:35:19:update_particles_MPI: 00h:05m:20.04s (total=320.04 seconds).
+2023-04-29 20:35:19:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.03', 'mu_D_180=0.02', 'I_0=350', 'a=0.06']
+2023-04-29 21:40:13:update_particles_MPI: 00h:05m:55.76s (total=355.76 seconds).
+2023-04-29 21:40:13:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6']
+2023-04-29 22:11:52:update_particles_MPI: 00h:05m:21.37s (total=321.37 seconds).
+2023-04-29 22:11:52:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=350', 'a=0.6']
+2023-04-29 22:46:06:update_particles_MPI: 00h:06m:54.34s (total=414.34 seconds).
+2023-04-29 23:34:27:update_particles_MPI: 00h:05m:41.41s (total=341.41 seconds).
+2023-04-29 23:34:27:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6']
+2023-04-29 23:48:15:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.9', 'b=1.066']
+2023-04-29 23:53:54:update_particles_MPI: 00h:05m:30.77s (total=330.77 seconds).
+2023-04-29 23:53:54:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.9', 'b=1.066']
+2023-04-30 03:52:03:update_particles_MPI: 00h:05m:09.08s (total=309.08 seconds).
+2023-04-30 04:18:17:update_particles_MPI: 00h:05m:07.16s (total=307.16 seconds).
+2023-04-30 04:18:17:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 05:03:52:update_particles_MPI: 00h:05m:51.59s (total=351.59 seconds).
+2023-04-30 05:03:52:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 16:21:01:update_particles_MPI: 00h:06m:22.30s (total=382.30 seconds).
+2023-04-30 16:21:01:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 17:29:11:update_particles_MPI: 00h:06m:02.61s (total=362.61 seconds).
+2023-04-30 17:29:11:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 19:21:21:update_particles_MPI: 00h:06m:27.66s (total=387.66 seconds).
+2023-04-30 19:21:21:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 19:28:25:update_particles_MPI: 00h:06m:23.51s (total=383.51 seconds).
+2023-04-30 19:28:25:hist_250_v0_00(76 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=0.00061', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 19:38:04:update_particles_MPI: 00h:06m:27.23s (total=387.23 seconds).
+2023-04-30 19:56:43:update_particles_MPI: 00h:12m:06.68s (total=726.68 seconds).
+2023-04-30 20:47:55:update_particles_MPI: 00h:21m:38.45s (total=1298.45 seconds).
+2023-04-30 20:47:55:hist_250_v0_00(301 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=0.0004', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 21:18:29:update_particles_MPI: 00h:21m:25.78s (total=1285.78 seconds).
+2023-04-30 21:18:29:hist_250_v0_00(301 particles): ['c_scav=2', 'k_org=5e-06', 'k_inorg=0.0004', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 21:45:44:update_particles_MPI: 00h:21m:43.85s (total=1303.85 seconds).
+2023-04-30 21:45:44:hist_250_v0_00(301 particles): ['c_scav=2', 'k_org=1e-05', 'k_inorg=0.0004', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-04-30 22:42:51:update_particles_MPI: 00h:21m:46.10s (total=1306.10 seconds).
+2023-04-30 23:16:30:update_particles_MPI: 00h:17m:51.25s (total=1071.25 seconds).
+2023-04-30 23:16:30:hist_250_v0_00(301 particles): ['c_scav=2', 'k_org=0.0004', 'k_inorg=0.00061', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-01 02:44:23:update_particles_MPI: 00h:08m:33.50s (total=513.50 seconds).
+2023-05-01 02:44:23:hist_165_v0_00(416 particles): ['c_scav=2', 'k_org=0.0004', 'k_inorg=0.00061', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-01 04:09:54:update_particles_MPI: 00h:22m:34.58s (total=1354.58 seconds).
+2023-05-01 04:09:54:hist_190_v0_00(358 particles): ['c_scav=2', 'k_org=0.0004', 'k_inorg=0.00061', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-01 04:15:25:update_particles_MPI: 00h:29m:20.97s (total=1760.97 seconds).
+2023-05-01 04:15:25:hist_220_v0_00(364 particles): ['c_scav=2', 'k_org=0.0004', 'k_inorg=0.00061', 'mu_D=0.02', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-01 19:36:39:update_particles_MPI: 00h:11m:15.33s (total=675.33 seconds).
+2023-05-01 19:36:39:hist_165_v0_00(416 particles): ['c_scav=2.5', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-01 19:48:15:update_particles_MPI: 00h:21m:11.11s (total=1271.11 seconds).
+2023-05-01 19:48:15:hist_250_v0_00(301 particles): ['c_scav=2.5', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-01 19:51:18:update_particles_MPI: 00h:24m:45.56s (total=1485.56 seconds).
+2023-05-01 19:51:18:hist_190_v0_00(358 particles): ['c_scav=2.5', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-01 19:58:17:update_particles_MPI: 00h:30m:57.90s (total=1857.90 seconds).
+2023-05-01 19:58:17:hist_220_v0_00(364 particles): ['c_scav=2.5', 'k_org=5e-06', 'k_inorg=8.2e-05', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-04 02:15:27:hist_220_v0_00(386 particles): ['c_scav=2.5', 'k_org=5e-05', 'k_inorg=8.2e-05', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-04 03:14:34:update_particles_MPI: 00h:40m:27.86s (total=2427.86 seconds).
+2023-05-04 03:49:30:Estimated yearly runtime using 48 cpus: particles=386, ndays=2, hours/year=1.7094307484567903
+2023-05-04 17:50:30:hist_220_v0_00(686 particles): ['c_scav=1.5', 'k_org=0.0004', 'k_inorg=0.0006', 'mu_D=0.01', 'mu_D_180=0.01', 'I_0=300', 'a=0.6', 'b=1.066']
+2023-05-04 18:45:20:update_particles_MPI: 00h:54m:49.35s (total=3289.35 seconds).
+2023-05-04 19:44:06:update_particles_MPI: 00h:03m:36.32s (total=216.32 seconds).
+2023-05-04 19:44:06:hist_220_v0_00(47 particles): cost=<xarray.DataArray ()>
+array(0.21345167, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0004', 'k_inorg=0.0006', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 20:06:21:update_particles_MPI: 00h:13m:10.74s (total=790.74 seconds).
+2023-05-04 20:06:21:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0004', 'k_inorg=0.0006', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 20:23:03:update_particles_MPI: 00h:07m:27.48s (total=447.48 seconds).
+2023-05-04 20:23:03:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.00038197219158999263', 'k_inorg=0.0006', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 20:30:45:update_particles_MPI: 00h:07m:40.99s (total=460.99 seconds).
+2023-05-04 20:30:45:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0006180378084100073', 'k_inorg=0.0006', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 20:38:19:update_particles_MPI: 00h:07m:33.32s (total=453.32 seconds).
+2023-05-04 20:38:19:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0007639343831799853', 'k_inorg=0.0006', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 20:45:50:update_particles_MPI: 00h:07m:29.18s (total=449.18 seconds).
+2023-05-04 20:45:50:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.000854103425230022', 'k_inorg=0.0006', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 20:53:22:update_particles_MPI: 00h:07m:31.29s (total=451.29 seconds).
+2023-05-04 20:53:22:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009098309579499632', 'k_inorg=0.0006', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 21:00:54:update_particles_MPI: 00h:07m:31.43s (total=451.43 seconds).
+2023-05-04 21:00:54:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0006', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 21:08:37:update_particles_MPI: 00h:07m:42.15s (total=462.15 seconds).
+2023-05-04 21:08:37:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0003819721915899927', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 21:16:20:update_particles_MPI: 00h:07m:41.54s (total=461.54 seconds).
+2023-05-04 21:16:20:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0006180378084100073', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 21:24:01:update_particles_MPI: 00h:07m:40.56s (total=460.56 seconds).
+2023-05-04 21:24:01:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0007639343831799853', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 21:31:44:update_particles_MPI: 00h:07m:42.01s (total=462.01 seconds).
+2023-05-04 21:31:44:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.000854103425230022', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 21:39:18:update_particles_MPI: 00h:07m:32.79s (total=452.79 seconds).
+2023-05-04 21:39:18:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009098309579499632', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 21:46:53:update_particles_MPI: 00h:07m:34.26s (total=454.26 seconds).
+2023-05-04 21:46:53:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=1.5', 'mu_D=0.01']
+2023-05-04 21:54:27:update_particles_MPI: 00h:07m:32.96s (total=452.96 seconds).
+2023-05-04 21:54:27:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=1.881966011250105', 'mu_D=0.01']
+2023-05-04 22:02:03:update_particles_MPI: 00h:07m:34.42s (total=454.42 seconds).
+2023-05-04 22:02:03:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.118033988749895', 'mu_D=0.01']
+2023-05-04 22:09:47:update_particles_MPI: 00h:07m:42.78s (total=462.78 seconds).
+2023-05-04 22:09:47:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.26393202250021', 'mu_D=0.01']
+2023-05-04 22:17:30:update_particles_MPI: 00h:07m:42.33s (total=462.33 seconds).
+2023-05-04 22:17:30:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.3541019662496847', 'mu_D=0.01']
+2023-05-04 22:25:26:update_particles_MPI: 00h:07m:55.20s (total=475.20 seconds).
+2023-05-04 22:25:26:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.4098300562505255', 'mu_D=0.01']
+2023-05-04 22:33:16:update_particles_MPI: 00h:07m:49.25s (total=469.25 seconds).
+2023-05-04 22:33:16:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.4442719099991588', 'mu_D=0.01']
+2023-05-04 22:41:05:update_particles_MPI: 00h:07m:47.87s (total=467.87 seconds).
+2023-05-04 22:41:05:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.465558146251367', 'mu_D=0.01']
+2023-05-04 22:48:54:update_particles_MPI: 00h:07m:48.13s (total=468.13 seconds).
+2023-05-04 22:48:54:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.4787137637477916', 'mu_D=0.01']
+2023-05-04 22:56:42:update_particles_MPI: 00h:07m:46.13s (total=466.13 seconds).
+2023-05-04 22:56:42:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.486844382503575', 'mu_D=0.01']
+2023-05-04 23:04:21:update_particles_MPI: 00h:07m:38.50s (total=458.50 seconds).
+2023-05-04 23:04:21:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.4918693812442165', 'mu_D=0.01']
+2023-05-04 23:12:04:update_particles_MPI: 00h:07m:42.32s (total=462.32 seconds).
+2023-05-04 23:12:04:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.4949750012593586', 'mu_D=0.01']
+2023-05-04 23:19:53:update_particles_MPI: 00h:07m:47.57s (total=467.57 seconds).
+2023-05-04 23:19:53:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.496894379984858', 'mu_D=0.01']
+2023-05-04 23:27:43:update_particles_MPI: 00h:07m:48.48s (total=468.48 seconds).
+2023-05-04 23:27:43:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.4980806212745', 'mu_D=0.01']
+2023-05-04 23:35:45:update_particles_MPI: 00h:08m:00.86s (total=480.86 seconds).
+2023-05-04 23:35:45:hist_220_v0_00(187 particles): cost=<xarray.DataArray ()>
+array(0.22871688, dtype=float32)
+Coordinates:
+    obs      float32 7.67e+03 ['k_org=0.0009442724672800587', 'k_inorg=0.0009442724672800587', 'c_scav=2.498813758710358', 'mu_D=0.01']
