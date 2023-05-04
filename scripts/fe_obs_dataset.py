@@ -19,15 +19,7 @@ Todo:
 @created: Mon Nov  7 17:05:56 2022
 
 """
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-from cartopy.mpl.gridliner import LatitudeFormatter
-from dataclasses import dataclass, field
-from datetime import datetime
 import gsw
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import pandas as pd
 import re
@@ -36,12 +28,13 @@ import xarray as xr
 import cfg
 from cfg import paths, mon
 from tools import timeit, mlogger
-from datasets import get_ofam_filenames, add_coord_attrs, save_dataset
+from datasets import add_coord_attrs, save_dataset
 
 logger = mlogger('iron_observations')
 
 
 class FeObsDatasets():
+
     def __init__(self):
         self.lons = [110, 290]
         self.lats = [-30, 30]
@@ -481,9 +474,13 @@ class FeObsDataset(object):
 
         # Set datasets.
         self.ds = ds
-        if 't' in self.ds.dims:
+        if 't' in self.ds.fe.dims:
             self.ds.mean('t')
+
+        self.ds = self.ds.dropna('x', 'all').dropna('y', 'all').dropna('z', 'all')
+        self.ds = xr.where(self.ds.z > 400, self.ds.ffill('z'), self.ds)
         self.ds_avg = self.obs_sites_avg()
+
 
     def __repr__(self):
         """Return a representation of the object."""
@@ -505,31 +502,36 @@ class FeObsDataset(object):
         """Add dict of lat lon ranges that contain observations."""
         c = 0.2
         obs_site = {}
-        obs_site['mc'] = dict(y=[4, 9.2], x=[118, 135], name='Mindanao Current', c='mediumspringgreen')
+        obs_site['mc'] = dict(y=[4, 8], x=[118, 135], name='Mindanao Current', c='mediumspringgreen')
         obs_site['ngcu'] = dict(y=[-6, -3], x=[140, 150], name='VS+PNG', c='darkorange')
         obs_site['nicu'] = dict(y=[-5.5, -3], x=[152, 157], name='SS+NICU', c='pink')
 
         obs_site['vs'] = dict(y=[-6, -5], x=[145, 150], name='Vitiaz Strait', c='darkorange')
         obs_site['ss'] = dict(y=[-5.5, -3], x=[151, 156], name='Solomon Strait', c='deeppink')
         obs_site['ni'] = dict(y=[-4, -3], x=[152, 156], name='New Ireland', c='pink')
-        obs_site['png'] = dict(y=[-6.6, -6.1], x=[152, 153], name='PNG', c='r')
-        obs_site['ssea'] = dict(y=[-4.5, -3], x=[140, 145], name='Solomon Sea', c='y')
+        obs_site['png'] = dict(y=[-4.5, -3], x=[140, 146], name='PNG', c='r')
+        obs_site['ssea'] = dict(y=[-6.6, -6.1], x=[152, 153], name='Solomon Sea', c='y')
+        obs_site['sh_llwbcs'] = dict(y=[-7, -3], x=[140, 157], name='SH LLWBCs', c='y')
 
-        # Specific observation sites.
-        obs_site['mcx'] = dict(y=[7-c, 7+c], x=[130-c, 130+c], name='Mindanao Current', c='mediumspringgreen')
-        obs_site['mc5x'] = dict(y=[5.2-c, 5.2+c], x=[125-c, 127+c], name='Mindanao Current', c='mediumspringgreen')
-        obs_site['vsx'] = dict(y=[-3.3-c, -3.3+c], x=[144-c, 144+c], name='Vitiaz Strait', c='darkorange')
-        obs_site['ssx'] = dict(y=[-5-c, -5+c], x=[155-c, 155+c], name='Solomon Strait', c='deeppink')
+        # # Specific observation sites.
+        # obs_site['mcx'] = dict(y=[7-c, 7+c], x=[130-c, 130+c], name='Mindanao Current', c='mediumspringgreen')
+        # obs_site['mc5x'] = dict(y=[5.2-c, 5.2+c], x=[125-c, 127+c], name='Mindanao Current', c='mediumspringgreen')
+        # obs_site['vsx'] = dict(y=[-3.3-c, -3.3+c], x=[144-c, 144+c], name='Vitiaz Strait', c='darkorange')
+        # obs_site['ssx'] = dict(y=[-5-c, -5+c], x=[155-c, 155+c], name='Solomon Strait', c='deeppink')
 
-        obs_site['int_s'] = dict(y=[-10, -2.5], x=[170, 290], name='South Interior', c='darkviolet')
-        obs_site['int_n'] = dict(y=[2.5, 10], x=[138, 295], name='North Interior', c='b')
-        obs_site['eq'] = dict(y=[-0.5, 0.5], x=[145, 295], name='Equator', c='k')
-        obs_site['euc'] = dict(y=[-2.6, 2.6], x=[145, 295], name='Equatorial Undercurrent', c='k')
+        obs_site['int_s'] = dict(y=[-10, -2.6], x=[170, 277], name='South Interior', c='darkviolet')
+        obs_site['int_n'] = dict(y=[2.6, 10], x=[138, 275], name='North Interior', c='b', obs_min=5)
+        obs_site['eq'] = dict(y=[-0.5, 0.5], x=[145, 285], name='Equator', c='k')
+        obs_site['euc'] = dict(y=[-2.6, 2.6], x=[145, 275], name='Equatorial Undercurrent', c='k')
+
+        # For interior plotting only.
         # obs_site['int'] = dict(y=[obs_site['int_s']['y'], obs_site['int_n']['y']],
         #                             x=[obs_site['int_s']['x'], obs_site['int_n']['x']],
         #                             name='Interior', c='seagreen')
 
         self.obs_site = obs_site
+        self.llwbc_names = ['mc', 'ngcu', 'nicu']
+        self.int_names = ['int_s', 'int_n']
 
     def get_obs_locations(self, name):
         """Get iron observation lat & lon positions in observation data array.
@@ -543,15 +545,16 @@ class FeObsDataset(object):
             coords (list): List of formatted "(lat°S, lon°E)" coords of obs.
 
         """
+
         # Define lists of lat & lon subsets based on given name.
         if name in self.obs_site.keys():
             lats, lons = [[self.obs_site[name][i]] for i in ['y', 'x']]
 
         elif name in ['int']:
-            lats, lons = [[self.obs_site[n][i] for n in ['int_n', 'int_s']] for i in ['y', 'x']]
+            lats, lons = [[self.obs_site[n][i] for n in self.int_names] for i in ['y', 'x']]
 
         elif name in ['llwbcs']:
-            lats, lons = [[self.obs_site[n][i] for n in ['mc', 'vs', 'ss']] for i in ['y', 'x']]
+            lats, lons = [[self.obs_site[n][i] for n in self.llwbc_names] for i in ['y', 'x']]
 
         # Subset & merge dataset.
         dx = []
@@ -572,8 +575,7 @@ class FeObsDataset(object):
                     obs.append([y, x])
 
         # Format string of lat, lon coordinates.
-        coords = ['({:.1f}°E, {:.1f}°{})'.format(x, np.fabs(y), 'N' if y > 0 else 'S')
-                  for x, y in obs]
+        coords = ['({:.1f}°{}, {:.1f}°E)'.format(np.fabs(y), 'N' if y > 0 else 'S', x) for y, x in obs]
 
         return dx, obs, coords
 
@@ -583,7 +585,7 @@ class FeObsDataset(object):
         for n in names:
             dx.append(self.ds.fe.sel(y=slice(*self.obs_site[n]['y']),
                                      x=slice(*self.obs_site[n]['x'])))
-            return xr.merge(dx).fe
+        return xr.merge(dx).fe
 
     def obs_sites_avg(self):
         """Create dataset based on the average of dFe at each obs sites as a function of depth."""
@@ -591,54 +593,55 @@ class FeObsDataset(object):
         for n in self.obs_site.keys():
             df[n] = self.sel_site([n]).mean(['x', 'y'])
 
-            # Fix top depths
-            z_inds = np.arange(df[n].mean('t').z.size, dtype=int)
-            n_obs = (~np.isnan(self.sel_site([n]).mean('t'))).sum('x').sum('y')
-            try:
-                z_valid = z_inds[n_obs > 2][0]
-            except IndexError:
-                z_valid = z_inds[n_obs >= 1][0]
-            for z in range(z_valid):
-                if n_obs[z] < 1:
-                    df[n][dict(z=z)] = df[n][dict(z=z_valid)]
+            # Fix top depths.
+            if df[n].where(~np.isnan(df[n]), drop=True).z.size > 0:
+                z_inds = np.arange(df[n].mean('t').z.size, dtype=int)
+                n_obs = (~np.isnan(self.sel_site([n]).mean('t'))).sum('x').sum('y')
+                n_obs_min = 2 if not 'obs_min' in self.obs_site[n].keys() else self.obs_site[n]['obs_min']
+                try:
+                    z_valid = z_inds[n_obs > n_obs_min][0]
+                except IndexError:
+                    z_valid = z_inds[n_obs >= 1][0]
+                    n_obs_min = 1
+                for z in range(z_valid):
+                    if n_obs[z] < n_obs_min:
+                        df[n][dict(z=z)] = df[n][dict(z=z_valid)]
 
-        for n, nn in zip(['interior', 'llwbcs'], [['int_n', 'int_s'], ['mc', 'vs', 'ss']]):
+        for n, nn in zip(['interior', 'llwbcs'], [self.int_names, self.llwbc_names]):
             df[n] = self.sel_site(nn).mean(['x', 'y'])
-            # Fix top depths
-            z_inds = np.arange(df[n].mean('t').z.size, dtype=int)
-            n_obs = (~np.isnan(self.sel_site(nn).mean('t'))).sum('x').sum('y')
-            try:
-                z_valid = z_inds[n_obs > 2][0]
-            except IndexError:
-                z_valid = z_inds[n_obs >= 1][0]
 
-            for z in range(z_valid):
-                if n_obs[z] < 1:
-                    df[n][dict(z=z)] = df[n][dict(z=z_valid)]
+            if df[n].where(~np.isnan(df[n]), drop=True).z.size > 0:
+                # Fix top depths
+                z_inds = np.arange(df[n].mean('t').z.size, dtype=int)
+                n_obs = (~np.isnan(self.sel_site(nn).mean('t'))).sum('x').sum('y')
+                z_valid = z_inds[n_obs > 3][0]
+                n_obs_min = 3
+                for z in range(z_valid):
+                    if n_obs[z] < n_obs_min:
+                        df[n][dict(z=z)] = df[n][dict(z=z_valid)]
 
-        df['EUC'] = self.sel_site(['euc']).mean(['y'])
+        df['EUC'] = self.ds.sel(y=slice(-2.6, 2.6), x=slice(145, 275)).mean('y').fe
         df = df.dropna('z', 'all')
+        df = xr.where(df.z > 400, df.ffill('z'), df)
         return df
 
 
 def get_merged_FeObsDataset():
     dfs = FeObsDatasets()
     setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
-    setattr(dfs, 'ds_all', dfs.combined_iron_obs_datasets(add_Huang=True, interp_z=True))
     setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
-    setattr(dfs, 'dfe_all', FeObsDataset(dfs.ds_all))
 
-    interior_vars = ['int_s', 'int_n', 'eq', 'euc', 'interior']
-    for n in ['eq', 'euc']:
-        var = 'euc'
-        dfs.dfe.ds_avg[n] = xr.where(~np.isnan(dfs.dfe.ds_avg[n]), dfs.dfe.ds_avg[n],
-                                     dfs.dfe_all.ds_avg[var].mean('t'))
-    for n in [n for n in dfs.dfe.ds_avg.data_vars if n not in interior_vars]:
-        var = 'llwbcs'
-        dfs.dfe.ds_avg[n] = xr.where(~np.isnan(dfs.dfe.ds_avg[n]), dfs.dfe.ds_avg[n],
-                                     dfs.dfe_all.ds_avg[var].mean('t'))
-    for n in interior_vars:
-        var = 'interior'
-        dfs.dfe.ds_avg[n] = xr.where(~np.isnan(dfs.dfe.ds_avg[n]), dfs.dfe.ds_avg[n],
-                                     dfs.dfe_all.ds_avg[var].mean('t'))
+    dfs.dfe.ds = dfs.dfe.ds.mean('t')
+    dfs.dfe.ds_avg = dfs.dfe.ds_avg.mean('t')
+
+    xx = [slice(162, 167), slice(182, 192), slice(205, 230), slice(210, 271)]
+    # Observations
+    df = dfs.dfe.ds.fe.sel(y=slice(-2.6, 2.6)).mean('y')
+    dx = []
+    for lon, x in zip([165, 190, 220, 250], xx):
+        dx.append(df.sel(x=x).mean('x').assign_coords(lon=lon))
+    dfs.dfe.ds_avg['euc_avg'] = xr.concat(dx, 'lon')
+
+    # df = dfs.dfe.ds.fe.sel(y=slice(-10.1, 10.1), x=slice()).mean('y')
+
     return dfs
