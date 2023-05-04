@@ -57,6 +57,7 @@ try:
     from mpi4py import MPI
 except ModuleNotFoundError:
     MPI = None
+    rank = 0
 
 logger = mlogger('fe_model_test')
 
@@ -379,17 +380,17 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
             ds['fe_reg'][dict(traj=p, obs=t - 1)] = fe_reg
             ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
 
-    #     # # Synchronize all processes
-    #     # comm.Barrier()
+        # Synchronize all processes
+        comm.Barrier()
 
-    # # Write output to netCDF file
-    # if rank == 0 and not cfg.test:
-    #     encoding = {var: {'zlib': True} for var in ds.data_vars}
-    #     with MPI.File.Open(comm, pds.exp.file_felx, amode=MPI.MODE_CREATE | MPI.MODE_WRONLY) as fh:
-    #         ds.to_netcdf(cfg.paths.data / (pds.exp.file_base + '_test.nc'), mode='w',
-    #                      format='NETCDF4', engine='h5netcdf', encoding=encoding, group=fh)
+    # Write output to netCDF file
+    if rank == 0 and not cfg.test:
+        encoding = {var: {'zlib': True} for var in ds.data_vars}
+        with MPI.File.Open(comm, pds.exp.file_felx, amode=MPI.MODE_CREATE | MPI.MODE_WRONLY) as fh:
+            ds.to_netcdf(cfg.paths.data / (pds.exp.file_base + '_test.nc'), mode='w',
+                          format='NETCDF4', engine='h5netcdf', encoding=encoding, group=fh)
 
-    return ds
+    return pds, ds
 
 
 @timeit(my_logger=logger)
@@ -454,7 +455,7 @@ def run_iron_model(NPZD=0):
     param_dict = ['{}={}'.format(k, pds.params[k])
                   for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'I_0', 'a', 'b']]
     logger.info('{}({} particles): {}'.format(exp.file_base, ds.traj.size, param_dict))
-    ds = update_particles_MPI(pds, ds, ds_fe, NPZD=False)
+    pds, ds = update_particles_MPI(pds, ds, ds_fe, NPZD=False)
 
     # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
     test_plot_EUC_iron_depth_profile(pds, ds, dfs)
@@ -514,30 +515,31 @@ def optimise_iron_model_params():
         optimise_iron_model_params: 00h:45m:07.72s (total=2707.72 seconds).
     """
     def cost_function(F_obs, pds, ds, dfs, param_names, params):
-        F_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, param_names, params)  # Particle dataset (all vars & obs).
+        pds, F_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, param_names, params)  # Particle dataset (all vars & obs).
         F_pred = F_pred.fe.ffill('obs').isel(obs=-1, drop=True)  # Final particle Fe.
 
         # cost = np.sqrt(np.sum((F_obs - F_pred)**2) / F_obs.size)  # RSMD
-        cost = np.fabs((F_obs - F_pred)).mean()  # Least absolute deviations
+        cost = np.fabs((F_obs - F_pred)).mean().item()  # Least absolute deviations
 
-        # Log & plot.
-        logger.info('{}({} particles): cost={} {}'
-                    .format(exp.file_base, ds.traj.size, cost,
-                            ['{}={}'.format(p, v) for p, v in zip(param_names, params)]))
-        test_plot_EUC_iron_depth_profile(pds, ds, dfs)
+        if rank == 0:
+            # Log & plot.
+            logger.info('{}({} particles): cost={} {}'
+                        .format(exp.file_base, ds.traj.size, cost,
+                                ['{}={}'.format(p, v) for p, v in zip(param_names, params)]))
+            test_plot_EUC_iron_depth_profile(pds, F_pred, dfs)
         return cost
 
     # Source iron profile.
     dfs = get_merged_FeObsDataset()
 
     # Particle dataset.
-    exp = ExpData(scenario=0, lon=220, test=True, test_month_bnds=12, scav_eq='Galibraith')
+    exp = ExpData(scenario=0, lon=220, scav_eq='Galibraith')
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
     dss = pds.init_felx_bgc_dataset()
 
     # Subset number of particles.
-    ndays = 1
+    ndays = 6
     ds = dss.isel(traj=slice(742 * ndays))
     target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays) * 6 - 1, 'D')
     traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
@@ -549,7 +551,7 @@ def optimise_iron_model_params():
 
     # Paramaters to optimise (e.g., a, b, c = params).
     # Copy inside update_iron: ', '.join([i for i in params])
-    param_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D']
+    param_names = ['c_scav', 'k_inorg', 'k_org']
     params_init = [pds.params[i] for i in param_names]  # params = params_init
 
     param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5], tau=None,
@@ -560,17 +562,24 @@ def optimise_iron_model_params():
     bounds = [param_bnds[i] for i in param_names]
 
     res = minimize(lambda params: cost_function(F_obs, pds, ds, dfs, param_names, params),
-                   params_init, method='Powell', bounds=bounds, options={'disp': True})
+                   params_init, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
     # Update pds params dict with optimised values.
-    param_dict = dict([(k, v) for k, v in zip(param_names, params_optimized)])
-    pds.update_params(param_dict)
-    logger.info('{}({} particles): Init {}'.format(exp.file_base, ds.traj.size, params_init))
-    logger.info('{}({} particles): Optimimal {} (Powell)'.format(exp.file_base, ds.traj.size, param_dict))
-    # Calculate the predicted iron concentration using the optimized parameters.
-    ds_opt = update_particles_MPI(pds, ds, dfs, param_names, params_optimized)
+    if rank == 0:
+        param_dict = dict([(k, v) for k, v in zip(param_names, params_optimized)])
+        pds.update_params(param_dict)
+        logger.info('{}({} particles): Init {}'.format(exp.file_base, ds.traj.size, params_init))
+        logger.info('{}({} particles): Optimimal {}'.format(exp.file_base, ds.traj.size, param_dict))
+        # # Calculate the predicted iron concentration using the optimized parameters.
+        # ds_opt = update_particles_MPI(pds, ds, dfs, param_names, params_optimized)
 
-    # Plot the observed and predicted iron concentrations.
-    test_plot_EUC_iron_depth_profile(pds, ds_opt, dfs)
-    return ds_opt, params_optimized
+        # # Plot the observed and predicted iron concentrations.
+        # test_plot_EUC_iron_depth_profile(pds, ds_opt, dfs)
+    return
+
+
+if __name__ == '__main__' and not cfg.test:
+
+    if MPI is not None:
+        optimise_iron_model_params()
