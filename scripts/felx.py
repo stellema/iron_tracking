@@ -1,14 +1,36 @@
 # -*- coding: utf-8 -*-
-"""Tests functions for felx experiment (non-parcels version).
+"""Functions for iron model experiment & tests.
 
 Notes:
     - Uses Python=3.9
-    - Primarily uses parcels version 2.4.0
+    - Don't use @numba.njit(parallel=True) for update_iron - need prange to parallelise.
+    - 1 year run time (ndays * particles/day * runtime/particles):
+        - ((365 / 6) * (193 * ((2427.86*4)/386)) / (60*60) = 82 hours / 48 cpu = 1.7 hours
 
 Example:
 
 Todo:
+# Calculate dD/dz (detritus flux)
+zi_1 = (np.abs(df.z - ds.z)).argmin()  # Index of depth.
+zi_0 = zi_1 + 1 if zi_1 == 0 else zi_1 - 1  # Index of depth above/below
+D_z0 = df.det.isel(z=zi_0, drop=True).sel(time=ds.time, lat=ds.lat, lon=ds.lon, method='nearest', drop=True)
+dz = df.z.isel(z=zi_1, drop=True) - df.z.isel(z=zi_0, drop=True)  # Depth difference.
+dD_dz = 0.02 * np.fabs((D - D_z0) / dz)
 
+
+G = ((pds.g * pds.epsilon * P**2) / (pds.g + (pds.epsilon * P**2))) * Z
+D_z0 = df.det.isel(z=zi_0, drop=True).sel(time=dx.time, lat=dx.lat, lon=dx.lon, method='nearest', drop=True)
+dz = df.z.isel(z=zi_1, drop=True) - df.z.isel(z=zi_0, drop=True)  # Depth difference.
+dD_dz = 0.02 * np.fabs((D - D_z0) / dz)
+dD_dt = ((1 - pds.gamma_1) * G) + (pds.mu_Z * Z**2) - (mu_D * D) - (pds.w_D * dD_dz)
+dP_dt = (J * P) - G - (mu_P * P)
+dZ_dt = (pds.gamma_1 * G) - (gamma_2 * Z) - (pds.mu_Z * Z**2)
+dN_dt = (mu_D * D) - (gamma_2 * Z) + (mu_P * P) - (J * P)
+
+Z = Z + dt * dZ_dt
+D = D + dt * dD_dt
+P = P + dt * dP_dt
+N = N + dt * dN_dt
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -17,141 +39,40 @@ Todo:
 """
 import math
 import matplotlib.pyplot as plt
+import numba
 import numpy as np
-import xarray as xr
+from scipy.optimize import minimize
+import xarray as xr  # NOQA
 
 import cfg
 from cfg import ExpData
-from datasets import BGCFields
+from tools import mlogger, timeit
+from datasets import BGCFields, ofam_clim
 from felx_dataset import FelxDataSet
-from fe_obs_dataset import FeObsDatasets, FeObsDataset, get_merged_FeObsDataset
+from fe_obs_dataset import get_merged_FeObsDataset
 from particle_BGC_fields import update_field_AAA
+from test_iron_model_optimisation import test_plot_iron_paths, test_plot_EUC_iron_depth_profile
+
+try:
+    from mpi4py import MPI
+except ModuleNotFoundError:
+    MPI = None
+
+logger = mlogger('fe_model_test')
 
 
-def UpdateIron(pds, ds, p, t, df, dt=2, scav_method='notofam'):
-    """Update iron at a particle location.
-
-    Args:
-        pds (FelxDataSet): FelxDataSet instance (contains constants and dataset functions).
-        ds (xarray.Dataset): Particle dataset (e.g., lat(traj, obs), zoo(traj, obs), fe_scav(traj, obs), etc).
-        p (int): Particle index.
-        t (int): Time index.
-
-    Returns:
-        ds (xarray.Dataset): Particle dataset.
-
-    Notes:
-        * p and time must be position index (not value).
-        * Redfield ratio:
-            * 1P: 16N: 106C: 16*2e-5 Fe (Oke et al., 2012, Christian et al., 2002)
-            * ---> 1N:(2e-5 *1e3) 0.02 Fe (multiply Fe by 1e3 because mmol N m^-3 & umol Fe m^-3)
-             -> [mmol N m^-3 * 1e-3]=[1N: 10,000 Fe]  (1 uM N = 1 nM Fe)
-        * Variables and units:
-            * Temperature (T) [degrees C]
-            * Detritus (D) [mmol N m^-3]
-            * Zooplankton (Z) [mmol N m^-3]
-            * Phytoplankton (P) [mmol N m^-3]
-            * Nitrate/NO3 (N) [mmol N m^-3]
-            * Diffuse Attenuation Coefficient at 490 nm (Kd) [m^-1]
-            * Iron (fe) [umol Fe m^-3]
-            * Remineralised iron (fge_reg) [umol Fe m^-3 day^-1] (add to fe)
-            * Iron uptake for phytoplankton growth (fe_scav) [umol Fe m^-3 day^-1] (minus from fe)
-            * Scavenged iron [fe_scav] [umol Fe m^-3 day^-1] (minus from fe)
-    Todo:
-        * check mu_D values
-        * How to calculate dDet/dt (remineralisation)?
-
+def estimate_runtime(ntraj, ndays, runtime):
+    """1 year run time (ndays * particles/day * runtime/particles).
+    estimate_runtime(386, 2, 2427.86)
     """
-    dt = 2  # Timestep [days]
-    loc = dict(traj=p, obs=t)  # Particle location indexes for subseting ds
-    loc_prev = dict(traj=p, obs=max(0, t - 1))
-
-    # Variables from OFAM3 subset at previous particle location.
-    T, D, Z, P, N, Kd = [ds[v].isel(loc_prev, drop=True)
-                         for v in ['temp', 'det', 'zoo', 'phy', 'no3', 'kd']]
+    ncpus = 48
+    hours = ((ntraj / ndays) * ((runtime * 4) / ntraj)) / (60 * 60)
+    hours_per_year = (365 / 6) * hours / ncpus
+    logger.info('Estimated yearly runtime using {} cpus: particles={}, ndays={}, hours/year={:.2f}'
+                .format(ncpus, ntraj, ndays, hours_per_year))
 
 
-    # Iron at previous particle location.
-    Fe = ds['fe'].isel(loc_prev, drop=True)  # Lagrangian Iron.
-    z = ds['z'].isel(loc_prev, drop=True)  # Depth.
-    # --------------------------------------------------------------------------------
-    # Iron Scavenging.
-    if scav_method == 'ofam':
-        # Scavenging Option 1: Oke et al., 2012 (Qin thesis pg. 144)
-        ds['fe_scav'][loc] = pds.tau_scav * max(0, Fe - 0.6)  # [umol Fe m^-3]
-
-    else:
-        # Scavenging Option 2: Galbraith et al., 2010
-        # w_sink = 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
-        # D_flux = 0.02 * D * pds.w_D  # ??? [mmol N m^-2 day^-1] (0.02 * mmol N m^-3 * m day^-1)
-
-        # Calculate dD/dz (detritus flux)
-        zi_1 = (np.abs(df.z - z)).argmin()  # Index of depth.
-        zi_0 = zi_1 + 1 if zi_1 == 0 else zi_1 - 1  # Index of depth above/below.
-        dx = ds.isel(loc_prev, drop=True)  # Dataset of of particle positions.
-        # Detritus field at particle position (at depth above/below).
-        D_z0 = df.det.isel(z=zi_0, drop=True).sel(time=dx.time, lat=dx.lat, lon=dx.lon,
-                                                  method='nearest', drop=True)
-        dz = df.z.isel(z=zi_1, drop=True) - df.z.isel(z=zi_0, drop=True)  # Depth difference.
-        dD_dz = 0.02 * np.fabs((D - D_z0) / dz)
-
-        # Convert detritus (D) units: 0.02 * [mmol N m^-3] x ??? -> 0.02 * [mmol N m^-2 day^-1] = [umol Fe m^-3]
-        # ([umol Fe m^-3] * [(nM Fe m)^-0.58 day^-1] * [((umol Fe m^-3)/(m day^-1))^0.58]) + ([(nM Fe m)^-0.5 day^-1] * [(umol Fe m^-3)^1.5])
-        # = ([umol Fe m^-3] * [(umol Fe m^-2)^-0.58 day^-1] * [(umol Fe m^-2)^0.58]) + ([(umol Fe m^-3)^-0.5 day^-1] * [(umol Fe m^-3)^1.5])
-        # = [umol Fe m^-3 day^-1] + [umol Fe m^-3 day^-1] - (Note that (nM Fe)^-0.5 * (nM Fe)^1.5 = (nM Fe)^1)
-        ds['fe_scav'][loc] = (Fe * pds.k_org * (dD_dz)**0.58) + (pds.k_inorg * Fe**pds.c)
-
-    # --------------------------------------------------------------------------------
-    # Iron Phytoplankton Uptake.
-    # Maximum phytoplankton growth [J_max] (assumes no light or nutrient limitations).
-    J_max = (pds.a * pds.b)**(pds.c * T)  # [day^-1] ((day^-1 * const)^const)
-
-    # Nitrate limit on phytoplankton growth rate.
-    J_limit_N = N / (N + pds.k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
-
-    # Iron limit on phytoplankton growth rate.
-    k_fe = (0.02 * pds.k_fe)  # !!! Convert k_fe using 1N: 0.02Fe [mmol N m^-3 -> umol Fe m^-3]
-    J_limit_Fe = Fe / (Fe + k_fe)  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3)
-
-    # Light limit on phytoplankton growth rate.
-    Frac_z = math.exp(-z * Kd)  # [no units] (m * m^-1)
-    light = pds.PAR * pds.I_0 * Frac_z  # [W/m^2] (const * W m^-2 * const)
-    # day^-1 x (exp^(day^-1 * Wm^2x Wm^-2) / day^-1) -> [day^-1 * exp(const)]
-    J_I = J_max * (1 - math.exp(-(pds.alpha * light) / J_max))  # [day^-1]
-    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
-
-    # Phytoplankton growth rate (iron consumption associated with growth in amount of phytoplankton).
-    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
-    ds['fe_phy'][loc] = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
-    # --------------------------------------------------------------------------------
-    # Iron Remineralisation.
-    bcT = pds.b**(pds.c * T)  # [no units]
-    gamma_2 = 0.01 * bcT  # [day^-1]
-    mu_P = 0.01 * bcT  # [day^-1]
-    if z < 180:
-        mu_D = 0.02 * bcT  # [day^-1]
-    else:
-        mu_D = 0.01 * bcT  # [day^-1]
-    mu_P = 0.01 * bcT  # [day^-1]
-    gamma_2 = 0.01 * bcT  # [day^-1]
-
-    ds['fe_reg'][loc] = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)  # [umol Fe m^-3 day^-1] (0.02 * mmol N m^-3 * day^-1)
-    # G = ((pds.g * pds.epsilon * P**2) / (pds.g + (pds.epsilon * P**2))) * Z
-    # dD_dz = D * pds.w_D # ??? [mmol N m^-3 * m day^-1 = mmol N m^-2 day^-1]
-    # # dD_dt = ((1 - pds.gamma_1) * G) + (pds.mu_Z * Z**2) - (mu_D * D) - (pds.w_D * dD_dz)
-    # dD_dt = ((1 - pds.gamma_1) * G) + (pds.mu_Z * Z**2) - (mu_D * D) - (pds.w_D * D)
-    # dP_dt = (J * P) - G - (mu_P * P)
-    # dZ_dt = (pds.gamma_1 * G) - (gamma_2 * Z) - (pds.mu_Z * Z**2)
-    # ds['fe_reg'][loc] = 0.02 * (mu_D * dD_dt + gamma_2 *dZ_dt + mu_P * dP_dt)  # [umol Fe m^-3 day^-1] (0.02 * mmol N m^-3 * day^-1)
-
-    # --------------------------------------------------------------------------------
-    # Iron (multiply by 2 because iron is updated every 2nd day).
-    # n days * [umol Fe m^-3 day^-1]
-    ds['fe'][loc] = ds.fe[loc_prev] + dt * (ds.fe_reg[loc] - ds.fe_phy[loc] - ds.fe_scav[loc])
-    return ds
-
-
-def SourceIron(pds, ds, p, ds_fe):
+def SourceIron(pds, ds, p, ds_fe, method='seperate'):
     """Assign Source Iron.
 
     Args:
@@ -159,6 +80,7 @@ def SourceIron(pds, ds, p, ds_fe):
         ds (xarray.Dataset): Particle dataset.
         p (int): Particle index.
         ds_fe (xarray.Dataset): Dataset of iron depth profiles.
+        method (str, optional): ['combined', 'seperate', 'ML', 'ofam']
 
     Returns:
         ds (xarray.Dataset): Particle dataset.
@@ -179,14 +101,18 @@ def SourceIron(pds, ds, p, ds_fe):
     zone = int(dx.zone.item())
 
     # Option 1: Select region data variable based on source ID.
-    if 'llwbcs' in ds_fe:
+    if method == 'combined':
         if zone in [1, 2, 3, 4, 6]:
             var = 'llwbcs'
         elif zone in [0, 5] or zone >= 7:
             var = 'interior'
         da_fe = ds_fe[var]
 
-    elif 'Fe' in ds_fe:
+    elif method == 'seperate':
+        var = ['interior', 'ngcu', 'nicu', 'mc', 'mc', 'interior', 'nicu', 'interior', 'interior'][zone]
+        da_fe = ds_fe[var]
+
+    elif method == 'ofam':
         # Use OFAM3 iron.
         var = 'Fe'
         da_fe = ds_fe[var].sel(time=dx.time, drop=True)
@@ -198,120 +124,453 @@ def SourceIron(pds, ds, p, ds_fe):
 
     # Assign Source Iron.
     ds['fe'][dict(traj=p, obs=t)] = fe
-    ds['fe_src'][dict(traj=p)] = fe  # For reference.
+    # ds['fe_src'][dict(traj=p)] = fe  # For reference.
     return ds
 
 
-def update_particles_iron(pds, ds, ds_fe, df):
-    """ Run iron model for each particle."""
-    num_particles = ds.traj.size
-    for p in range(num_particles):
+def update_iron(pds, ds, p, t):
+    """Update iron at a particle location.
+
+    Args:
+        pds (FelxDataSet): FelxDataSet instance (contains constants and dataset functions).
+        ds (xarray.Dataset): Particle dataset (e.g., lat(traj, obs), zoo(traj, obs), fe_scav(traj, obs), etc).
+        p (int): Particle index.
+        t (int): Time index.
+
+    Returns:
+        ds (xarray.Dataset): Particle dataset.
+
+    Notes:
+        * Redfield ratio:
+            * 1P: 16N: 106C: 16*2e-5 Fe (Oke et al., 2012, Christian et al., 2002)
+            * ---> 1N:(2e-5 *1e3) 0.02 Fe (multiply Fe by 1e3 because mmol N m^-3 & umol Fe m^-3)
+             -> [mmol N m^-3 * 1e-3]=[1N: 10,000 Fe]  (1 uM N = 1 nM Fe)
+        * Variables and units:
+            * Temperature (T) [degrees C]
+            * Detritus (D) [mmol N m^-3]
+            * Zooplankton (Z) [mmol N m^-3]
+            * Phytoplankton (P) [mmol N m^-3]
+            * Nitrate/NO3 (N) [mmol N m^-3]
+            * Diffuse Attenuation Coefficient at 490 nm (Kd) [m^-1]
+            * Iron (fe) [umol Fe m^-3]
+            * Remineralised iron (fge_reg) [umol Fe m^-3 day^-1] (add to fe)
+            * Iron uptake for phytoplankton growth (fe_scav) [umol Fe m^-3 day^-1] (minus from fe)
+            * Scavenged iron [fe_scav] [umol Fe m^-3 day^-1] (minus from fe)
+    """
+    dt = 2  # Timestep [days]
+    loc_new = dict(traj=p, obs=t)  # Particle location indexes for subseting ds
+    loc = dict(traj=p, obs=t - 1)
+
+    # Variables from OFAM3 subset at previous particle location.
+    Fe, T, D, Z, P, N, Kd, z = [ds[v].isel(loc, drop=True)
+                                for v in ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z']]
+
+    # --------------------------------------------------------------------------------
+    # Iron Phytoplankton Uptake.
+    # Maximum phytoplankton growth [J_max] (assumes no light or nutrient limitations).
+    J_max = pds.a * pds.b**(pds.c * T)  # [day^-1] ((day^-1 * const)^const)
+
+    # Nitrate limit on phytoplankton growth rate.
+    J_limit_N = N / (N + pds.k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
+
+    # Iron limit on phytoplankton growth rate.
+    # Convert k_fe using 1N: 0.02Fe [mmol N m^-3 -> umol Fe m^-3]
+    J_limit_Fe = Fe / (Fe + (0.02 * pds.k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3)
+
+    # Light limit on phytoplankton growth rate.
+    Frac_z = math.exp(-z * Kd)  # [no units] (m * m^-1)
+
+    light = pds.PAR * pds.I_0 * Frac_z  # [W/m^2] (const * W m^-2 * const)
+    # day^-1 x (exp^(day^-1 * Wm^2x Wm^-2) / day^-1) -> [day^-1 * exp(const)]
+    J_I = J_max * (1 - math.exp(-(pds.alpha * light) / J_max))  # [day^-1]
+    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
+
+    # Phytoplankton growth rate (iron consumption associated with growth in amount of phytoplankton).
+    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
+    ds['fe_phy'][loc] = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
+
+    # --------------------------------------------------------------------------------
+    # Iron Remineralisation.
+    bcT = pds.b**(pds.c * T)  # [no units]
+    mu_P = pds.mu_P * bcT  # [day^-1]
+    gamma_2 = pds.gamma_2 * bcT  # [day^-1]
+    if z < 180:
+        mu_D = pds.mu_D * bcT  # [day^-1]
+    else:
+        mu_D = pds.mu_D_180 * bcT  # [day^-1]
+
+    # [umol Fe m^-3 day^-1] (0.02 * mmol N m^-3 * day^-1)
+    ds['fe_reg'][loc] = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)
+
+    # --------------------------------------------------------------------------------
+    # Iron Scavenging.
+    if pds.exp.scav_eq == 'OFAM':
+        # Scavenging Option 1: Oke et al., 2012 (Qin thesis pg. 144)
+        ds['fe_scav'][loc] = pds.tau_scav * max(0, Fe - 0.6)  # [umol Fe m^-3]
+
+    elif pds.exp.scav_eq == 'Galibraith':
+        # Scavenging Option 2: Galbraith et al., 2010
+        # Convert detritus (D) units: -> 0.02 * [mmol N m^-2 day^-1] = [umol Fe m^-3]
+        # =([umol Fe m^-3] * [(umol Fe m^-3)^-0.58 day^-1] * [((umol Fe m^-3))^0.58])
+        # + ([(nM Fe m)^-0.5 day^-1] * [(umol Fe m^-3)^1.5])
+        # = [umol Fe m^-3 day^-1] + [umol Fe m^-3 day^-1] - (Note that (nM Fe)^-0.5 * (nM Fe)^1.5 = (nM Fe)^1)
+        ds['fe_scav'][loc] = (Fe * pds.k_org * (0.02 * D)**0.58) + (pds.k_inorg * Fe**pds.c_scav)
+
+    # --------------------------------------------------------------------------------
+    # Iron (multiply by 2 because iron is updated every 2nd day). n days * [umol Fe m^-3 day^-1]
+    ds['fe'][loc_new] = ds.fe[loc] + dt * (ds.fe_reg[loc] - ds.fe_phy[loc] - ds.fe_scav[loc])
+    return ds
+
+
+@numba.njit
+def update_iron_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, k_org, k_inorg, c_scav, mu_D,
+                    mu_D_180, gamma_2, mu_P, a, b, c, k_N, k_fe, tau):
+    dt = 2  # Timestep [days]
+    bcT = b**(c * T)  # [no units]
+    mu_P = mu_P * bcT  # [day^-1]
+    gamma_2 = gamma_2 * bcT  # [day^-1]
+    if z < 180:
+        mu_D = mu_D * bcT  # [day^-1]
+    else:
+        mu_D = mu_D_180 * bcT  # [day^-1]
+
+    # Nitrate limit on phytoplankton growth rate
+    J_limit_N = N / (N + k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
+
+    # Iron limit on phytoplankton growth rate
+    J_limit_Fe = fe / (fe + (0.02 * k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3))
+
+    # Light limit on phytoplankton growth rate
+    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
+
+    # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
+    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
+
+    # Iron Phytoplankton Uptake
+    fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
+
+    # Iron Remineralisation
+    fe_reg = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)  # [umol Fe m^-3 day^-1]
+
+    # Iron Scavenging
+    fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)  # [umol Fe m^-3 day^-1]
+    # fe_scav = tau * max(0, fe - 0.6)  # [umol Fe m^-3  day^-1]
+
+    # Iron
+    fe = fe + dt * (fe_reg - fe_phy - fe_scav)
+    return fe, fe_scav, fe_reg, fe_phy
+
+
+@numba.njit
+def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_org, k_inorg, c_scav, mu_D,
+                         mu_D_180, gamma_2, mu_P, a, b, c, k_N, k_fe, tau, g, epsilon,
+                         gamma_1, mu_Z, w_D):
+    dt = 2  # Timestep [days]
+    bcT = b**(c * T)  # [no units]
+    mu_P = mu_P * bcT  # [day^-1]
+    gamma_2 = gamma_2 * bcT  # [day^-1]
+    if z < 180:
+        mu_D = mu_D * bcT  # [day^-1]
+    else:
+        mu_D = mu_D_180 * bcT  # [day^-1]
+
+    # Nitrate limit on phytoplankton growth rate
+    J_limit_N = N / (N + k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
+
+    # Iron limit on phytoplankton growth rate
+    J_limit_Fe = fe / (fe + (0.02 * k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3))
+
+    # Light limit on phytoplankton growth rate
+    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
+
+    # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
+    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
+
+    # Update NPZD.
+    G = ((g * epsilon * P**2) / (g + (epsilon * P**2))) * Z
+    dP_dt = (J * P) - G - (mu_P * P)
+    dZ_dt = (gamma_1 * G) - (gamma_2 * Z) - (mu_Z * Z**2)
+    dD_dt = ((1 - gamma_1) * G) + (mu_Z * Z**2) - (mu_D * D) - (w_D * dD_dz)
+    dN_dt = (mu_D * D) - (gamma_2 * Z) + (mu_P * P) - (J * P)
+
+    P = P + dt * dP_dt
+    Z = Z + dt * dZ_dt
+    D = D + dt * dD_dt
+    N = N + dt * dN_dt
+
+    # Iron Phytoplankton Uptake
+    fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
+
+    # Iron Remineralisation
+    fe_reg = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)  # [umol Fe m^-3 day^-1]
+
+    # Iron Scavenging
+    fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)  # [umol Fe m^-3 day^-1]
+    # fe_scav = tau * max(0, fe - 0.6)  # [umol Fe m^-3  day^-1]
+
+    # Iron
+    fe = fe + dt * (fe_reg - fe_phy - fe_scav)
+    return fe, fe_scav, fe_reg, fe_phy
+
+
+@timeit(my_logger=logger)
+def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=False):
+    """Run iron model for each particle.
+
+    Args:
+        pds (FelxDataSet): class instance (contains constants and dataset functions).
+        ds (xarray.Dataset): Particle dataset (e.g., lat(traj, obs), zoo(traj, obs), fe_scav(traj, obs), etc).
+        ds_fe (xarray.Dataset): Source dFe depth profiles dataset.
+
+    Returns:
+        ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
+    """
+    n_particles = ds.traj.size
+
+    if MPI is not None:
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+
+        # Distribute particles among processes
+        particle_subset = pds.particle_subsets(ds, size)[rank]
+        particles = range(particle_subset[0], particle_subset[1] + 1)  # !!! Check range
+    else:
+        rank = 0
+        particles = range(n_particles)
+
+    # Constants.
+    if params is not None:
+        pds.update_params(dict([(k, v) for k, v in zip(param_names, params)]))
+
+    field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z', 'J_max', 'J_I']
+    constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
+                      'a', 'b', 'c', 'k_N', 'k_fe', 'tau']  # 'PAR', 'I_0', 'alpha'
+    if NPZD:
+        field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z',
+                       'J_max', 'J_I', 'dD_dz']
+        constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
+                          'a', 'b', 'c', 'k_N', 'k_fe', 'tau', 'g', 'epsilon', 'gamma_1',
+                          'mu_Z', 'w_D']  # 'PAR', 'I_0', 'alpha'
+        ds = add_particles_dD_dz(ds, pds.exp)
+    constants = [pds.params[i] for i in constant_names]
+
+    # Pre calculate data_variables that require function calls.
+    ds['J_max'] = pds.a * (pds.b**(pds.c * ds.temp))
+    light = pds.PAR * pds.I_0 * np.exp(-ds.z * ds.kd)
+    ds['J_I'] = ds.J_max * (1 - np.exp((-pds.alpha * light) / ds.J_max))
+
+    # Run simulation for each particle.
+    for p in particles:
+        # Assign initial iron.
+        ds = SourceIron(pds, ds, p, ds_fe)
+
+        # Number of non-NaN observations.
+        timesteps = range(1, ds.z.isel(traj=p).dropna('obs', 'all').obs.size)
+
+        for t in timesteps:
+            # Data variables at particle location.
+            fields = [ds[i].isel(traj=p, obs=t - 1, drop=True).item() for i in field_names]
+            fe, fe_scav, fe_reg, fe_phy = update_iron_jit(p, t, *tuple([*fields, *constants]))
+            # fe, fe_scav, fe_reg, fe_phy, P, Z = update_iron_NPZD_jit(p, t, *args)
+
+            ds['fe'][dict(traj=p, obs=t)] = fe
+            ds['fe_scav'][dict(traj=p, obs=t - 1)] = fe_scav
+            ds['fe_reg'][dict(traj=p, obs=t - 1)] = fe_reg
+            ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
+
+    #     # # Synchronize all processes
+    #     # comm.Barrier()
+
+    # # Write output to netCDF file
+    # if rank == 0 and not cfg.test:
+    #     encoding = {var: {'zlib': True} for var in ds.data_vars}
+    #     with MPI.File.Open(comm, pds.exp.file_felx, amode=MPI.MODE_CREATE | MPI.MODE_WRONLY) as fh:
+    #         ds.to_netcdf(cfg.paths.data / (pds.exp.file_base + '_test.nc'), mode='w',
+    #                      format='NETCDF4', engine='h5netcdf', encoding=encoding, group=fh)
+
+    return ds
+
+
+@timeit(my_logger=logger)
+def update_particles(pds, ds, ds_fe, param_names=None, params=None):
+    """Run iron model for each particle.
+
+    Args:
+        pds (FelxDataSet): FelxDataSet instance (contains constants and dataset functions).
+        ds (xarray.Dataset): Particle dataset (e.g., lat(traj, obs), zoo(traj, obs), fe_scav(traj, obs), etc).
+        ds_fe (xarray.Dataset): Source dFe depth profiles dataset.
+        params (list, optional): List of non-default params to use (see optmisise).
+
+    Returns:
+        ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
+    """
+    if params is not None:
+        pds.update_params(dict([(k, v) for k, v in zip(param_names, params)]))
+    particles = range(ds.traj.size)
+    for p in particles:
         ds = SourceIron(pds, ds, p, ds_fe)  # Assign initial iron.
 
-        num_obs = ds.isel(traj=p).dropna('obs', 'all').obs.size
-        for t in range(num_obs):
-            ds = UpdateIron(pds, ds, p, t, df)  # Update Iron.
+        timesteps = range(1, ds.isel(traj=p).dropna('obs', 'all').obs.size)
+        for t in timesteps:
+            ds = update_iron(pds, ds, p, t)  # Update Iron.
     return ds
 
 
-def run_iron_model():
-    exp = ExpData(scenario=0, lon=250, test=True, test_month_bnds=12)
+def run_iron_model(NPZD=0):
+    """Set up and run Lagrangian iron model.
 
-    # Source Iron fields.
-    # Observations.
+    Args:
+        exp (ExpData instance): Experiment information.
+
+    Returns:
+        ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
+    """
+    ndays = 3
+    scav_eq = ['Galibraith', 'OFAM'][0]
+    exp = ExpData(scenario=0, lon=220, test=True, scav_eq=scav_eq)
+
+    # Source Iron fields (observations or OFAM3 Fe).
     dfs = get_merged_FeObsDataset()
-    ds_fe_obs = dfs.dfe.ds_avg.mean('t')
-    # 1nM = 1e-3 mmol/m3  (1nM = 1e-9M = 1e-6 mol -- 1M = 1e3mol)
+    ds_fe_obs = dfs.dfe.ds_avg
+    ds_fe = ds_fe_obs
 
-    # OFAM3.
-    fieldset = BGCFields(exp)
-    ds_fe_ofam = fieldset.ofam_dataset(variables=['det', 'phy', 'zoo', 'fe'], decode_times=True, chunks='auto')
-    ds_fe_ofam = ds_fe_ofam.rename({'depth': 'z', 'fe': 'Fe'})  # For SourceIron compatability.
-
-    ds_fe = [ds_fe_obs, ds_fe_ofam][0]  # Pick source iron dataset.
-
-    # particle dataset
+    # Particle dataset
     pds = FelxDataSet(exp)
-    pds.add_iron_model_constants()
-
+    pds.add_iron_model_params()
     ds = pds.init_felx_bgc_dataset()
 
-    # Cut off particles in early years to load less ofam fields.
-    trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
-    ds = ds.sel(traj=trajs)
-    ntraj = 50  # num particles to run.
-    ds = ds.isel(traj=slice(ntraj)).dropna('obs', 'all')
+    if cfg.test:
+        ds = ds.isel(traj=slice(750 * ndays))
+        target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays)*6 - 1, 'D')
+        traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
+        ds = ds.sel(traj=traj)
 
+        # # Cut off particles in early years to load less ofam fields.
+        # trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
+        # ds = ds.sel(traj=trajs)
+        # ds = ds.isel(traj=slice(200)).dropna('obs', 'all')
+
+    param_dict = ['{}={}'.format(k, pds.params[k])
+                  for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'I_0', 'a', 'b']]
+    logger.info('{}({} particles): {}'.format(exp.file_base, ds.traj.size, param_dict))
+    ds = update_particles_MPI(pds, ds, ds_fe, NPZD=False)
+
+    # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
+    test_plot_EUC_iron_depth_profile(pds, ds, dfs)
+    return ds
+
+
+def add_particles_dD_dz(ds, exp):
+    """Add OFAM det at depth above."""
+    df = ofam_clim().rename({'depth': 'z', 'det': 'dD_dz'}).mean('time')
+
+    # Calculate dD/dz (detritus flux)
+    zi_1 = (np.abs(df.z - ds.z.fillna(1))).argmin('z')  # Index of depth.
+    # zi_0 = zi_1 + 1 if zi_1 == 0 else zi_1 - 1  # Index of depth above/below
+    zi_0 = xr.where(zi_1 == 0, zi_1 + 1, zi_1 - 1)  # Index of depth above/below
+    D_z0 = df.dD_dz.sel(lat=0, lon=exp.lon, method='nearest').isel(z=zi_0, drop=True).drop(['lat', 'lon', 'z'])
+    # D_z0 = D_z0.sel(lat=ds.lat, lon=ds.lon, method='nearest', drop=True).drop(['lat', 'lon', 'z'])
+    dz = df.z.isel(z=zi_1, drop=True) - df.z.isel(z=zi_0, drop=True)  # Depth difference.
+    ds['dD_dz'] = np.fabs((ds.det - D_z0) / dz).load()
+    return ds
+
+
+def add_particles_ofam_iron(ds, pds):
+    """Add OFAM3 iron at particle locations."""
+    fieldset = BGCFields(pds.exp)
+    ds_fe_ofam = fieldset.ofam_dataset(variables=['det', 'phy', 'zoo', 'fe'], decode_times=True, chunks='auto')
+    ds_fe_ofam = ds_fe_ofam.rename({'depth': 'z', 'fe': 'Fe'})  # For SourceIron compatability.
     # Sample OFAM3 iron along trajectories (for testing).
     dim_map = fieldset.dim_map_ofam.copy()
     dim_map['z'] = dim_map.pop('depth')
     ds['Fe'] = pds.empty_DataArray(ds)
     fe = update_field_AAA(ds, ds_fe_ofam, 'Fe', dim_map=dim_map)
     ds['Fe'] = (['traj', 'obs'], fe)
-
-    df = ds_fe_ofam
-    ds = update_particles_iron(pds, ds, ds_fe, df)
-
-    # paramters to optmise
-    test_plot_iron_paths(ds, ntraj=10)
-    test_plot_iron_final_obs(exp, ds, ds_fe_obs)
-
-    # cc = np.arange(1.5, 2, 0.1)[::-1]
-    # rmse = np.zeros(cc.size)
-    # for i, c in enumerate(cc):
-    #     for k_org in np.arange(0.01e-4, 8e-4, 0.0001):
-    #         for k_inorg in np.arange(0.01e-4, 8e-4, 0.0001):
-    #             pds['k_org'] = k_org  # (Qin: 1.0521e-4, Galbraith: 4e-4)
-    #             pds['k_inorg'] = k_inorg  # (Qin: 6.10e-4, Galbraith: 6e-4)
-    #             pds['c'] = c
-    #             ds = update_particles_iron(pds, ds, ds_fe, df)
-    #             rms = np.mean(np.sqrt(((ds.Fe-ds.fe)**2).mean('obs')))
-    #             print('k_org={}, k_inorg={}, c={}, rms={}'.format(k_org, k_inorg, c, rms.item()))
-    #             # test_plot_iron_output(ds, ntraj=5)
-    #             rmse[i] = rms
+    return ds
 
 
-def test_plot_iron_paths(ds, ntraj=5):
-    # Plot output (for testing).
-    fig, ax = plt.subplots(3, 2, figsize=(16, 16), squeeze=True)
-    ax = ax.flatten()
+@timeit(my_logger=logger)
+def optimise_iron_model_params():
+    """Optimise Lagrangian iron model paramaters.
 
-    for j, p in enumerate(range(ntraj)):
-        c = ['k', 'b', 'r', 'g', 'm', 'y', 'darkorange', 'hotpink', 'lime', 'navy'][j]
-        dx = ds.isel(traj=p).dropna('obs', 'all')
-        ax[0].plot(dx.lon, dx.lat, c=c, label=p)  # map
-        ax[1].plot(dx.obs, dx.z, c=c, label=p)  # Depth
-        ax[2].plot(dx.obs, dx.fe, c=c, label=p)  # lagrangian iron
-        ax[2].plot(dx.obs, dx.Fe, c=c, ls='--', label=p)  # ofam iron
+    Args:
+        exp (ExpData instance): Experiment information.
+        ntraj (int): Number of particles.
 
-        for i, var in zip([3, 4, 5], ['fe_reg', 'fe_scav', 'fe_phy']):
-            ax[i].set_title(var)
-            ax[i].plot(dx.obs, dx[var], c=c, label=p)
+    Returns:
+        params_optimized (list): Optmised paramters.
 
-    ax[0].set_title('Particle lat & lon')
-    ax[1].set_title('Particle depth')
-    ax[2].set_title('lagrangian iron (solid) & OFAM3 iron (dashed)')
+    Tests:
+    hist_250_v0_00(31 particles):
+        Optmimal {'c_scav': 2.0, 'k_org': 1e-08, 'k_inorg': 8.2e-06, 'mu_D': 0.01, 'mu_D_180': 0.02})
+        optimise_iron_model_params: 01h:01m:26.78s (total=3686.78 seconds).
+    hist_250_v0_00(31 particles):
+        [k_org mistake]
+        Optmimal {'c_scav': 2.0, 'k_org': 1e-08, 'k_inorg': 8.2e-06, 'mu_D': 0.01, 'mu_D_180': 0.02})
+        optimise_iron_model_params: 00h:36m:03.90s (total=2163.90 seconds).
+    hist_250_v0_00(61 particles):
+        Optmimal {'k_org': 5e-07, 'k_inorg': 8.2e-06, 'mu_D_180': 0.02})
+        optimise_iron_model_params: 00h:45m:07.72s (total=2707.72 seconds).
+    """
+    def cost_function(F_obs, pds, ds, dfs, param_names, params):
+        F_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, param_names, params)  # Particle dataset (all vars & obs).
+        F_pred = F_pred.fe.ffill('obs').isel(obs=-1, drop=True)  # Final particle Fe.
 
-    for i in range(1, 5):
-        ax[i].set_ylabel('[mmol Fe m^-3]')
-        ax[i].set_xlabel('obs')
-    ax[1].set_ylabel('Depth')
-    ax[1].invert_yaxis()
-    ax[0].set_xlabel('lon')
-    ax[0].set_ylabel('lat')
-    ax[0].set_ylabel('Fe [nM Fe]')
-    ax[1].legend()
+        # cost = np.sqrt(np.sum((F_obs - F_pred)**2) / F_obs.size)  # RSMD
+        cost = np.fabs((F_obs - F_pred)).mean()  # Least absolute deviations
 
-def test_plot_iron_final_obs(exp, ds, ds_fe_obs):
-    # inds_f = ds.time.idxmax('obs')
-    dx = ds.ffill('obs').isel(obs=-1)
+        # Log & plot.
+        logger.info('{}({} particles): cost={} {}'
+                    .format(exp.file_base, ds.traj.size, cost,
+                            ['{}={}'.format(p, v) for p, v in zip(param_names, params)]))
+        test_plot_EUC_iron_depth_profile(pds, ds, dfs)
+        return cost
 
-    # Plot output (for testing).
-    fig, ax = plt.subplots(1, 1, figsize=(10, 7), squeeze=True)
-    ax.scatter(dx.fe, dx.z, c='k', label='obs')
-    ax.scatter(ds_fe_obs.EUC.sel(x=exp.lon, method='nearest'), ds_fe_obs.z, c='r')
+    # Source iron profile.
+    dfs = get_merged_FeObsDataset()
 
-    ax.set_title('{} EUC dFe at {}'.format(exp.scenario_name, exp.lon_str))
-    ax.set_ylabel('Depth [m]')
-    ax.set_xlabel('dFe [nM]')
-    ax.set_ylim(355, 20)
+    # Particle dataset.
+    exp = ExpData(scenario=0, lon=220, test=True, test_month_bnds=12, scav_eq='Galibraith')
+    pds = FelxDataSet(exp)
+    pds.add_iron_model_params()
+    dss = pds.init_felx_bgc_dataset()
+
+    # Subset number of particles.
+    ndays = 1
+    ds = dss.isel(traj=slice(742 * ndays))
+    target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays) * 6 - 1, 'D')
+    traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
+    ds = dss.sel(traj=traj)#.thin(traj=4)
+
+    # Fe observations at particle depths.
+    z = ds.z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
+    F_obs = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
+
+    # Paramaters to optimise (e.g., a, b, c = params).
+    # Copy inside update_iron: ', '.join([i for i in params])
+    param_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D']
+    params_init = [pds.params[i] for i in param_names]  # params = params_init
+
+    param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5], tau=None,
+                      mu_D=[0.005, 0.04], mu_D_180=[0.005, 0.03], mu_P=[0.005, 0.02],
+                      gamma_2=[0.005, 0.02], I_0=[280, 350], alpha=None, PAR=None,
+                      a=None, b=[0.8, 1.2], c=[0.5, 1.5], k_fe=[0.5, 1.5], k_N=[0.5, 1.5],
+                      gamma_1=None, g=None, epsilon=None, mu_Z=None)
+    bounds = [param_bnds[i] for i in param_names]
+
+    res = minimize(lambda params: cost_function(F_obs, pds, ds, dfs, param_names, params),
+                   params_init, method='Powell', bounds=bounds, options={'disp': True})
+    params_optimized = res.x
+
+    # Update pds params dict with optimised values.
+    param_dict = dict([(k, v) for k, v in zip(param_names, params_optimized)])
+    pds.update_params(param_dict)
+    logger.info('{}({} particles): Init {}'.format(exp.file_base, ds.traj.size, params_init))
+    logger.info('{}({} particles): Optimimal {} (Powell)'.format(exp.file_base, ds.traj.size, param_dict))
+    # Calculate the predicted iron concentration using the optimized parameters.
+    ds_opt = update_particles_MPI(pds, ds, dfs, param_names, params_optimized)
+
+    # Plot the observed and predicted iron concentrations.
+    test_plot_EUC_iron_depth_profile(pds, ds_opt, dfs)
+    return ds_opt, params_optimized
