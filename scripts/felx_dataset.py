@@ -309,17 +309,17 @@ class FelxDataSet(object):
         tmp_files = [tmp_dir / '{}_{:03d}{}'.format(var, i, suffix) for i in range(self.n_subsets)]
         return tmp_files
 
-    def bgc_tmp_traj_subsets(self, ds):
+    def particle_subsets(self, ds, size):
         """Particle subsets for BGC tmp files."""
         # Divide particles into subsets with roughly the same number of total obs per subset.
         # Count number of obs per particle & group into N subsets.
         n_obs = ds.z.where(np.isnan(ds.z), 1).sum(dim='obs')
-        n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / self.n_subsets)).astype(dtype=int)
+        n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / size)).astype(dtype=int)
         # Number of particles per subset.
-        n_traj = [n_obs_grp.where(n_obs_grp == i, drop=True).traj.size for i in range(self.n_subsets)]
+        n_traj = [n_obs_grp.where(n_obs_grp == i, drop=True).traj.size for i in range(size)]
         # Particle index [first, last+1] in each subset.
         n_traj = np.array([0, *n_traj])
-        traj_bnds = [[np.cumsum(n_traj)[i], np.cumsum(n_traj)[i+1]] for i in range(self.n_subsets)]
+        traj_bnds = [[np.cumsum(n_traj)[i], np.cumsum(n_traj)[i + 1]] for i in range(size)]
         if traj_bnds[-1][-1] != ds.traj.size:
             traj_bnds[-1][-1] = ds.traj.size
         return traj_bnds
@@ -344,72 +344,69 @@ class FelxDataSet(object):
         for var in self.bgc_variables:
             tmp_files = self.bgc_var_tmp_filenames(var)
             da = xr.open_mfdataset(tmp_files[:n_tmps])
-            # ds[var] = da[var].isel(traj=slice(ntraj))
             ds[var] = da[var].interpolate_na('obs', method='slinear', limit=10)
         return ds
 
     def init_felx_bgc_dataset(self):
         """Get finished felx BGC dataset and format."""
+        self.add_iron_model_params()
+
         file = self.exp.file_felx_bgc
         ds = xr.open_dataset(file)
-        # ds = ds.rename({v: k for k, v in self.bgc_variables_nmap.items()})
 
-        variables = ['fe_src', 'fe_scav', 'fe_reg', 'fe_phy', 'fe']
+        variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
         for var in variables:
             ds[var] = self.empty_DataArray(ds)
-        ds['fe_src'] = ds.fe_src.isel(obs=0, drop=True)
 
-        self.add_iron_model_constants()
+        # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
+        ds['kd'] = 10**ds.kd
+
+        # Apply new EUC definition (u > 0.1 m/s).2
+        traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
+        ds = ds.sel(traj=traj)
         return ds
 
-    def init_test_felx_bgc_dataset(self):
-        """Get finished felx BGC dataset and format."""
-        ds = xr.open_dataset(self.exp.file_felx_bgc_tmp, decode_times=True, decode_cf=True)
-        ds_plx = plx_particle_dataset(self.exp.file_plx)  # Bug fix (saved u instead of zone).
-        ds['zone'] = ds_plx.zone
-        ds_plx.close()
-        ds = self.test_set_bgc_dataset_vars_from_tmps(ds, n_tmps=20)
-        # ds = ds.rename({v: k for k, v in self.bgc_variables_nmap.items()})
-        ds = ds.drop(['month', 'time_orig', 'unbeached', 'distance', 'age', 'valid_mask'])
-        variables = ['fe_src', 'fe_scav', 'fe_reg', 'fe_phy', 'fe']
-        for var in variables:
-            ds[var] = self.empty_DataArray(ds)
-        ds['fe_src'] = ds.src.isel(obs=0, drop=True)
-        self.add_iron_model_constants()
-        return ds
-
-
-    def add_iron_model_constants(self):
+    def add_iron_model_params(self):
         """Add a constants to the FieldSet.
-        Redfield ratio of 1 P: 16 C: 106 C: −172 O2: 3.2 """
+        Redfield ratio of 1 P: 16 N: 106 5C: −172 O2: 3.2 """
         params = {}
         # Scavenging paramaters.
-        params['tau_scav'] = 1.24e-2  # [day^-1] (Oke: 1, other: 1.24e-2)
+        params['tau'] = 1.24e-2  # [day^-1] (Oke: 1, other: 1.24e-2)
+        params['k_org'] = 4e-4#5e-5 # Organic Iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
+        params['k_inorg'] = 6e-4#8.2e-5  # Inorganic Iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
+        params['c_scav'] = 1.5  # Scavenging rate constant.
 
         # Detritus paramaters.
         params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
         # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
+        params['mu_D'] = 0.01  # 0.02 b**cT
+        params['mu_D_180'] = 0.01  # 0.01 b**cT
 
         # Phytoplankton paramaters.
         params['I_0'] = 300  # Surface incident solar radiation [W/m^2] (not actually constant)
         params['alpha'] = 0.025  # Initial slope of P-I curve [day^-1 / (Wm^-2)]. (Qin: 0.256)
         params['PAR'] = 0.43  # !!! Photosynthetically active radiation (0.34/0.43) [no unit]
-        params['a'] = 0.6  # Growth rate at 0C [day^-1] (Qin: 0.27?)
-        params['b'] = 1.066  # Temperature sensitivity of growth [no units]
+        params['a'] = 0.6  # 0.6 Growth rate at 0C [day^-1] (Qin: 0.27?)
+        params['b'] = 1.066  # 1.066 Temperature sensitivity of growth [no units]
         params['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
         params['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [??? needs converting to mmol Fe m^-3]
         params['k_N'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
-        params['k_org'] = 1.0521e-4  # Organic Iron scavenging rate constant [(nM Fe m)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
-        params['k_inorg'] = 6.10e-4  # Inorganic Iron scavenging rate constant [nM Fe^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
+        params['mu_P'] = 0.01  # (*b^cT) Phytoplankton mortality [day^-1]
 
         # Zooplankton paramaters.
-        params['gamma_1'] = 0.852  # Assimilation efficiency [no units]
+        params['gamma_1'] = 0.85  # Assimilation efficiency [no units]
         params['g'] = 2.1  # Maximum grazing rate [day^-1]
         params['epsilon'] = 1.1  # Prey capture rate [(mmol N m^-3)^-1 day^-1]
         params['mu_Z'] = 0.06  # Quadratic mortality [(mmol N m^-3)^-1 day^-1]
+        params['gamma_2'] = 0.01  # (*b^cT) Excretion [day^-1]
 
         for name, value in params.items():
             setattr(self, name, value)
+        setattr(self, 'params', params)
+
+    def update_params(self, new_dict):
+        for key, value in new_dict.items():
+            setattr(self, key, value)
 
     def test_plot_variable(self, var='det'):
         """Line plot of variable as a function of obs for each particle."""
