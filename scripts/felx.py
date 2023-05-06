@@ -551,10 +551,10 @@ def optimise_iron_model_params():
         target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays) * 6 - 1, 'D')
         traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
         ds = dss.sel(traj=traj)#.thin(traj=4)
-        comm.send(ds)
 
     else:
-        ds = comm.recv(source=0)
+        ds = None
+    ds = comm.bcast(ds, root=0)
 
     # Fe observations at particle depths.
     z = ds.z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
