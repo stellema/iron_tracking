@@ -530,35 +530,40 @@ def optimise_iron_model_params():
                                 ['{}={}'.format(p, v) for p, v in zip(param_names, params)]))
             test_plot_EUC_iron_depth_profile(pds, F_pred, dfs)
         return cost
+
     if MPI is not None:
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
 
-    # Source iron profile.
-    dfs = get_merged_FeObsDataset()
-
     # Particle dataset.
     exp = ExpData(scenario=0, lon=220, scav_eq='Galibraith')
-    if rank == 0:
-        pds = FelxDataSet(exp)
-        pds.add_iron_model_params()
-        dss = pds.init_felx_bgc_dataset()
+    pds = FelxDataSet(exp)
+    pds.add_iron_model_params()
 
+    if rank == 0:
+        dss = pds.init_felx_bgc_dataset()
         # Subset number of particles.
         ndays = 6
         ds = dss.isel(traj=slice(742 * ndays))
         target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays) * 6 - 1, 'D')
         traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
-        ds = dss.sel(traj=traj)#.thin(traj=4)
-
+        ds = dss.sel(traj=traj)
+        ds_f = ds.ffill('obs').isel(obs=-1, drop=True)
+        traj = ds_f.where((ds_f.lat >= -0.25) & (ds_f.lat <= 0.25), drop=True).traj
+        ds = ds.sel(traj=traj)
     else:
         ds = None
+
     ds = comm.bcast(ds, root=0)
+
+    # Source iron profile.
+    dfs = get_merged_FeObsDataset()
 
     # Fe observations at particle depths.
     z = ds.z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
     F_obs = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
+
     # Paramaters to optimise (e.g., a, b, c = params).
     # Copy inside update_iron: ', '.join([i for i in params])
     param_names = ['c_scav', 'k_inorg', 'k_org']
