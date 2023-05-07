@@ -385,6 +385,14 @@ class FelxDataSet(object):
             ds_f.close()
         return ds
 
+    def felx_tmp_filenames(self, size):
+        """Get tmp filenames for felx tmp subsets."""
+        tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx.stem)
+        if not tmp_dir.is_dir():
+            os.makedirs(tmp_dir, exist_ok=True)
+        tmp_files = [tmp_dir / '{:02d}.nc'.format(i) for i in range(size)]
+        return tmp_files
+
     def add_iron_model_params(self):
         """Add a constants to the FieldSet.
         Redfield ratio of 1 P: 16 N: 106 5C: −172 O2: 3.2 """

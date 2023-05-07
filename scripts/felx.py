@@ -41,6 +41,7 @@ import math
 import matplotlib.pyplot as plt
 import numba
 import numpy as np
+import os
 from scipy.optimize import minimize
 import xarray as xr  # NOQA
 
@@ -316,7 +317,7 @@ def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_or
 
 
 @timeit(my_logger=logger)
-def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=False):
+def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=False):
     """Run iron model for each particle.
 
     Args:
@@ -327,6 +328,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
+    ds = dss.copy()
     if MPI is not None:
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
@@ -384,9 +386,15 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
 
     # Synchronize all processes
     if MPI is not None:
+
+        tmp_files = pds.felx_tmp_filenames(size)
+        save_dataset(ds, tmp_files[rank])
         comm.Barrier()
-        dss = comm.gather(ds, root=0)
-        ds = xr.concat(dss, 'traj')
+
+        ds = xr.open_mfdataset(tmp_files)
+        if rank == 0:
+            for path in tmp_files:
+                os.remove(path)
 
     # if rank == 0 and not cfg.test:
 
@@ -499,6 +507,7 @@ def optimise_iron_model_params():
         cost = np.fabs((F_obs - F_pred)).mean().item()  # Least absolute deviations
 
         if rank == 0:
+
             # Log & plot.
             logger.info('{}({} particles): cost={} {}'
                         .format(exp.file_base, ds.traj.size, cost,
@@ -517,13 +526,13 @@ def optimise_iron_model_params():
 
     if rank == 0:
         ds = pds.init_felx_optimise_dataset()
-        if cfg.test:
-            # Subset number of particles.
-            ndays = 3
-            ds = ds.isel(traj=slice(742 * ndays))
-            target = np.datetime64('{}-12-31T12'.format(exp.year_bnds[-1])) - np.timedelta64((ndays) * 6 - 1, 'D')
-            traj = ds.traj.where((ds.time.dt.year >= 2012), drop=True)
-            ds = ds.sel(traj=traj)
+
+        # Subset number of particles.
+        ndays = 24
+        ds = ds.isel(traj=slice(742 * ndays))
+        target = np.datetime64('{}-12-31T12'.format(exp.year_bnds[-1])) - np.timedelta64((ndays) * 6 - 1, 'D')
+        traj = ds.traj.where((ds.time.dt.year >= 2012), drop=True)
+        ds = ds.sel(traj=traj)
     else:
         ds = None
 
