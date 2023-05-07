@@ -51,7 +51,8 @@ from datasets import BGCFields, ofam_clim
 from felx_dataset import FelxDataSet
 from fe_obs_dataset import get_merged_FeObsDataset
 from particle_BGC_fields import update_field_AAA
-from test_iron_model_optimisation import test_plot_iron_paths, test_plot_EUC_iron_depth_profile
+from test_iron_model_optimisation import (test_plot_iron_paths, test_plot_EUC_iron_depth_profile,
+                                          add_particles_dD_dz)
 
 try:
     from mpi4py import MPI
@@ -263,8 +264,8 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, k_org, k_inorg, 
 
 
 @numba.njit
-def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_org, k_inorg, c_scav, mu_D,
-                         mu_D_180, gamma_2, mu_P, a, b, c, k_N, k_fe, tau, g, epsilon,
+def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_org, k_inorg, c_scav,
+                         mu_D, mu_D_180, gamma_2, mu_P, a, b, c, k_N, k_fe, tau, g, epsilon,
                          gamma_1, mu_Z, w_D):
     dt = 2  # Timestep [days]
     bcT = b**(c * T)  # [no units]
@@ -354,6 +355,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
                           'a', 'b', 'c', 'k_N', 'k_fe', 'tau', 'g', 'epsilon', 'gamma_1',
                           'mu_Z', 'w_D']  # 'PAR', 'I_0', 'alpha'
         ds = add_particles_dD_dz(ds, pds.exp)
+
     constants = [pds.params[i] for i in constant_names]
 
     # Pre calculate data_variables that require function calls.
@@ -380,15 +382,17 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
             ds['fe_reg'][dict(traj=p, obs=t - 1)] = fe_reg
             ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
 
-        # Synchronize all processes
+    # Synchronize all processes
+    if MPI is not None:
         comm.Barrier()
 
-    # Write output to netCDF file
-    if rank == 0 and not cfg.test:
-        encoding = {var: {'zlib': True} for var in ds.data_vars}
-        with MPI.File.Open(comm, pds.exp.file_felx, amode=MPI.MODE_CREATE | MPI.MODE_WRONLY) as fh:
-            ds.to_netcdf(cfg.paths.data / (pds.exp.file_base + '_test.nc'), mode='w',
-                          format='NETCDF4', engine='h5netcdf', encoding=encoding, group=fh)
+    # if rank == 0 and not cfg.test:
+
+    #     # Write output to netCDF file
+    #     encoding = {var: {'zlib': True} for var in ds.data_vars}
+    #     with MPI.File.Open(comm, pds.exp.file_felx, amode=MPI.MODE_CREATE | MPI.MODE_WRONLY) as fh:
+    #         ds.to_netcdf(cfg.paths.data / (pds.exp.file_base + '_test.nc'), mode='w',
+    #                      format='NETCDF4', engine='h5netcdf', encoding=encoding, group=fh)
 
     return pds, ds
 
@@ -418,7 +422,7 @@ def update_particles(pds, ds, ds_fe, param_names=None, params=None):
     return ds
 
 
-def run_iron_model(NPZD=0):
+def run_iron_model(NPZD=False):
     """Set up and run Lagrangian iron model.
 
     Args:
@@ -427,9 +431,7 @@ def run_iron_model(NPZD=0):
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
-
-
-    ndays = 3
+    ndays = 6
     scav_eq = ['Galibraith', 'OFAM'][0]
     exp = ExpData(scenario=0, lon=220, test=True, scav_eq=scav_eq)
 
@@ -461,35 +463,6 @@ def run_iron_model(NPZD=0):
 
     # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
     test_plot_EUC_iron_depth_profile(pds, ds, dfs)
-    return ds
-
-
-def add_particles_dD_dz(ds, exp):
-    """Add OFAM det at depth above."""
-    df = ofam_clim().rename({'depth': 'z', 'det': 'dD_dz'}).mean('time')
-
-    # Calculate dD/dz (detritus flux)
-    zi_1 = (np.abs(df.z - ds.z.fillna(1))).argmin('z')  # Index of depth.
-    # zi_0 = zi_1 + 1 if zi_1 == 0 else zi_1 - 1  # Index of depth above/below
-    zi_0 = xr.where(zi_1 == 0, zi_1 + 1, zi_1 - 1)  # Index of depth above/below
-    D_z0 = df.dD_dz.sel(lat=0, lon=exp.lon, method='nearest').isel(z=zi_0, drop=True).drop(['lat', 'lon', 'z'])
-    # D_z0 = D_z0.sel(lat=ds.lat, lon=ds.lon, method='nearest', drop=True).drop(['lat', 'lon', 'z'])
-    dz = df.z.isel(z=zi_1, drop=True) - df.z.isel(z=zi_0, drop=True)  # Depth difference.
-    ds['dD_dz'] = np.fabs((ds.det - D_z0) / dz).load()
-    return ds
-
-
-def add_particles_ofam_iron(ds, pds):
-    """Add OFAM3 iron at particle locations."""
-    fieldset = BGCFields(pds.exp)
-    ds_fe_ofam = fieldset.ofam_dataset(variables=['det', 'phy', 'zoo', 'fe'], decode_times=True, chunks='auto')
-    ds_fe_ofam = ds_fe_ofam.rename({'depth': 'z', 'fe': 'Fe'})  # For SourceIron compatability.
-    # Sample OFAM3 iron along trajectories (for testing).
-    dim_map = fieldset.dim_map_ofam.copy()
-    dim_map['z'] = dim_map.pop('depth')
-    ds['Fe'] = pds.empty_DataArray(ds)
-    fe = update_field_AAA(ds, ds_fe_ofam, 'Fe', dim_map=dim_map)
-    ds['Fe'] = (['traj', 'obs'], fe)
     return ds
 
 
@@ -534,7 +507,6 @@ def optimise_iron_model_params():
     if MPI is not None:
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
-        size = comm.Get_size()
 
     # Particle dataset.
     exp = ExpData(scenario=0, lon=220, scav_eq='Galibraith')
@@ -555,7 +527,8 @@ def optimise_iron_model_params():
     else:
         ds = None
 
-    ds = comm.bcast(ds, root=0)
+    if MPI is not None:
+        ds = comm.bcast(ds, root=0)
 
     # Source iron profile.
     dfs = get_merged_FeObsDataset()
