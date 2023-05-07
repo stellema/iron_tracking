@@ -47,7 +47,7 @@ import xarray as xr  # NOQA
 import cfg
 from cfg import ExpData
 from tools import mlogger, timeit
-from datasets import BGCFields, ofam_clim
+from datasets import BGCFields, ofam_clim, save_dataset
 from felx_dataset import FelxDataSet
 from fe_obs_dataset import get_merged_FeObsDataset
 from particle_BGC_fields import update_field_AAA
@@ -445,7 +445,7 @@ def run_iron_model(NPZD=False):
     # Particle dataset
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
-    ds = pds.init_felx_bgc_dataset()
+    ds = pds.init_felx_dataset()
 
     if cfg.test:
         ds = ds.isel(traj=slice(750 * ndays))
@@ -516,16 +516,14 @@ def optimise_iron_model_params():
     pds.add_iron_model_params()
 
     if rank == 0:
-        dss = pds.init_felx_bgc_dataset()
-        # Subset number of particles.
-        ndays = 6
-        ds = dss.isel(traj=slice(742 * ndays))
-        target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays) * 6 - 1, 'D')
-        traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
-        ds = dss.sel(traj=traj)
-        ds_f = ds.ffill('obs').isel(obs=-1, drop=True)
-        traj = ds_f.where((ds_f.lat >= -0.25) & (ds_f.lat <= 0.25), drop=True).traj
-        ds = ds.sel(traj=traj)
+        ds = pds.init_felx_optimise_dataset()
+        if cfg.test:
+            # Subset number of particles.
+            ndays = 3
+            ds = ds.isel(traj=slice(742 * ndays))
+            target = np.datetime64('{}-12-31T12'.format(exp.year_bnds[-1])) - np.timedelta64((ndays) * 6 - 1, 'D')
+            traj = ds.traj.where((ds.time.dt.year >= 2012), drop=True)
+            ds = ds.sel(traj=traj)
     else:
         ds = None
 
@@ -567,6 +565,7 @@ def optimise_iron_model_params():
         # # Plot the observed and predicted iron concentrations.
         # test_plot_EUC_iron_depth_profile(pds, ds_opt, dfs)
     return
+
 
 
 if __name__ == '__main__' and not cfg.test:

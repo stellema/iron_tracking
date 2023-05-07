@@ -347,7 +347,7 @@ class FelxDataSet(object):
             ds[var] = da[var].interpolate_na('obs', method='slinear', limit=10)
         return ds
 
-    def init_felx_bgc_dataset(self):
+    def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
         self.add_iron_model_params()
 
@@ -364,6 +364,25 @@ class FelxDataSet(object):
         # Apply new EUC definition (u > 0.1 m/s).2
         traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
         ds = ds.sel(traj=traj)
+        return ds
+
+    def init_felx_optimise_dataset(self):
+        """Initialise empty felx dataset subset to 1 year and close to equator."""
+        file = cfg.paths.data / 'felx/{}_tmp_optimise.nc'.format(self.exp.file_base)
+        if file.exists():
+            ds = xr.open_dataset(file)
+        else:
+            ds = self.init_felx_dataset()
+            # Subset particles to one year and close to the equator.
+
+            target = np.datetime64('{}-01-01T12'.format(self.exp.year_bnds[-1]))
+            ds_f = xr.open_dataset(self.exp.file_plx).isel(obs=0, drop=True)
+            traj = ds_f.where((ds_f.time >= target) & ((ds.u / cfg.DXDY) > 0.1) &
+                              (ds_f.lat >= -0.25) & (ds_f.lat <= 0.25), drop=True).traj
+            ds = ds.sel(traj=traj)
+
+            # save_dataset(ds, file, msg='Subset to 1 year, u > 0.1 m/s & lat +/- 0.25 degrees.')
+            ds_f.close()
         return ds
 
     def add_iron_model_params(self):
