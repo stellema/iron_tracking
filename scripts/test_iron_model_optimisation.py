@@ -413,3 +413,32 @@ def plot_scav_param_constants():
     # ax[0].plot(f, inorg, 'hotpink', label='inorg={:.1e}'.format(inorg))
     # ax[0].plot(f, scav, 'k', label='c-{}, inorg={:.1e}, org={:.1e}'.format(c_scav, k_inorg, k_org))
     return
+
+
+def add_particles_dD_dz(ds, exp):
+    """Add OFAM det at depth above."""
+    df = ofam_clim().rename({'depth': 'z', 'det': 'dD_dz'}).mean('time')
+
+    # Calculate dD/dz (detritus flux)
+    zi_1 = (np.abs(df.z - ds.z.fillna(1))).argmin('z')  # Index of depth.
+    # zi_0 = zi_1 + 1 if zi_1 == 0 else zi_1 - 1  # Index of depth above/below
+    zi_0 = xr.where(zi_1 == 0, zi_1 + 1, zi_1 - 1)  # Index of depth above/below
+    D_z0 = df.dD_dz.sel(lat=0, lon=exp.lon, method='nearest').isel(z=zi_0, drop=True).drop(['lat', 'lon', 'z'])
+    # D_z0 = D_z0.sel(lat=ds.lat, lon=ds.lon, method='nearest', drop=True).drop(['lat', 'lon', 'z'])
+    dz = df.z.isel(z=zi_1, drop=True) - df.z.isel(z=zi_0, drop=True)  # Depth difference.
+    ds['dD_dz'] = np.fabs((ds.det - D_z0) / dz).load()
+    return ds
+
+
+def add_particles_ofam_iron(ds, pds):
+    """Add OFAM3 iron at particle locations."""
+    fieldset = BGCFields(pds.exp)
+    ds_fe_ofam = fieldset.ofam_dataset(variables=['det', 'phy', 'zoo', 'fe'], decode_times=True, chunks='auto')
+    ds_fe_ofam = ds_fe_ofam.rename({'depth': 'z', 'fe': 'Fe'})  # For SourceIron compatability.
+    # Sample OFAM3 iron along trajectories (for testing).
+    dim_map = fieldset.dim_map_ofam.copy()
+    dim_map['z'] = dim_map.pop('depth')
+    ds['Fe'] = pds.empty_DataArray(ds)
+    fe = update_field_AAA(ds, ds_fe_ofam, 'Fe', dim_map=dim_map)
+    ds['Fe'] = (['traj', 'obs'], fe)
+    return ds
