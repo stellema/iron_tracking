@@ -327,8 +327,6 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
-    n_particles = ds.traj.size
-
     if MPI is not None:
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
@@ -336,10 +334,12 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
 
         # Distribute particles among processes
         particle_subset = pds.particle_subsets(ds, size)[rank]
-        particles = range(particle_subset[0], particle_subset[1] + 1)  # !!! Check range
+        ds = ds.isel(traj=slice(*particle_subset))
+        # particles = range(*particle_subset)  # !!! Check range
     else:
         rank = 0
-        particles = range(n_particles)
+    particles = range(ds.traj.size)
+    logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
 
     # Constants.
     if params is not None:
@@ -385,6 +385,8 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
     # Synchronize all processes
     if MPI is not None:
         comm.Barrier()
+        dss = comm.gather(ds, root=0)
+        ds = xr.concat(dss, 'traj')
 
     # if rank == 0 and not cfg.test:
 
