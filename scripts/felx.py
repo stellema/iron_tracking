@@ -531,7 +531,7 @@ def optimise_iron_model_params():
         ndays = 24
         ds = ds.isel(traj=slice(742 * ndays))
         target = np.datetime64('{}-12-31T12'.format(exp.year_bnds[-1])) - np.timedelta64((ndays) * 6 - 1, 'D')
-        traj = ds.traj.where((ds.time.dt.year >= 2012), drop=True)
+        traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
         ds = ds.sel(traj=traj)
     else:
         ds = None
