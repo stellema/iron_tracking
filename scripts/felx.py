@@ -404,7 +404,7 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
     #         ds.to_netcdf(cfg.paths.data / (pds.exp.file_base + '_test.nc'), mode='w',
     #                      format='NETCDF4', engine='h5netcdf', encoding=encoding, group=fh)
 
-    return pds, ds
+    return ds
 
 
 @timeit(my_logger=logger)
@@ -500,14 +500,14 @@ def optimise_iron_model_params():
         optimise_iron_model_params: 00h:45m:07.72s (total=2707.72 seconds).
     """
     def cost_function(F_obs, pds, ds, dfs, param_names, params):
-        pds, F_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, param_names, params)  # Particle dataset (all vars & obs).
+        pds.update_params(dict([(k, v) for k, v in zip(param_names, params)]))
+        F_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, param_names, params)  # Particle dataset (all vars & obs).
         F_pred_f = F_pred.fe.ffill('obs').isel(obs=-1, drop=True)  # Final particle Fe.
 
         # cost = np.sqrt(np.sum((F_obs - F_pred)**2) / F_obs.size)  # RSMD
-        cost = np.fabs((F_obs - F_pred_f)).mean()  # Least absolute deviations
+        cost = np.fabs((F_obs - F_pred_f)).mean().load().item()  # Least absolute deviations
 
         if rank == 0:
-
             # Log & plot.
             logger.info('{}({} particles): cost={} {}'
                         .format(exp.file_base, ds.traj.size, cost,

@@ -399,9 +399,9 @@ class FelxDataSet(object):
         params = {}
         # Scavenging paramaters.
         params['tau'] = 1.24e-2  # [day^-1] (Oke: 1, other: 1.24e-2)
-        params['k_org'] = 4e-4#5e-5 # Organic Iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
-        params['k_inorg'] = 6e-4#8.2e-5  # Inorganic Iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
-        params['c_scav'] = 1.5  # Scavenging rate constant.
+        params['k_org'] = 1e-4#5e-5 # Organic Iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
+        params['k_inorg'] = 6.1e-4#8.2e-5  # Inorganic Iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
+        params['c_scav'] = 2  # Scavenging rate constant.
 
         # Detritus paramaters.
         params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)

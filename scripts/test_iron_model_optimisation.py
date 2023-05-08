@@ -89,15 +89,10 @@ def test_plot_iron_paths(pds, ds, ntraj=5):
 
 def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
     """Plot particle depth vs dFe (at source and EUC) and scatter start vs final dFe."""
-
     ds_f = ds.ffill('obs').isel(obs=-1, drop=True)
-    traj = ds_f.where((ds_f.lat >= -0.25) & (ds_f.lat <= 0.25), drop=True).traj
-    dx = ds.sel(traj=traj)
-
-    ds_f = dx.ffill('obs').isel(obs=-1)
     ds_f_z_mean = (ds_f.fe * ds_f.u).groupby(ds_f.z).sum() / (ds_f.u).groupby(ds_f.z).sum()
-    ds_f_mean = ds_f.fe.weighted(ds_f.u).mean().item()
-    ds_i = dx.isel(obs=0)
+    ds_f_mean = ds_f.fe.weighted(ds_f.u).mean().load().item()
+    ds_i = ds.isel(obs=0)
 
     # Plot particle depth vs dFe (at initial/source and final/EUC).
     fig, ax = plt.subplots(1, 2, figsize=(12, 6), squeeze=True)
