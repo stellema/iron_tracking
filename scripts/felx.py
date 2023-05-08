@@ -504,7 +504,7 @@ def optimise_iron_model_params():
         F_pred_f = F_pred.fe.ffill('obs').isel(obs=-1, drop=True)  # Final particle Fe.
 
         # cost = np.sqrt(np.sum((F_obs - F_pred)**2) / F_obs.size)  # RSMD
-        cost = np.fabs((F_obs - F_pred_f)).mean().item()  # Least absolute deviations
+        cost = np.fabs((F_obs - F_pred_f)).mean()  # Least absolute deviations
 
         if rank == 0:
 
