@@ -39,7 +39,7 @@ from cfg import ExpData, paths, mon
 from datasets import ofam_clim, BGCFields
 from fe_obs_dataset import get_merged_FeObsDataset, FeObsDataset, FeObsDatasets
 from felx_dataset import FelxDataSet
-from tools import mlogger, timeit
+from tools import mlogger, timeit, unique_name
 from particle_BGC_fields import update_field_AAA
 
 logger = mlogger('fe_model_test')
@@ -89,48 +89,49 @@ def test_plot_iron_paths(pds, ds, ntraj=5):
 
 def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
     """Plot particle depth vs dFe (at source and EUC) and scatter start vs final dFe."""
-    ds_f = ds.ffill('obs').isel(obs=-1, drop=True)
+    # Particle data
+    ds_i = ds.isel(obs=0)  # at source
+    ds_f = ds.ffill('obs').isel(obs=-1, drop=True)  # at EUC
     ds_f_z_mean = (ds_f.fe * ds_f.u).groupby(ds_f.z).sum() / (ds_f.u).groupby(ds_f.z).sum()
     ds_f_mean = ds_f.fe.weighted(ds_f.u).mean().load().item()
-    ds_i = ds.isel(obs=0)
+
+    # Observations
+    df_h = dfs.Huang_iron_dataset().fe.sel(x=pds.exp.lon, method='nearest').sel(
+        y=slice(-2.6, 2.6)).mean('y')
+    df_avg = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, method='nearest')
+    df_avg_mean = df_avg.mean().item()
 
     # Plot particle depth vs dFe (at initial/source and final/EUC).
     fig, ax = plt.subplots(1, 2, figsize=(12, 6), squeeze=True)
-
-    # Observations
-    df = dfs.dfe.ds_avg.euc_avg
-    df_h = dfs.Huang_iron_dataset().fe.sel(x=pds.exp.lon, method='nearest').sel(y=slice(-2.6, 2.6)).mean('y')
-    ax[1].plot(df_h.isel(t=-1), df_h.z, c='r', label='Huang et al. (2022)')
-    avg = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, method='nearest')
-    ax[1].plot(avg, dfs.dfe.ds_avg.z, c='m', label='Obs. mean ({:.2f} nM)'.format(avg.mean().item()))
-
+    ax[0].set_title('a) {} dFe at source'.format(pds.exp.scenario_name), loc='left')
     ax[0].scatter(ds_i.fe, ds_i.z, c='k', s=7)  # dFe at source.
-    ax[1].scatter(ds_f.fe, ds_f.z, c='k', s=7, label='Model')  # dFe at EUC.
-    ax[1].plot(ds_f_z_mean, ds_f_z_mean.z, c='k', label='Model mean ({:.2f} nM)'.format(ds_f_mean))
-
-    ax[0].set_title('a) {} EUC dFe at source'.format(pds.exp.scenario_name), loc='left')
-    if pds.exp.scav_eq == 'Galibraith':
-        params = 'k_org={}, k_inorg={}, c={}'.format(pds.k_org, pds.k_inorg, pds.c_scav)
-    else:
-        params = pds.exp.scav_eq + ' scavenging'
-    ax[1].set_title('b) EUC at {} ({})'.format(pds.exp.lon_str, params), loc='left', x=-0.1)
     ax[0].invert_yaxis()
+    ax[0].set_ylabel('Depth [m]')
+
+    # Iron at the EUC (inc. obs & weighted mean depth profile)
+    ax[1].set_title('b) {} EUC dFe at {}'.format(pds.exp.scenario_name, pds.exp.lon_str), loc='left')
+    ax[1].plot(df_h.isel(t=-1), df_h.z, c='r', label='Huang et al. (2022)')
+    ax[1].plot(df_avg, df_avg.z, c='m', label='Obs. mean ({:.2f} nM)'.format(df_avg_mean))
+    ax[1].plot(ds_f_z_mean, ds_f_z_mean.z, c='k', label='Model mean ({:.2f} nM)'.format(ds_f_mean))
+    ax[1].scatter(ds_f.fe, ds_f.z, c='k', s=7, label='Model')  # dFe at EUC.
+
     ax[1].axvline(0.6, c='darkgrey', lw=1)
-    ax[1].axhline(80, c='darkgrey', lw=1)
-    ax[1].axhline(180, c='darkgrey', lw=1)
-    # ax[1].axvline(0,  c='darkgrey', lw=1)
     ax[1].set_ylim(355, 20)
     ax[1].set_xlim(min(0.1, ds_f.fe.min() - 0.1), max(1.2, ds_f.fe.max() + 0.1))
-    ax[1].legend(ncol=1, loc='upper left', bbox_to_anchor=(1, 1))
-    ax[0].set_ylabel('Depth [m]')
     ax[1].set_xmargin(0.05)
-
+    lgd = ax[1].legend(ncol=1, loc='upper left', bbox_to_anchor=(1, 1))
     for i in range(2):
         ax[i].set_xlabel('dFe [nM]')
+
+    textstr = ', '.join(['{}={}'.format(i, pds.params[i])
+                         for i in ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']])
+    # ax[0].text(0, -0.1, 'params: ' + textstr, transform=ax[0].transAxes)
+    title = plt.suptitle('params: ' + textstr, x=0.42, y=0.005)
+
+    # plt.subplots_adjust(bottom=-0.1)
     plt.tight_layout()
-    plt.savefig(cfg.paths.figs / ('felx/dFe_final_obs_{}_korg_{}_kinorg_{}_c_{}_muD_{}.png'
-                                  .format(pds.exp.file_base,
-                                          *[pds.params[v] for v in ['k_org', 'k_inorg', 'c_scav', 'mu_D']])))
+    file = unique_name(cfg.paths.figs / 'felx/iron_z_profile_{}.png'.format(pds.exp.file_base))
+    plt.savefig(file, bbox_extra_artists=(lgd, title,), bbox_inches='tight')
     plt.show()
 
     # # Plot start vs final dFe.
