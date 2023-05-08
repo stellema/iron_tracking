@@ -504,6 +504,7 @@ def optimise_iron_model_params():
         F_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, param_names, params)  # Particle dataset (all vars & obs).
         F_pred_f = F_pred.fe.ffill('obs').isel(obs=-1, drop=True)  # Final particle Fe.
 
+        # Error for each particle.
         # cost = np.sqrt(np.sum((F_obs - F_pred)**2) / F_obs.size)  # RSMD
         cost = np.fabs((F_obs - F_pred_f)).mean().load().item()  # Least absolute deviations
 
@@ -527,12 +528,12 @@ def optimise_iron_model_params():
     if rank == 0:
         ds = pds.init_felx_optimise_dataset()
 
-        # Subset number of particles.
-        ndays = 24
-        ds = ds.isel(traj=slice(742 * ndays))
-        target = np.datetime64('{}-12-31T12'.format(exp.year_bnds[-1])) - np.timedelta64((ndays) * 6 - 1, 'D')
-        traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
-        ds = ds.sel(traj=traj)
+        # # Subset number of particles.
+        # ndays = 24
+        # ds = ds.isel(traj=slice(742 * ndays))
+        # target = np.datetime64('{}-12-31T12'.format(exp.year_bnds[-1])) - np.timedelta64((ndays) * 6 - 1, 'D')
+        # traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
+        # ds = ds.sel(traj=traj)
     else:
         ds = None
 
@@ -559,7 +560,7 @@ def optimise_iron_model_params():
     bounds = [param_bnds[i] for i in param_names]
 
     res = minimize(lambda params: cost_function(F_obs, pds, ds, dfs, param_names, params),
-                   params_init, bounds=bounds, options={'disp': True})
+                   params_init, method='powell', bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
     # Update pds params dict with optimised values.

@@ -42,6 +42,7 @@ class FelxDataSet(object):
         self.bgc_variables_nmap = {'Phy': 'phy', 'Zoo': 'zoo', 'Det': 'det', 'Temp': 'temp',
                                    'NO3': 'no3', 'kd': 'kd'}  # 'Fe': 'fe'
         self.variables = ['scav', 'fe_src', 'fe_p', 'reg', 'phy_up']
+        self.add_iron_model_params()
 
     def particles_after_start_time(self, ds):
         """Select particles that have reached a source at the start of the spinup period.
@@ -349,8 +350,6 @@ class FelxDataSet(object):
 
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
-        self.add_iron_model_params()
-
         file = self.exp.file_felx_bgc
         ds = xr.open_dataset(file)
 
@@ -432,8 +431,10 @@ class FelxDataSet(object):
         setattr(self, 'params', params)
 
     def update_params(self, new_dict):
+        self.params.update(new_dict)
         for key, value in new_dict.items():
             setattr(self, key, value)
+            self.params[key] = value
 
     def test_plot_variable(self, var='det'):
         """Line plot of variable as a function of obs for each particle."""
