@@ -126,3 +126,13 @@ def timeit(_method=None, *, my_logger=None):
         return decorator_timeit
     else:
         return decorator_timeit(_method)
+
+
+def unique_name(name):
+    """Create unique filename by appending numbers."""
+    def append_file(name, i):
+        return name.parent / '{}_{:02d}{}'.format(name.stem, i, name.suffix)
+    i = 0
+    while append_file(name, i).exists():
+        i += 1
+    return append_file(name, i)
