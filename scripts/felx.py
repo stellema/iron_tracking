@@ -501,10 +501,10 @@ def optimise_iron_model_params():
     """
     def cost_function(F_obs, pds, ds, dfs, param_names, params):
         pds, F_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, param_names, params)  # Particle dataset (all vars & obs).
-        F_pred = F_pred.fe.ffill('obs').isel(obs=-1, drop=True)  # Final particle Fe.
+        F_pred_f = F_pred.fe.ffill('obs').isel(obs=-1, drop=True)  # Final particle Fe.
 
         # cost = np.sqrt(np.sum((F_obs - F_pred)**2) / F_obs.size)  # RSMD
-        cost = np.fabs((F_obs - F_pred)).mean().item()  # Least absolute deviations
+        cost = np.fabs((F_obs - F_pred_f)).mean().item()  # Least absolute deviations
 
         if rank == 0:
 
