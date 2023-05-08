@@ -386,15 +386,14 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
 
     # Synchronize all processes
     if MPI is not None:
-
         tmp_files = pds.felx_tmp_filenames(size)
+        if tmp_files[rank].exists():  # Delete previous tmp_file before saving
+            os.remove(tmp_files[rank])
+
         save_dataset(ds, tmp_files[rank])
         comm.Barrier()
 
         ds = xr.open_mfdataset(tmp_files)
-        if rank == 0:
-            for path in tmp_files:
-                os.remove(path)
 
     # if rank == 0 and not cfg.test:
 
