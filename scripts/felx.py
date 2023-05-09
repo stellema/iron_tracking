@@ -316,7 +316,7 @@ def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_or
     return fe, fe_scav, fe_reg, fe_phy
 
 
-@timeit(my_logger=logger)
+# @timeit(my_logger=logger)
 def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=False):
     """Run iron model for each particle.
 
@@ -341,7 +341,7 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
     else:
         rank = 0
     particles = range(ds.traj.size)
-    logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
+    # logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
 
     # Constants.
     if params is not None:
@@ -512,7 +512,7 @@ def optimise_iron_model_params():
             logger.info('{}({} particles): cost={} {}'
                         .format(exp.file_base, ds.traj.size, cost,
                                 ['{}={}'.format(p, v) for p, v in zip(param_names, params)]))
-            test_plot_EUC_iron_depth_profile(pds, F_pred, dfs)
+            # test_plot_EUC_iron_depth_profile(pds, F_pred, dfs)
         return cost
 
     if MPI is not None:
@@ -548,7 +548,7 @@ def optimise_iron_model_params():
 
     # Paramaters to optimise (e.g., a, b, c = params).
     # Copy inside update_iron: ', '.join([i for i in params])
-    param_names = ['c_scav', 'k_inorg', 'k_org']
+    param_names = ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']
     params_init = [pds.params[i] for i in param_names]  # params = params_init
 
     param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5], tau=None,
@@ -556,7 +556,7 @@ def optimise_iron_model_params():
                       gamma_2=[0.005, 0.02], I_0=[280, 350], alpha=None, PAR=None,
                       a=None, b=[0.8, 1.2], c=[0.5, 1.5], k_fe=[0.5, 1.5], k_N=[0.5, 1.5],
                       gamma_1=None, g=None, epsilon=None, mu_Z=None)
-    bounds = [param_bnds[i] for i in param_names]
+    bounds = [tuple(param_bnds[i]) for i in param_names]
 
     res = minimize(lambda params: cost_function(F_obs, pds, ds, dfs, param_names, params),
                    params_init, method='powell', bounds=bounds, options={'disp': True})
