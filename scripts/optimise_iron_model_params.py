@@ -34,9 +34,10 @@ except ModuleNotFoundError:
 logger = mlogger('optimise_iron_model_params')
 
 
-def cost_function(pds, ds, fe_obs, dfs, params):
+def cost_function(pds, ds, fe_obs, dfs, params, rank=0):
     """Cost function for iron model optmisation (uses weighted least absolute deviations)."""
-    pds.update_params(dict([(k, v) for k, v in zip(pds.param_names, params)]))
+    params_dict = dict([(k, v) for k, v in zip(pds.param_names, params)])
+    pds.update_params(params_dict)
 
     # Particle dataset (all vars & obs).
     fe_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, pds.param_names, params)
@@ -50,8 +51,7 @@ def cost_function(pds, ds, fe_obs, dfs, params):
     cost = cost.load().item()
 
     if rank == 0:
-        logger.info('{}: p={}: cost={} {}'.format(pds.exp.file_base, ds.traj.size, cost,
-                                                  ['{}={}'.format(p, v) for p, v in zip(pds.param_names, params)]))
+        logger.info('{}: p={}: cost={} {}'.format(pds.exp.file_base, ds.traj.size, cost, params_dict))
     return cost
 
 
@@ -78,6 +78,7 @@ def optimise_iron_model_params(lon, method):
     pds.add_iron_model_params()
 
     if rank == 0:
+        logger.info('felx_hist: Optimisation method={}'.format(method))
         ds = pds.init_felx_optimise_dataset()
 
         # Subset number of particles.
@@ -113,9 +114,9 @@ def optimise_iron_model_params(lon, method):
                       gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
-    logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
 
-    res = minimize(lambda params: cost_function(pds, ds, fe_obs, dfs, params),
+
+    res = minimize(lambda params: cost_function(pds, ds, fe_obs, dfs, params, rank),
                    params_init, method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
@@ -211,7 +212,7 @@ def optimise_iron_model_params_multi_lon(method):
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
     logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
-    res = minimize(lambda params: cost_function(pds, ds, fe_obs, dfs, params),
+    res = minimize(lambda params: cost_function(pds, ds, fe_obs, dfs, params, rank),
                    params_init, method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
