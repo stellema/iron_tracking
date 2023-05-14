@@ -7,6 +7,22 @@ Example:
 
 Todo:
 
+
+hist_165_v0_00: p=2135: cost=0.3138301968574524 {'c_scav': 2.5, 'k_inorg': 1.000000000000001e-08, 'k_org': 0.00018144043748232996, 'mu_D': 0.03999999999999999, 'mu_D_180': 0.03}
+hist_165_v0_00: p=2135, method=Nelder-Mead, nit=37, nfev=59, success=True, message=Optimization terminated successfully.
+hist_165_v0_00: Optimimal {'c_scav': 2.5, 'k_inorg': 1.000000000000001e-08, 'k_org': 0.00018144043748232996, 'mu_D': 0.03999999999999999, 'mu_D_180': 0.03}
+
+hist_190_v0_00: p=2782: cost=0.2835429012775421 {'c_scav': 2.0, 'k_inorg': 0.0006257817077636716, 'k_org': 0.00010003890991210938, 'mu_D': 0.02000781250464934, 'mu_D_180': 0.010062507627066224}
+
+hist_220_v0_00: p=3211: cost=0.21084801852703094 {'c_scav': 2.5, 'k_inorg': 0.001, 'k_org': 2.6156331054350042e-05, 'mu_D': 0.03999999999999993, 'mu_D_180': 0.03}
+hist_220_v0_00: p=3211, method=Nelder-Mead, nit=55, nfev=82, success=True, message=Optimization terminated successfully.
+hist_220_v0_00: Optimimal {'c_scav': 2.5, 'k_inorg': 0.001, 'k_org': 2.6156331054350042e-05, 'mu_D': 0.03999999999999993, 'mu_D_180': 0.03}
+
+hist_250_v0_00: p=3294: cost=0.30697357654571533 {'c_scav': 1.5, 'k_inorg': 0.001, 'k_org': 0.001, 'mu_D': 0.005, 'mu_D_180': 0.03}
+hist_250_v0_00: p=3294, method=Nelder-Mead, nit=59, nfev=90, success=True, message=Optimization terminated successfully.
+hist_250_v0_00: Optimimal {'c_scav': 1.5, 'k_inorg': 0.001, 'k_org': 0.001, 'mu_D': 0.005, 'mu_D_180': 0.03}
+
+2
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
 @created: Wed May 10 17:27:31 2023
@@ -19,11 +35,12 @@ import xarray as xr  # NOQA
 
 import cfg  # NOQA
 from cfg import ExpData
-from tools import mlogger, timeit
+from datasets import save_dataset
 from felx_dataset import FelxDataSet
 from felx import update_particles_MPI
 from fe_obs_dataset import get_merged_FeObsDataset
 from test_iron_model_optimisation import (test_plot_iron_paths, test_plot_EUC_iron_depth_profile)
+from tools import mlogger, timeit
 
 try:
     from mpi4py import MPI
@@ -131,11 +148,57 @@ def optimise_iron_model_params(lon, method):
         logger.info('{}: Optimimal {}'.format(exp.file_base, param_dict))
 
         # Calculate the predicted iron concentration using the optimized parameters.
-        ds_opt = update_particles_MPI(pds, ds, dfs, pds.param_names, params_optimized)
+        ds_opt = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, pds.param_names, params_optimized)
 
         # Plot the observed and predicted iron concentrations.
         test_plot_EUC_iron_depth_profile(pds, ds_opt, dfs)
     return res
+
+
+def optimise_multi_lon_dataset():
+    """Save dataset for multi-lon paramater optimisation."""
+    # Source iron profile.
+    dfs = get_merged_FeObsDataset()
+    file_ds = cfg.paths.data / 'felx/felx_optimise_hist_multi.nc'
+    file_obs = cfg.paths.data / 'felx/fe_obs_optimise_hist_multi.nc'
+
+    if file_ds.exists() and file_obs.exists():
+        ds = xr.open_dataset(file_ds, chunks='auto')
+        fe_obs = xr.open_dataset(file_ds, chunks='auto')
+        return dfs, ds, fe_obs
+
+    pds = FelxDataSet(ExpData(scenario=0, lon=0))
+    lons = [165, 190, 220, 250]
+    n = len(lons)
+    ds_list = [None] * n
+    fe_obs_list = [None] * n
+
+    # Particle dataset.
+    for i in range(n):
+        # Experiment class.
+        pdx = FelxDataSet(ExpData(scenario=0, lon=lons[i]))
+
+        # Particle dataset.
+        ds_list[i] = pdx.init_felx_optimise_dataset()
+        if cfg.test:
+            ds_list[i] = ds_list[i].isel(traj=slice(10))
+
+        # Fe observations at particle depths.
+        z = ds_list[i].z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
+        fe_obs_list[i] = dfs.dfe.ds_avg.euc_avg.sel(lon=lons[i], z=z, method='nearest', drop=True)
+
+    # Merge datasets.
+    for i in range(1, n):
+        id_next = int(ds_list[i - 1].traj[-1].load().item()) + 1
+        id_new = list(range(id_next, id_next + ds_list[i].traj.size))
+        ds_list[i]['traj'] = id_new
+        fe_obs_list[i]['traj'] = id_new
+
+    ds = xr.concat(ds_list, 'traj')
+    fe_obs = xr.concat(fe_obs_list, 'traj')
+    save_dataset(ds, file_ds)
+    save_dataset(fe_obs, file_obs)
+    return dfs, ds, fe_obs
 
 
 @timeit(my_logger=logger)
@@ -156,48 +219,10 @@ def optimise_iron_model_params_multi_lon(method):
     else:
         rank = 0
 
+    dfs, ds, fe_obs = optimise_multi_lon_dataset()
+
     # Source iron profile.
-    dfs = get_merged_FeObsDataset()
     pds = FelxDataSet(ExpData(scenario=0, lon=0))
-
-    lons = [165, 190, 220, 250]
-    n = len(lons)
-    pds_list = [None] * n
-    ds_list = [None] * n
-    fe_obs_list = [None] * n
-
-    # Particle dataset.
-    if rank == 0:
-        for i in range(n):
-            # Experiment class.
-            pds_list[i] = FelxDataSet(ExpData(scenario=0, lon=lons[i]))
-
-            # Particle dataset.
-            ds_list[i] = pds_list[i].init_felx_optimise_dataset()
-            if cfg.test:
-                ds_list[i] = ds_list[i].isel(traj=slice(10))
-
-            # Fe observations at particle depths.
-            z = ds_list[i].z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
-            fe_obs_list[i] = dfs.dfe.ds_avg.euc_avg.sel(lon=lons[i], z=z, method='nearest', drop=True)
-
-        # Merge datasets.
-        for i in range(1, n):
-            id_next = int(ds_list[i - 1].traj[-1].load().item()) + 1
-            id_new = list(range(id_next, id_next + ds_list[i].traj.size))
-            ds_list[i]['traj'] = id_new
-            fe_obs_list[i]['traj'] = id_new
-
-        ds = xr.concat(ds_list, 'traj')
-        fe_obs = xr.concat(fe_obs_list, 'traj')
-
-    else:
-        fe_obs = None
-        ds = None
-
-    if MPI is not None:
-        ds = comm.bcast(ds, root=0)
-        fe_obs = comm.bcast(fe_obs, root=0)
 
     # Paramaters to optimise (e.g., a, b, c = params).
     pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']
@@ -236,7 +261,7 @@ if __name__ == '__main__':
     lon = args.lon
     method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][0]
     logger = mlogger('optimise_iron_model_params_{}'.format(lon))
-    if lon is not None:
+    if lon not in [165, 190, 220, 250]:
         res = optimise_iron_model_params(lon, method=method)
     else:
         res = optimise_iron_model_params_multi_lon(method=method)
