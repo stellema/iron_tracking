@@ -155,6 +155,7 @@ def optimise_iron_model_params(lon, method):
     return res
 
 
+@timeit(my_logger=logger)
 def optimise_multi_lon_dataset():
     """Save dataset for multi-lon paramater optimisation."""
     # Source iron profile.
@@ -167,7 +168,6 @@ def optimise_multi_lon_dataset():
         fe_obs = xr.open_dataset(file_ds, chunks='auto')
         return dfs, ds, fe_obs
 
-    pds = FelxDataSet(ExpData(scenario=0, lon=0))
     lons = [165, 190, 220, 250]
     n = len(lons)
     ds_list = [None] * n
@@ -175,29 +175,36 @@ def optimise_multi_lon_dataset():
 
     # Particle dataset.
     for i in range(n):
+        logger.info('Init dataset: {}'.format(i))
         # Experiment class.
-        pdx = FelxDataSet(ExpData(scenario=0, lon=lons[i]))
+        pds = FelxDataSet(ExpData(scenario=0, lon=lons[i]))
 
-        # Particle dataset.
-        ds_list[i] = pdx.init_felx_optimise_dataset()
         if cfg.test:
             ds_list[i] = ds_list[i].isel(traj=slice(10))
+
+        # Particle dataset.
+        ds_list[i] = pds.init_felx_optimise_dataset()
 
         # Fe observations at particle depths.
         z = ds_list[i].z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
         fe_obs_list[i] = dfs.dfe.ds_avg.euc_avg.sel(lon=lons[i], z=z, method='nearest', drop=True)
 
     # Merge datasets.
+    logger.info('Merging datasets')
     for i in range(1, n):
         id_next = int(ds_list[i - 1].traj[-1].load().item()) + 1
         id_new = list(range(id_next, id_next + ds_list[i].traj.size))
         ds_list[i]['traj'] = id_new
         fe_obs_list[i]['traj'] = id_new
 
+    logger.info('Concat datasets')
     ds = xr.concat(ds_list, 'traj')
     fe_obs = xr.concat(fe_obs_list, 'traj')
+
+    logger.info('Save datasets')
     save_dataset(ds, file_ds)
     save_dataset(fe_obs, file_obs)
+    logger.info('Datasets saved')
     return dfs, ds, fe_obs
 
 
@@ -261,7 +268,8 @@ if __name__ == '__main__':
     lon = args.lon
     method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][0]
     logger = mlogger('optimise_iron_model_params_{}'.format(lon))
-    if lon not in [165, 190, 220, 250]:
-        res = optimise_iron_model_params(lon, method=method)
-    else:
-        res = optimise_iron_model_params_multi_lon(method=method)
+    optimise_multi_lon_dataset()
+    # if lon not in [165, 190, 220, 250]:
+    #     res = optimise_iron_model_params(lon, method=method)
+    # else:
+    #     res = optimise_iron_model_params_multi_lon(method=method)
