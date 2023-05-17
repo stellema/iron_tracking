@@ -444,6 +444,12 @@ def run_iron_model(lon, NPZD=False):
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
+    if MPI is not None:
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+    else:
+        rank = 0
+
     scav_eq = ['Galibraith', 'OFAM'][0]
     exp = ExpData(scenario=0, lon=lon, scav_eq=scav_eq)
 
@@ -454,20 +460,27 @@ def run_iron_model(lon, NPZD=False):
     # Particle dataset
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
-    # ds = pds.init_felx_dataset()
-    ds = pds.init_felx_optimise_dataset()
 
-    if cfg.test:
-        ndays = 6
-        ds = ds.isel(traj=slice(750 * ndays))
-        target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays) * 6 - 1, 'D')
-        traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
-        ds = ds.sel(traj=traj)
+    if rank == 0:
+        # ds = pds.init_felx_dataset()
+        ds = pds.init_felx_optimise_dataset()
 
-        # # Cut off particles in early years to load less ofam fields.
-        # trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
-        # ds = ds.sel(traj=trajs)
-        # ds = ds.isel(traj=slice(200)).dropna('obs', 'all')
+        # Subset number of particles.
+        if cfg.test:
+            ndays = 6
+            ds = ds.isel(traj=slice(750 * ndays))
+            target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays) * 6 - 1, 'D')
+            traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
+            ds = ds.sel(traj=traj)
+            # # Cut off particles in early years to load less ofam fields.
+            # trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
+            # ds = ds.sel(traj=trajs)
+            # ds = ds.isel(traj=slice(200)).dropna('obs', 'all')
+    else:
+        ds = None
+
+    if MPI is not None:
+        ds = comm.bcast(ds, root=0)
 
     param_dict = ['{}={}'.format(k, pds.params[k])
                   for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'I_0', 'a', 'b']]
