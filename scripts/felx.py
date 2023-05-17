@@ -37,6 +37,7 @@ N = N + dt * dN_dt
 @created: Tue Jan 10 11:52:04 2023
 
 """
+from argparse import ArgumentParser
 import math
 import matplotlib.pyplot as plt
 import numba
@@ -101,7 +102,7 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
     """
     t = 0
     dx = ds.isel(traj=p, obs=t, drop=True)
-    zone = int(dx.zone.item())
+    zone = int(dx.zone.load().item())
 
     # Option 1: Select region data variable based on source ID.
     if method == 'combined':
@@ -121,7 +122,7 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
         da_fe = ds_fe[var].sel(time=dx.time, drop=True)
 
     # Particle location map (e.g., lat, lon, depth)
-    particle_loc = dict([[c, dx[c].item()] for c in da_fe.dims])
+    particle_loc = dict([[c, dx[c].load().item()] for c in da_fe.dims])
 
     fe = da_fe.sel(particle_loc, method='nearest', drop=True).load().item()
 
@@ -340,6 +341,7 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
         # particles = range(*particle_subset)  # !!! Check range
     else:
         rank = 0
+
     particles = range(ds.traj.size)
     # logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
 
@@ -375,7 +377,7 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
 
         for t in timesteps:
             # Data variables at particle location.
-            fields = [ds[i].isel(traj=p, obs=t - 1, drop=True).item() for i in field_names]
+            fields = [ds[i].isel(traj=p, obs=t - 1, drop=True).load().item() for i in field_names]
             fe, fe_scav, fe_reg, fe_phy = update_iron_jit(p, t, *tuple([*fields, *constants]))
             # fe, fe_scav, fe_reg, fe_phy, P, Z = update_iron_NPZD_jit(p, t, *args)
 
@@ -395,6 +397,8 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
 
         ds = xr.open_mfdataset(tmp_files)
 
+        if tmp_files[rank].exists():  # Delete previous tmp_file before saving
+            os.remove(tmp_files[rank])
     # if rank == 0 and not cfg.test:
 
     #     # Write output to netCDF file
@@ -431,7 +435,7 @@ def update_particles(pds, ds, ds_fe, param_names=None, params=None):
     return ds
 
 
-def run_iron_model(NPZD=False):
+def run_iron_model(lon, NPZD=False):
     """Set up and run Lagrangian iron model.
 
     Args:
@@ -440,23 +444,23 @@ def run_iron_model(NPZD=False):
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
-    ndays = 6
     scav_eq = ['Galibraith', 'OFAM'][0]
-    exp = ExpData(scenario=0, lon=220, test=True, scav_eq=scav_eq)
+    exp = ExpData(scenario=0, lon=lon, scav_eq=scav_eq)
 
     # Source Iron fields (observations or OFAM3 Fe).
     dfs = get_merged_FeObsDataset()
-    ds_fe_obs = dfs.dfe.ds_avg
-    ds_fe = ds_fe_obs
+    ds_fe = dfs.dfe.ds_avg
 
     # Particle dataset
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
-    ds = pds.init_felx_dataset()
+    # ds = pds.init_felx_dataset()
+    ds = pds.init_felx_optimise_dataset()
 
     if cfg.test:
+        ndays = 6
         ds = ds.isel(traj=slice(750 * ndays))
-        target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays)*6 - 1, 'D')
+        target = np.datetime64('2012-12-31T12') - np.timedelta64((ndays) * 6 - 1, 'D')
         traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
         ds = ds.sel(traj=traj)
 
@@ -468,8 +472,17 @@ def run_iron_model(NPZD=False):
     param_dict = ['{}={}'.format(k, pds.params[k])
                   for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'I_0', 'a', 'b']]
     logger.info('{}({} particles): {}'.format(exp.file_base, ds.traj.size, param_dict))
-    pds, ds = update_particles_MPI(pds, ds, ds_fe, NPZD=False)
+    pds, ds = update_particles_MPI(pds, ds, ds_fe, NPZD=NPZD)
 
-    # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
+    test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
     test_plot_EUC_iron_depth_profile(pds, ds, dfs)
     return ds
+
+
+if __name__ == '__main__':
+    p = ArgumentParser(description="""Optimise iron model paramaters.""")
+    p.add_argument('-x', '--lon', default=220, type=int,
+                   help='Release longitude [165, 190, 220, 250].')
+    args = p.parse_args()
+    lon = args.lon
+    ds = run_iron_model(lon, NPZD=False)

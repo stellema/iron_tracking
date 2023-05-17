@@ -164,8 +164,8 @@ def optimise_multi_lon_dataset():
     file_obs = cfg.paths.data / 'felx/fe_obs_optimise_hist_multi.nc'
 
     if file_ds.exists() and file_obs.exists():
-        ds = xr.open_dataset(file_ds, chunks='auto')
-        fe_obs = xr.open_dataset(file_ds, chunks='auto')
+        ds = xr.open_dataset(file_ds)
+        fe_obs = xr.open_dataset(file_obs)
         return dfs, ds, fe_obs
 
     lons = [165, 190, 220, 250]
@@ -227,6 +227,11 @@ def optimise_iron_model_params_multi_lon(method):
         rank = 0
 
     dfs, ds, fe_obs = optimise_multi_lon_dataset()
+    fe_obs = fe_obs['euc_avg']
+
+    if cfg.test:
+        ds = ds.isel(traj=slice(10))
+        ds = ds.isel(traj=slice(10))
 
     # Source iron profile.
     pds = FelxDataSet(ExpData(scenario=0, lon=0))
@@ -243,7 +248,8 @@ def optimise_iron_model_params_multi_lon(method):
                       gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
-    logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
+    if rank == 0:
+        logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
     res = minimize(lambda params: cost_function(pds, ds, fe_obs, dfs, params, rank),
                    params_init, method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
@@ -268,8 +274,8 @@ if __name__ == '__main__':
     lon = args.lon
     method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][0]
     logger = mlogger('optimise_iron_model_params_{}'.format(lon))
-    optimise_multi_lon_dataset()
-    # if lon not in [165, 190, 220, 250]:
-    #     res = optimise_iron_model_params(lon, method=method)
-    # else:
-    #     res = optimise_iron_model_params_multi_lon(method=method)
+    # optimise_multi_lon_dataset()
+    if lon in [165, 190, 220, 250]:
+        res = optimise_iron_model_params(lon, method=method)
+    else:
+        res = optimise_iron_model_params_multi_lon(method=method)
