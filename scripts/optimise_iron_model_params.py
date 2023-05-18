@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+"""Functions to optmimise iron model parameters.
 
 Notes:
 
@@ -22,7 +22,7 @@ hist_250_v0_00: p=3294: cost=0.30697357654571533 {'c_scav': 1.5, 'k_inorg': 0.00
 hist_250_v0_00: p=3294, method=Nelder-Mead, nit=59, nfev=90, success=True, message=Optimization terminated successfully.
 hist_250_v0_00: Optimimal {'c_scav': 1.5, 'k_inorg': 0.001, 'k_org': 0.001, 'mu_D': 0.005, 'mu_D_180': 0.03}
 
-2
+
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
 @created: Wed May 10 17:27:31 2023
@@ -130,8 +130,6 @@ def optimise_iron_model_params(lon, method):
                       a=None, b=[0.8, 1.2], c=[0.5, 1.5], k_fe=[0.5, 1.5], k_N=[0.5, 1.5],
                       gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
-
-
 
     res = minimize(lambda params: cost_function(pds, ds, fe_obs, dfs, params, rank),
                    params_init, method=method, bounds=bounds, options={'disp': True})

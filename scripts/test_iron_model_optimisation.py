@@ -27,18 +27,16 @@ Todo:
 @created: Sat Apr 29 20:45:13 2023
 
 """
-import math
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import xarray as xr  # NOQA
 
 import cfg
-from cfg import ExpData, paths, mon
+from cfg import paths
 from datasets import ofam_clim, BGCFields
 from felx_dataset import FelxDataSet
-from tools import mlogger, timeit, unique_name
+from tools import mlogger, unique_name
 from particle_BGC_fields import update_field_AAA
 
 logger = mlogger('fe_model_test')
@@ -146,7 +144,6 @@ def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
 
 
 def plot_OFAM3_fields():
-    exp = cfg.ExpData(scenario=0, lon=250, test=True, test_month_bnds=12)
     # OFAM3.
     ds = ofam_clim().mean('time')
 
@@ -347,8 +344,8 @@ def plot_remin_param_constants():
             dr = remin(dx, b, c, mu_P, gamma_2, mu_D, mu_D_180)
             ax[i].plot(dr, dr.depth, c=colors[j], label='{}={}'.format(var, p))
             ax[i].legend(loc='lower right')
-            ax[i].axhline(80,  c='darkgrey', lw=1)
-            ax[i].axhline(180,  c='darkgrey', lw=1)
+            ax[i].axhline(80, c='darkgrey', lw=1)
+            ax[i].axhline(180, c='darkgrey', lw=1)
     ax[0].set_ymargin(0)
     ax[0].invert_yaxis()
     plt.tight_layout()
@@ -395,7 +392,7 @@ def plot_scav_param_constants():
                 ax[i].set_title('inorg={:.1e}, org={:.1e}'.format(k_inorg, k_org))
                 ax[i].plot(fe, scav, c=colors[j], label='c={}'.format(c_scav))
                 ax[i].legend(loc='lower right')
-                ax[i].axvline(0.8,  c='darkgrey', lw=1)
+                ax[i].axvline(0.8, c='darkgrey', lw=1)
                 ax[i].set_xmargin(0)
             i += 1
     ax[-1].set_xlabel('Fe [nM Fe]')

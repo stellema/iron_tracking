@@ -15,16 +15,14 @@ Todo:
 
 """
 import calendar
-from datetime import datetime, timedelta  # NOQA
-import matplotlib.pyplot as plt
 
 import numpy as np
 import os
 import pandas as pd  # NOQA
 import xarray as xr  # NOQA
 
-import cfg  # NOQA
-from cfg import paths, ExpData
+import cfg
+from cfg import paths
 from datasets import plx_particle_dataset, save_dataset
 from tools import timeit, mlogger
 
@@ -32,15 +30,15 @@ logger = mlogger('files_felx')
 
 
 class FelxDataSet(object):
-    """Felx particle dataset."""
+    """Iron model functions and parameters."""
 
     def __init__(self, exp):
         """Initialise & format felx particle dataset."""
         self.exp = exp
         self.n_subsets = 100
-        self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'no3', 'kd']  # 'fe'
+        self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'no3', 'kd']
         self.bgc_variables_nmap = {'Phy': 'phy', 'Zoo': 'zoo', 'Det': 'det', 'Temp': 'temp',
-                                   'NO3': 'no3', 'kd': 'kd'}  # 'Fe': 'fe'
+                                   'NO3': 'no3', 'kd': 'kd'}
         self.variables = ['scav', 'fe_src', 'fe_p', 'reg', 'phy_up']
         self.add_iron_model_params()
 
@@ -375,17 +373,15 @@ class FelxDataSet(object):
         file = cfg.paths.data / 'felx/{}_tmp_optimise.nc'.format(self.exp.file_base)
         if file.exists():
             ds = xr.open_dataset(file)
+
         else:
             ds = self.init_felx_dataset()
             # Subset particles to one year and close to the equator.
-
             target = np.datetime64('{}-01-01T12'.format(self.exp.year_bnds[-1]))
             ds_f = xr.open_dataset(self.exp.file_plx).isel(obs=0, drop=True)
-            traj = ds_f.where((ds_f.time >= target) & ((ds.u / cfg.DXDY) > 0.1) &
-                              (ds_f.lat >= -0.25) & (ds_f.lat <= 0.25), drop=True).traj
+            traj = ds_f.where((ds_f.time >= target) & ((ds.u / cfg.DXDY) > 0.1)
+                              & (ds_f.lat >= -0.25) & (ds_f.lat <= 0.25), drop=True).traj
             ds = ds.sel(traj=traj)
-
-            # save_dataset(ds, file, msg='Subset to 1 year, u > 0.1 m/s & lat +/- 0.25 degrees.')
             ds_f.close()
         return ds
 
@@ -404,10 +400,10 @@ class FelxDataSet(object):
         """
         params = {}
         # Scavenging paramaters.
-        params['tau'] = 1.24e-2  # [day^-1] (Oke: 1, other: 1.24e-2)
-        params['k_org'] = 1.4780934529146143e-05  # Organic Iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
-        params['k_inorg'] = 0.001  # Inorganic Iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
-        params['c_scav'] = 2.5  # Scavenging rate constant.
+        params['c_scav'] = 2.5  # Scavenging rate constant [no units]
+        params['k_org'] = 1.4780934529146143e-05  # Organic iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
+        params['k_inorg'] = 0.001  # Inorganic iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
+        params['tau'] = 1.24e-2  # Scavenging rate [day^-1] (OFAM3 equation) (Oke: 1, other: 1.24e-2)
 
         # Detritus paramaters.
         params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
@@ -418,11 +414,11 @@ class FelxDataSet(object):
         # Phytoplankton paramaters.
         params['I_0'] = 300  # Surface incident solar radiation [W/m^2] (not actually constant)
         params['alpha'] = 0.025  # Initial slope of P-I curve [day^-1 / (Wm^-2)]. (Qin: 0.256)
-        params['PAR'] = 0.43  # !!! Photosynthetically active radiation (0.34/0.43) [no unit]
+        params['PAR'] = 0.43  # Photosynthetically active radiation (0.34/0.43) [no unit]
         params['a'] = 0.6  # 0.6 Growth rate at 0C [day^-1] (Qin: 0.27?)
         params['b'] = 1.066  # 1.066 Temperature sensitivity of growth [no units]
         params['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
-        params['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [??? needs converting to mmol Fe m^-3]
+        params['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [needs converting to mmol Fe m^-3]
         params['k_N'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
         params['mu_P'] = 0.01  # (*b^cT) Phytoplankton mortality [day^-1]
 

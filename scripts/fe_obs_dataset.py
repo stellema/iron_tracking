@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Iron observational dataset and plot functions.
+"""Iron observation dataset functions.
 
 Opens and formats iron observational data from:
     - GEOTRACES IDP2021
@@ -25,9 +25,8 @@ import pandas as pd
 import re
 import xarray as xr
 
-import cfg
-from cfg import paths, mon
-from tools import timeit, mlogger
+from cfg import paths
+from tools import mlogger
 from datasets import add_coord_attrs, save_dataset
 
 logger = mlogger('iron_observations')
@@ -37,6 +36,7 @@ class FeObsDatasets():
     """Iron Observation Dataset class."""
 
     def __init__(self):
+        """Init class."""
         self.lons = [110, 290]
         self.lats = [-30, 30]
         self.mesh = xr.open_dataset(str(paths.data / 'ofam_mesh_grid.nc'))
@@ -110,7 +110,6 @@ class FeObsDatasets():
 
     def GEOTRACES_iron_dataset_4D(self):
         """Open geotraces data, subset location and convert to multi-dim dataset."""
-        # TODO: delete _SI from 'GEOTRACES_IDP2021_fe_trop_pacific_SI.nc'
         file = paths.obs / 'GEOTRACES_IDP2021_fe_trop_pacific.nc'
         if file.exists():
             ds = xr.open_dataset(file)
@@ -125,10 +124,9 @@ class FeObsDatasets():
         lats = [-30, 30]
 
         # Subset lat/lons.
-        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1]) &
-                      (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
+        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
+                      & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
         ds = ds.where(~np.isnan(ds[var]), drop=True)
-
 
         # Convert to multi-dim array.
         coords = [ds.t.values, ds.z.values, ds.y.values, ds.x.values]
@@ -202,7 +200,7 @@ class FeObsDatasets():
         for i, r in enumerate(ds.Reference.values):
             ref = [s.replace(',', '').replace('.', '') for s in r.split(' ')]
             author = ref[0]
-            year = re.findall('\d+', r)[0]  #
+            year = re.findall('\d+', r)[0]  # NOQA
 
             if len(year) < 4:
                 if author == 'Slemons':
@@ -239,8 +237,8 @@ class FeObsDatasets():
         ds = ds.drop_vars(['month', 'year', 'ref', 'Reference'])
         lons = [110, 290]
         lats = [-30, 30]
-        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1]) &
-                      (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
+        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
+                      & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
 
         # Convert to multi-dimensional array.
         coords = [ds.t.values, ds.z.values, ds.y.values, ds.x.values]
@@ -260,14 +258,14 @@ class FeObsDatasets():
         # Subset to tropical ocean & format references.
         if name == 'GEOTRACES':
             ds = self.GEOTRACES_iron_dataset()
-            ds = ds.where((ds.y >= self.lats[0]) & (ds.y <= self.lats[1]) &
-                          (ds.x >= self.lons[0]) & (ds.x <= self.lons[1]), drop=True)
+            ds = ds.where((ds.y >= self.lats[0]) & (ds.y <= self.lats[1])
+                          & (ds.x >= self.lons[0]) & (ds.x <= self.lons[1]), drop=True)
             refs = np.unique(ds.ref)
 
         elif name == 'Tagliabue':
             ds = self.Tagliabue_iron_dataset()
-            ds = ds.where((ds.y >= self.lats[0]) & (ds.y <= self.lats[1]) &
-                          (ds.x >= self.lons[0]) & (ds.x <= self.lons[1]), drop=True)
+            ds = ds.where((ds.y >= self.lats[0]) & (ds.y <= self.lats[1])
+                          & (ds.x >= self.lons[0]) & (ds.x <= self.lons[1]), drop=True)
             t = pd.to_datetime(['{:.0f}-{:02.0f}-01'.format(ds.year[i].item(), ds.month[i].item())
                                 for i in range(ds.index.size)])
             ds['t'] = ('index', t)
@@ -378,7 +376,6 @@ class FeObsDatasets():
             ds[v].attrs['units'] = u
         return ds
 
-    @timeit(my_logger=logger)
     def combined_iron_obs_datasets(self, add_Huang=False, interp_z=True,
                                    pad_uniform_grid=False, lats=[-15, 15], lons=[110, 290]):
         """Create combined multi-dim iron observation datasets.
@@ -468,9 +465,10 @@ class FeObsDatasets():
 
 
 class FeObsDataset(object):
-    """Iron Observation Dataset class."""
-    def __init__(self, ds):
+    """Format Iron Observation Dataset."""
 
+    def __init__(self, ds):
+        """Init class."""
         self.init_plot_params()
         self.init_obs_site_dict()
 
@@ -482,7 +480,6 @@ class FeObsDataset(object):
         self.ds = self.ds.dropna('x', 'all').dropna('y', 'all').dropna('z', 'all')
         self.ds = xr.where(self.ds.z > 400, self.ds.ffill('z'), self.ds)
         self.ds_avg = self.obs_sites_avg()
-
 
     def __repr__(self):
         """Return a representation of the object."""
@@ -502,7 +499,6 @@ class FeObsDataset(object):
 
     def init_obs_site_dict(self):
         """Add dict of lat lon ranges that contain observations."""
-        c = 0.2
         obs_site = {}
         obs_site['mc'] = dict(y=[4, 8], x=[118, 135], name='Mindanao Current', c='mediumspringgreen')
         obs_site['ngcu'] = dict(y=[-6, -3], x=[140, 150], name='VS+PNG', c='darkorange')
@@ -547,7 +543,6 @@ class FeObsDataset(object):
             coords (list): List of formatted "(lat°S, lon°E)" coords of obs.
 
         """
-
         # Define lists of lat & lon subsets based on given name.
         if name in self.obs_site.keys():
             lats, lons = [[self.obs_site[name][i]] for i in ['y', 'x']]
@@ -599,7 +594,7 @@ class FeObsDataset(object):
             if df[n].where(~np.isnan(df[n]), drop=True).z.size > 0:
                 z_inds = np.arange(df[n].mean('t').z.size, dtype=int)
                 n_obs = (~np.isnan(self.sel_site([n]).mean('t'))).sum('x').sum('y')
-                n_obs_min = 2 if not 'obs_min' in self.obs_site[n].keys() else self.obs_site[n]['obs_min']
+                n_obs_min = 2 if 'obs_min' not in self.obs_site[n].keys() else self.obs_site[n]['obs_min']
                 try:
                     z_valid = z_inds[n_obs > n_obs_min][0]
                 except IndexError:

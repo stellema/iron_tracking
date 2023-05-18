@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+"""Plot iron observations.
 
 Notes:
 
@@ -15,21 +15,16 @@ Todo:
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LatitudeFormatter
-from dataclasses import dataclass, field
-from datetime import datetime
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
-import pandas as pd
-import re
 import xarray as xr
 
 import cfg
-from cfg import paths, mon
-from datasets import get_ofam_filenames, add_coord_attrs, save_dataset, BGCFields, rename_ofam3_coords
+from cfg import paths
 from fe_obs_dataset import FeObsDataset, FeObsDatasets, iron_source_profiles
-from tools import timeit, mlogger
+from tools import mlogger
 
 
 def create_map_axis(fig, ax, extent=[120, 285, -10, 10]):
@@ -155,7 +150,7 @@ def plot_iron_obs_maps(dfs):
     if not hasattr(dfs, 'ds_geo'):
         dfs.ds_geo = dfs.GEOTRACES_iron_dataset()
     if not hasattr(dfs, 'ds_tag'):
-        dfs.ds_tag  = dfs.Tagliabue_iron_dataset()
+        dfs.ds_tag = dfs.Tagliabue_iron_dataset()
 
     # Plot positions of observations in database.
     # ds1 = GEOTRACES_iron_dataset()
@@ -181,13 +176,12 @@ def plot_iron_obs_maps(dfs):
     for i, ds, c in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['blue', 'red']):
         ax.scatter(ds.x, ds.y, c=c, s=15, marker='*', alpha=0.7, transform=proj)
     ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
-    ax.set_title('Iron observations from (blue) GEOTRACES IDP2021 and' +
-                 ' (red) Tagliabue et al. (2012) dataset [2015 Update]')
+    ax.set_title('Iron observations from (blue) GEOTRACES IDP2021 and '
+                 + '(red) Tagliabue et al. (2012) dataset [2015 Update]')
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_pacific.png')
 
     # Tropical Pacific (References/cruises).
-    # lats, lons = [-10.1, 10.1], [110, 277]
     lats, lons = [-10.1, 10.1], [110, 290]
     colors = np.array(['navy', 'royalblue', 'orange', 'green', 'darkred', 'red',
                        'm', 'brown', 'deeppink', 'cyan', 'darkviolet', 'y',
@@ -197,14 +191,14 @@ def plot_iron_obs_maps(dfs):
     fig, ax, proj = create_map_axis(fig, ax, extent=[110, 290, -12, 12])
 
     for i, ds, mrk in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['o', 'P']):
-        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1]) &
-                      (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
+        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
+                      & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
 
         refs = np.unique(ds['ref'])
         for j, r in enumerate(refs):
             dx = ds.where(ds['ref'] == r, drop=True)
-            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j+i*4], alpha=0.9,
-                       transform=proj)
+            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j + i * 4], alpha=0.9, transform=proj)
+
     ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=5)
     ax.set_title('Locations of iron observations')
@@ -218,14 +212,14 @@ def plot_iron_obs_maps(dfs):
 
     for i, ds, mrk in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['o', 'P']):
         ds = ds.where(~np.isnan(ds.fe), drop=True)
-        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1]) &
-                      (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
+        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
+                      & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
 
         refs = np.unique(ds['ref'])
         for j, r in enumerate(refs):
             dx = ds.where(ds['ref'] == r, drop=True)
-            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j+i*4], alpha=0.9,
-                       transform=proj)
+            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j + i * 4], alpha=0.9, transform=proj)
+
     # ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
 
     for n in ['mc', 'ss', 'png', 'int_s', 'int_n']:
@@ -237,8 +231,8 @@ def plot_iron_obs_maps(dfs):
         ax.add_patch(rect)
 
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=5)
-    ax.set_title('Iron observations from GEOTRACES IDP2021 and ' +
-                 'Tagliabue et al. (2012) dataset [2015 Update]')
+    ax.set_title('Iron observations from GEOTRACES IDP2021 and '
+                 + 'Tagliabue et al. (2012) dataset [2015 Update]')
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_references_regions.png', dpi=300)
 
@@ -248,10 +242,12 @@ def plot_iron_obs_straits(dfe_geo, dfe_tag, dfe_ml):
     fig, ax = plt.subplots(2, 3, figsize=(12, 8), sharey=True)
     ax = ax.flatten()
 
-    for i, v in enumerate(['mcx', 'vs', 'png', 'ssea', 'ss',  'ni']):
+    for i, v in enumerate(['mcx', 'vs', 'png', 'ssea', 'ss', 'ni']):
+
         for m, ds in enumerate([dfe_geo.ds_avg, dfe_tag.ds_avg, dfe_ml.ds_avg.isel(t=-1)]):
             label = ['GEOTRACES', 'Tagliabue', 'Huang'][m]
             c = ['r', 'b', 'k'][m]
+
             if v in ds.data_vars:
                 dv = ds[v].dropna('z', 'all')
                 if 't' in dv.dims:
@@ -300,7 +296,7 @@ def plot_test_spline(dfs):
 
     for i, dx in enumerate([ds_cubic, ds_quad, ds_sl]):
         dx = dx.sel(y=y, x=x, method='nearest').dropna('t', 'all').isel(t=0)
-        ax.plot(dx, dx.z, c=colors[i+1], label=names[i+1])
+        ax.plot(dx, dx.z, c=colors[i + 1], label=names[i + 1])
 
     ax.set_title('Solomon Strait')
     ax.invert_yaxis()
@@ -413,7 +409,7 @@ def plot_combined_iron_obs_datasets(dfs):
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
     axes[1].plot(dfs.dfe.ds_avg[name].mean('t'), dfs.dfe.ds_avg[name].z, c='k', lw=4, label='mean', zorder=15)
     axes[1].plot(dfs.dfe_all.ds_avg[name].mean('t'), dfs.dfe_all.ds_avg[name].z, c='k', lw=3, ls='--',
-                  label='mean (+Huang)', zorder=15)
+                 label='mean (+Huang)', zorder=15)
 
     for j, ax, ds_ in zip(range(2), axes, [dfs.dfe_orig.ds, dfs.dfe.ds]):
 
@@ -494,8 +490,8 @@ def plot_combined_iron_obs_datasets(dfs):
 
     # Split obs by longitude
     xmax = [0, 165, 190, 220, 280]
-    obs_split = [np.where((xmax[x - 1] < np.array(obs)[:, 1]) &
-                          (np.array(obs)[:, 1] <= xmax[x]))[0] for x in range(1, 5)]
+    obs_split = [np.where((xmax[x - 1] < np.array(obs)[:, 1])
+                          & (np.array(obs)[:, 1] <= xmax[x]))[0] for x in range(1, 5)]
 
     # Subplot 1: dFe as a function of depth.
     fig, ax = plt.subplots(1, 4, figsize=(12, 6), sharey=True)

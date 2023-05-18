@@ -462,7 +462,7 @@ def run_iron_model(exp, NPZD=False):
 
         # Subset number of particles.
         if cfg.test:
-            ndays = 6
+            ndays = 2
             ds = ds.isel(traj=slice(750 * ndays))
             target = np.datetime64('2012-12-31T12') - np.timedelta64(ndays * 6 - 1, 'D')
             traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
@@ -504,4 +504,4 @@ if __name__ == '__main__':
     scenario, lon = args.scenario, args.lon
 
     exp = ExpData(scenario=scenario, lon=lon, scav_eq='Galibraith', name='fe')
-    # ds = run_iron_model(exp, NPZD=False)
+    ds = run_iron_model(exp, NPZD=False)
