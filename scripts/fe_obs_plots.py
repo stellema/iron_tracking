@@ -28,7 +28,7 @@ import xarray as xr
 import cfg
 from cfg import paths, mon
 from datasets import get_ofam_filenames, add_coord_attrs, save_dataset, BGCFields, rename_ofam3_coords
-from fe_obs_dataset import FeObsDataset, FeObsDatasets, get_merged_FeObsDataset
+from fe_obs_dataset import FeObsDataset, FeObsDatasets, iron_source_profiles
 from tools import timeit, mlogger
 
 
@@ -153,9 +153,9 @@ def plot_iron_obs_Huang(ds):
 def plot_iron_obs_maps(dfs):
     """Plot Tagliabue & GEOTRACES data positions."""
     if not hasattr(dfs, 'ds_geo'):
-        setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
+        dfs.ds_geo = dfs.GEOTRACES_iron_dataset()
     if not hasattr(dfs, 'ds_tag'):
-        setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
+        dfs.ds_tag  = dfs.Tagliabue_iron_dataset()
 
     # Plot positions of observations in database.
     # ds1 = GEOTRACES_iron_dataset()
@@ -188,13 +188,13 @@ def plot_iron_obs_maps(dfs):
 
     # Tropical Pacific (References/cruises).
     # lats, lons = [-10.1, 10.1], [110, 277]
-    lats, lons = [-15, 15], [110, 290]
-    colors = np.array(['navy', 'blue', 'orange', 'green', 'springgreen', 'red',
-                       'purple', 'm', 'brown', 'pink', 'deeppink', 'cyan', 'y',
-                       'darkviolet', 'k'])
+    lats, lons = [-10.1, 10.1], [110, 290]
+    colors = np.array(['navy', 'royalblue', 'orange', 'green', 'darkred', 'red',
+                       'm', 'brown', 'deeppink', 'cyan', 'darkviolet', 'y',
+                       'dodgerblue', 'hotpink', 'b', 'grey', 'springgreen'])
     fig = plt.figure(figsize=(13, 7))
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
-    fig, ax, proj = create_map_axis(fig, ax, extent=[110, 290, -15, 15])
+    fig, ax, proj = create_map_axis(fig, ax, extent=[110, 290, -12, 12])
 
     for i, ds, mrk in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['o', 'P']):
         ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1]) &
@@ -203,19 +203,18 @@ def plot_iron_obs_maps(dfs):
         refs = np.unique(ds['ref'])
         for j, r in enumerate(refs):
             dx = ds.where(ds['ref'] == r, drop=True)
-            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j], alpha=0.7,
+            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j+i*4], alpha=0.9,
                        transform=proj)
     ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=5)
-    ax.set_title('Iron observations from GEOTRACES IDP2021 and ' +
-                 'Tagliabue et al. (2012) dataset [2015 Update]')
+    ax.set_title('Locations of iron observations')
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_references.png', dpi=300)
 
     # Tropical Pacific (References/cruises & bounding boxes).
     fig = plt.figure(figsize=(13, 7))
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
-    fig, ax, proj = create_map_axis(fig, ax, extent=[110, 300, -15, 15])
+    fig, ax, proj = create_map_axis(fig, ax, extent=[110, 300, -12, 12])
 
     for i, ds, mrk in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['o', 'P']):
         ds = ds.where(~np.isnan(ds.fe), drop=True)
@@ -225,14 +224,14 @@ def plot_iron_obs_maps(dfs):
         refs = np.unique(ds['ref'])
         for j, r in enumerate(refs):
             dx = ds.where(ds['ref'] == r, drop=True)
-            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j], alpha=0.7,
+            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j+i*4], alpha=0.9,
                        transform=proj)
     # ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
 
-    for n in ['mc', 'vs', 'ss', 'png', 'ssea', 'int_s', 'int_n']:
+    for n in ['mc', 'ss', 'png', 'int_s', 'int_n']:
         x, y = [dfs.dfe.obs_site[n][v] for v in ['x', 'y']]
         # Create a rectangle patch with the specified coordinates
-        rect = mpl.patches.Rectangle((x[0], y[0]), x[1] - x[0], y[1] - y[0], lw=1, edgecolor='r', fc='none', transform=proj)
+        rect = mpl.patches.Rectangle((x[0], y[0]), x[1] - x[0], y[1] - y[0], lw=1, edgecolor='k', fc='none', transform=proj)
 
         # Add the rectangle patch to the axis object
         ax.add_patch(rect)
@@ -528,10 +527,10 @@ def plot_combined_iron_obs_datasets(dfs):
 
 def plot_dfs_source_zprofile(dfs):
     """Plot source and EUC dFe depth profiles."""
-    dfs = get_merged_FeObsDataset()
+    dfs = iron_source_profiles()
     dfe = dfs.dfe
     # dfe.ds_avg = dfe.ds_avg.isel(t=-1)
-    names = ['ngcu', 'nicu', 'mc', 'llwbcs', 'interior']
+    names = ['png', 'nicu', 'mc', 'llwbcs', 'interior']
     labels = ['NGCU', 'NICU', 'MC', 'LLWBCs', 'Interior']
 
     fig = plt.figure(figsize=(12, 7))
@@ -543,7 +542,7 @@ def plot_dfs_source_zprofile(dfs):
         ax.plot(dfe.ds_avg[name], dfe.ds_avg.z, c=colors[i], lw=2, label=labels[i])
 
     ax.set_ylim(600, 5)
-    ax.set_xlim(0, 1.75)
+    ax.set_xlim(0, 2.25)
     ax.legend()
     ax.set_xlabel('dFe [nmol/kg]')
     ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
@@ -574,8 +573,8 @@ def plot_dfs_source_zprofile(dfs):
 
 logger = mlogger('iron_observations')
 dfs = FeObsDatasets()
-setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
-setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
+dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
+dfs.dfe = FeObsDataset(dfs.ds)
 
 # setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
 # setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())

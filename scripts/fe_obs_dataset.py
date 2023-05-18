@@ -34,6 +34,7 @@ logger = mlogger('iron_observations')
 
 
 class FeObsDatasets():
+    """Iron Observation Dataset class."""
 
     def __init__(self):
         self.lons = [110, 290]
@@ -171,6 +172,8 @@ class FeObsDatasets():
         if file_new.exists():
             ds = xr.open_dataset(file_new)
             ds = ds.rename(dict(time='t', depth='z', lat='y', lon='x', dFe='fe'))
+            ds['ref'] = xr.where(ds.ref == 'KondoY et al. (2007)', 'Kondo et al. (2007)', ds.ref)
+            ds['ref'] = xr.where(ds.ref == 'Takeda et al. (1995)', 'Takeda and Obata (1995)', ds.ref)
             return ds
 
         ds = pd.read_csv(file)
@@ -310,7 +313,6 @@ class FeObsDatasets():
                 logger.info('\n'.join(tt))
         return ds.dFe
 
-    @timeit(my_logger=logger)
     def interpolate_depths(self, ds, method='slinear'):
         """Interpolate observation depths to OFAM3 depths."""
         def valid_coord_indexes(dx, dim):
@@ -530,7 +532,7 @@ class FeObsDataset(object):
         #                             name='Interior', c='seagreen')
 
         self.obs_site = obs_site
-        self.llwbc_names = ['mc', 'ngcu', 'nicu']
+        self.llwbc_names = ['mc', 'png', 'nicu']
         self.int_names = ['int_s', 'int_n']
 
     def get_obs_locations(self, name):
@@ -626,7 +628,8 @@ class FeObsDataset(object):
         return df
 
 
-def get_merged_FeObsDataset():
+def iron_source_profiles():
+    """Create fe obs combined dataset."""
     dfs = FeObsDatasets()
     setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
     setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
@@ -641,7 +644,4 @@ def get_merged_FeObsDataset():
     for lon, x in zip([165, 190, 220, 250], xx):
         dx.append(df.sel(x=x).mean('x').assign_coords(lon=lon))
     dfs.dfe.ds_avg['euc_avg'] = xr.concat(dx, 'lon')
-
-    # df = dfs.dfe.ds.fe.sel(y=slice(-10.1, 10.1), x=slice()).mean('y')
-
     return dfs
