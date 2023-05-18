@@ -352,6 +352,10 @@ class FelxDataSet(object):
         """Get finished felx BGC dataset and format."""
         file = self.exp.file_felx_bgc
         ds = xr.open_dataset(file)
+        ds_inv = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
+        for var in ['age', 'distance']:
+            ds[var] = ds_inv[var]
+        ds_inv.close()
 
         variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
         for var in variables:
@@ -359,6 +363,7 @@ class FelxDataSet(object):
 
         # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
         ds['kd'] = 10**ds.kd
+        ds['kd'].attrs['scaling'] = ''
 
         # Apply new EUC definition (u > 0.1 m/s).2
         traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
@@ -394,12 +399,14 @@ class FelxDataSet(object):
 
     def add_iron_model_params(self):
         """Add a constants to the FieldSet.
-        Redfield ratio of 1 P: 16 N: 106 5C: −172 O2: 3.2 """
+
+        Redfield ratio of 1 P: 16 N: 106 5C: −172 O2: 3.2
+        """
         params = {}
         # Scavenging paramaters.
         params['tau'] = 1.24e-2  # [day^-1] (Oke: 1, other: 1.24e-2)
-        params['k_org'] = 1.4780934529146143e-05#5e-5 # Organic Iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
-        params['k_inorg'] = 0.001#8.2e-5  # Inorganic Iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
+        params['k_org'] = 1.4780934529146143e-05  # Organic Iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
+        params['k_inorg'] = 0.001  # Inorganic Iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
         params['c_scav'] = 2.5  # Scavenging rate constant.
 
         # Detritus paramaters.
@@ -431,25 +438,35 @@ class FelxDataSet(object):
         setattr(self, 'params', params)
 
     def update_params(self, new_dict):
+        """Update params dictionary."""
         self.params.update(new_dict)
         for key, value in new_dict.items():
             setattr(self, key, value)
             self.params[key] = value
 
-    def test_plot_variable(self, var='det'):
-        """Line plot of variable as a function of obs for each particle."""
-        fig, ax = plt.subplots(figsize=(10, 7))
-        self.ds[var].plot.line(ax=ax, x='obs', add_legend=False, yincrease=True)
-        plt.show()
+    def add_variable_attrs(self, ds):
+        """Add attributes metadata to dataset variables."""
+        attrs = {'trajectory': {'long_name': 'Unique identifier for each particle', 'cf_role': 'trajectory_id'},
+                 'time': {'long_name': 'time', 'standard_name': 'time', 'axis': 'T'},
+                 'lat': {'long_name': 'latitude', 'standard_name': 'latitude', 'units': 'degrees_north', 'axis': 'Y'},
+                 'lon': {'long_name': 'longitude', 'standard_name': 'longitude', 'units': 'degrees_east', 'axis': 'X'},
+                 'z': {'long_name': 'depth', 'standard_name': 'depth', 'units': 'm', 'axis': 'Z', 'positive': 'down'},
+                 'age': {'long_name': 'Particle transit time', 'standard_name': 'age', 'units': 's'},
+                 'u': {'long_name': 'Transport', 'standard_name': 'u', 'units': 'Sv'},
+                 'zone': {'long_name': 'Source location ID', 'standard_name': 'zone'},
+                 'temp': {'long_name': 'Potential temperature', 'standard_name': 'sea_water_potential_temperature', 'units': 'degrees C', 'source': 'OFAM3-WOMBAT'},
+                 'phy': {'long_name': 'Phytoplankton', 'standard_name': 'phy', 'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
+                 'zoo': {'long_name': 'Zooplankton', 'standard_name': 'zoo', 'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
+                 'det': {'long_name': 'Detritus', 'standard_name': 'det', 'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
+                 'no3': {'long_name': 'Nitrate', 'standard_name': 'no3', 'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
+                 'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm', 'standard_name': 'Kd490', 'units': 'm^-1', 'scaling': 'log10', 'source': 'SeaWiFS-GMIS'},
+                 'fe_scav': {'long_name': 'Scavenged dFe', 'standard_name': 'dFe scav', 'units': 'μmol/m^3 Fe'},
+                 'fe_reg': {'long_name': 'Remineralised dFe', 'standard_name': 'dFe remin', 'units': 'μmol m^-3 Fe'},
+                 'fe_phy': {'long_name': 'Phytoplankton dFe Uptake', 'standard_name': 'dFe phyto', 'units': 'μmol m^-3 Fe'},
+                 'fe': {'long_name': 'Dissolved Iron', 'standard_name': 'dFe', 'units': 'μmol m^-3 Fe'}
+                 }
 
-    def test_plot_particle_4D(self, pid, var='det'):
-        """Plot 3D trajectory with contoured variable."""
-        # 3D Plot.
-        dx = self.pds.ds.sel(traj=pid)
-        c = dx[var]
-        fig = plt.figure(figsize=(12, 10))
-        ax = plt.axes(projection='3d')
-        ax.plot3D(dx.lon, dx.lat, dx.z, c='k')
-        sp = ax.scatter3D(dx.lon, dx.lat, dx.z, c=c, cmap=plt.cm.magma)
-        fig.colorbar(sp, shrink=0.6)
-        plt.show()
+        for k, v in attrs.items():
+            if k in ds.data_vars:
+                ds[k].attrs = v
+        return ds
