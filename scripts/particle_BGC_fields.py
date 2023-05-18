@@ -213,38 +213,7 @@ def save_felx_BGC_fields(exp):
     # ds = ds.rename({k: v for k, v in pds.bgc_variables_nmap.items()})
     ds = ds.drop(['time_orig', 'valid_mask', 'month', 'fe', 'age', 'distance', 'unbeached'])
 
-    # Add metadata.
-    attrs = {'trajectory': {'long_name': 'Unique identifier for each particle',
-                            'cf_role': 'trajectory_id'},
-             'time': {'long_name': 'time', 'standard_name': 'time', 'axis': 'T'},
-             'lat': {'long_name': 'latitude', 'standard_name': 'latitude',
-                     'units': 'degrees_north', 'axis': 'Y'},
-             'lon': {'long_name': 'longitude', 'standard_name': 'longitude',
-                     'units': 'degrees_east', 'axis': 'X'},
-             'z': {'long_name': 'depth', 'standard_name': 'depth', 'units': 'm',
-                   'axis': 'Z', 'positive': 'down'},
-             'age': {'long_name': 'Particle transit time', 'standard_name': 'age', 'units': 's'},
-             'u': {'long_name': 'Transport', 'standard_name': 'u', 'units': 'Sv'},
-             'zone': {'long_name': 'Source location ID', 'standard_name': 'zone'},
-             'phy': {'long_name': 'Phytoplankton', 'standard_name': 'phy',
-                     'units': 'mmol/m^3', 'source': 'OFAM3-WOMBAT'},
-             'zoo': {'long_name': 'Zooplankton', 'standard_name': 'zoo',
-                     'units': 'mmol/m^3', 'source': 'OFAM3-WOMBAT'},
-             'det': {'long_name': 'Detritus', 'standard_name': 'det',
-                     'units': 'mmol/m^3', 'source': 'OFAM3-WOMBAT'},
-             'temp': {'long_name': 'Potential temperature',
-                      'standard_name': 'sea_water_potential_temperature', 'units': 'degrees C',
-                      'source': 'OFAM3-WOMBAT'},
-             'no3': {'long_name': 'Nitrate', 'standard_name': 'no3',
-                     'units': 'mmol/m^3', 'source': 'OFAM3-WOMBAT'},
-             'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm',
-                    'standard_name': 'Kd490', 'units': 'm^-1', 'scaling': 'log10',
-                    'source': 'SeaWiFS-GMIS'},
-             }
-
-    for k, v in attrs.items():
-        if k in ds.data_vars:
-            ds[k].attrs = v
+    ds = pds.add_variable_attrs(ds)
 
     # Change time encoding.
     logger.info('{}: Converting time encoding...'.format(file.stem))

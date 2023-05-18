@@ -38,7 +38,7 @@ from cfg import ExpData
 from datasets import save_dataset
 from felx_dataset import FelxDataSet
 from felx import update_particles_MPI
-from fe_obs_dataset import get_merged_FeObsDataset
+from fe_obs_dataset import iron_source_profiles
 from test_iron_model_optimisation import (test_plot_iron_paths, test_plot_EUC_iron_depth_profile)
 from tools import mlogger, timeit
 
@@ -112,7 +112,7 @@ def optimise_iron_model_params(lon, method):
         ds = comm.bcast(ds, root=0)
 
     # Source iron profile.
-    dfs = get_merged_FeObsDataset()
+    dfs = iron_source_profiles()
 
     # Fe observations at particle depths.
     z = ds.z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
@@ -159,7 +159,7 @@ def optimise_iron_model_params(lon, method):
 def optimise_multi_lon_dataset():
     """Save dataset for multi-lon paramater optimisation."""
     # Source iron profile.
-    dfs = get_merged_FeObsDataset()
+    dfs = iron_source_profiles()
     file_ds = cfg.paths.data / 'felx/felx_optimise_hist_multi.nc'
     file_obs = cfg.paths.data / 'felx/fe_obs_optimise_hist_multi.nc'
 
