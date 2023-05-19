@@ -217,6 +217,12 @@ def optimise_iron_model_params_multi_lon(method):
     Returns:
         params_optimized (list): Optmised paramters.
 
+    Notes:
+        params not worth optmising:
+            - alpha, k_N, k_fe
+        params worth optmising:
+            - I_0, PAR, a, b, c, gamma_2, mu_P
+
     """
     if MPI is not None:
         comm = MPI.COMM_WORLD
@@ -235,15 +241,17 @@ def optimise_iron_model_params_multi_lon(method):
     pds = FelxDataSet(ExpData(scenario=0, lon=0))
 
     # Paramaters to optimise (e.g., a, b, c = params).
-    pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']
+    pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'I_0', 'PAR', 'mu_D', 'mu_D_180',
+                       'gamma_2', 'mu_P', 'a', 'b', 'c']
 
     params_init = [pds.params[i] for i in pds.param_names]  # params = params_init
 
-    param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5], tau=None,
-                      mu_D=[0.005, 0.04], mu_D_180=[0.005, 0.03], mu_P=[0.005, 0.02],
-                      gamma_2=[0.005, 0.02], I_0=[280, 350], alpha=None, PAR=None,
-                      a=None, b=[0.8, 1.2], c=[0.5, 1.5], k_fe=[0.5, 1.5], k_N=[0.5, 1.5],
-                      gamma_1=None, g=None, epsilon=None, mu_Z=None)
+    param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5],
+                      mu_D=[0.005, 0.03], mu_D_180=[0.005, 0.03], mu_P=[0.005, 0.02],
+                      gamma_2=[0.005, 0.02], I_0=[280, 350], PAR=[0.323, 0.5375],
+                      a=[0.45, 0.75], b=[0.8, 1.33], c=[0.75, 1.25],
+                      alpha=[0.02, 0.03], k_fe=[0.75, 1.25], k_N=[0.75, 1.25],
+                      tau=None, gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
     if rank == 0:

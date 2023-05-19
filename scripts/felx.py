@@ -317,7 +317,7 @@ def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_or
     return fe, fe_scav, fe_reg, fe_phy
 
 
-# @timeit(my_logger=logger)
+# @timeit(my_logger=logger)  # Turn off for optimisation
 def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=False):
     """Run iron model for each particle.
 
@@ -338,16 +338,16 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
         # Distribute particles among processes
         particle_subset = pds.particle_subsets(ds, size)[rank]
         ds = ds.isel(traj=slice(*particle_subset))
-        # particles = range(*particle_subset)  # !!! Check range
     else:
         rank = 0
 
     particles = range(ds.traj.size)
-    # logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
 
     # Constants.
     if params is not None:
         pds.update_params(dict([(k, v) for k, v in zip(param_names, params)]))
+    else:
+        logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
 
     field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z', 'J_max', 'J_I']
     constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
@@ -389,21 +389,13 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
     # Synchronize all processes
     if MPI is not None:
         tmp_files = pds.felx_tmp_filenames(size)
+        if tmp_files[rank].exists():  # Delete previous tmp_file before saving
+            os.remove(tmp_files[rank])
+
         save_dataset(ds, tmp_files[rank])
         comm.Barrier()
 
         ds = xr.open_mfdataset(tmp_files)
-
-        if tmp_files[rank].exists():  # Delete previous tmp_file before saving
-            os.remove(tmp_files[rank])
-    # if rank == 0 and not cfg.test:
-
-    #     # Write output to netCDF file
-    #     encoding = {var: {'zlib': True} for var in ds.data_vars}
-    #     with MPI.File.Open(comm, pds.exp.file_felx, amode=MPI.MODE_CREATE | MPI.MODE_WRONLY) as fh:
-    #         ds.to_netcdf(cfg.paths.data / (pds.exp.file_base + '_test.nc'), mode='w',
-    #                      format='NETCDF4', engine='h5netcdf', encoding=encoding, group=fh)
-
     return ds
 
 
@@ -483,13 +475,16 @@ def run_iron_model(exp, NPZD=False):
     ds = update_particles_MPI(pds, ds, ds_fe, NPZD=NPZD)
 
     if rank == 0 and not cfg.test:
-        logger.info('{}: p={}: Saving dataset...'.format(exp.file_felx.stem, ds.traj.size))
-        # Write output to netCDF file.
+        # Add metadata
         ds.attrs['constants'] = pds.params.copy()
         ds = pds.add_variable_attrs(ds)
+
+        # Write output to netCDF file
+        logger.info('{}: p={}: Saving dataset...'.format(exp.file_felx.stem, ds.traj.size))
         save_dataset(ds, pds.exp.file_felx, msg='Created from Lagrangian iron model.')
         logger.info('{}: Saved dataset.'.format(exp.file_felx.stem))
 
+        # Plot output
         test_plot_EUC_iron_depth_profile(pds, ds, dfs)
         # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
     return ds
@@ -497,7 +492,7 @@ def run_iron_model(exp, NPZD=False):
 
 if __name__ == '__main__':
     p = ArgumentParser(description="""Optimise iron model paramaters.""")
-    p.add_argument('-x', '--lon', default=220, type=int,
+    p.add_argument('-x', '--lon', default=250, type=int,
                    help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     args = p.parse_args()
