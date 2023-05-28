@@ -467,7 +467,7 @@ def run_iron_model(exp, NPZD=False):
             # trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
             # ds = ds.sel(traj=trajs)
             # ds = ds.isel(traj=slice(200)).dropna('obs', 'all')
-        param_dict = ['{}={}'.format(k, pds.params[k])for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180']]
+        param_dict = ['{}={}'.format(k, pds.params[k]) for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'PAR']]
         logger.info('{}: p={}: {}'.format(exp.file_felx.stem, ds.traj.size, param_dict))
     else:
         ds = None
@@ -491,6 +491,13 @@ def run_iron_model(exp, NPZD=False):
         # Plot output
         test_plot_EUC_iron_depth_profile(pds, ds, dfs)
         # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
+
+        # Cost
+        z = ds.z.ffill('obs').isel(obs=-1)
+        fe_obs = ds_fe.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
+        fe_pred = ds.fe.ffill('obs').isel(obs=-1, drop=True)
+        cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
+        logger.info('{}: p={}: cost={}: {}'.format(pds.exp.file_base, ds.traj.size, cost, param_dict))
     return ds
 
 
