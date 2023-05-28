@@ -1,9 +1,9 @@
 #!/bin/bash
 #PBS -P e14
-#PBS -q normal
-#PBS -l walltime=48:00:00
-#PBS -l mem=192GB
-#PBS -l ncpus=48
+#PBS -q normalbw
+#PBS -l walltime=06:00:00
+#PBS -l mem=98GB
+#PBS -l ncpus=16
 #PBS -l storage=gdata/hh5+gdata/e14
 #PBS -l wd
 #PBS -m ae
@@ -20,5 +20,5 @@ ECHO=/bin/echo
 $ECHO "Save BGC fields at EUC particle positions for: exp=$EXP, lon=$LON, R=$R, V_index=$V & NCPUS=$PBS_NCPUS."
 
 module use /g/data3/hh5/public/modules
-module load conda/analysis3-unstable
+module load conda/analysis3-22.04
 mpiexec -n $PBS_NCPUS python3 /g/data/e14/as3189/stellema/felx/scripts/particle_BGC_fields.py -e $EXP -x $LON -v 0 -r $R -func 'bgc_fields' -iv $V
