@@ -318,7 +318,7 @@ def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_or
 
 
 # @timeit(my_logger=logger)  # Turn off for optimisation
-def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=False):
+def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=False):
     """Run iron model for each particle.
 
     Args:
@@ -329,7 +329,6 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
-    ds = dss.copy()
     if MPI is not None:
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
@@ -389,13 +388,18 @@ def update_particles_MPI(pds, dss, ds_fe, param_names=None, params=None, NPZD=Fa
     # Synchronize all processes
     if MPI is not None:
         tmp_files = pds.felx_tmp_filenames(size)
+        comm.Barrier()
         if tmp_files[rank].exists():  # Delete previous tmp_file before saving
             os.remove(tmp_files[rank])
-
-        save_dataset(ds, tmp_files[rank])
+        ds = ds.chunk()
+        ds.to_netcdf(tmp_files[rank], compute=True)
+        ds.close()
         comm.Barrier()
 
         ds = xr.open_mfdataset(tmp_files)
+        #comm.Barrier()
+        # if tmp_files[rank].exists():  # Delete previous tmp_file before saving
+        #     os.remove(tmp_files[rank])
     return ds
 
 

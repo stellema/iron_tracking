@@ -60,15 +60,16 @@ def cost_function(pds, ds, fe_obs, dfs, params, rank=0):
     fe_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, pds.param_names, params)
 
     # Final particle Fe.
-    fe_pred_f = fe_pred.fe.ffill('obs').isel(obs=-1, drop=True)
+    fe_pred = fe_pred.fe.ffill('obs').isel(obs=-1, drop=True)
 
     # Error for each particle.
-    cost = np.fabs((fe_obs - fe_pred_f)).weighted(ds.u).mean()  # Least absolute deviations
+    cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean()  # Least absolute deviations
     # cost = np.sqrt(np.sum((F_obs - F_pred)**2) / F_obs.size)  # RSMD
     cost = cost.load().item()
 
     if rank == 0:
         logger.info('{}: p={}: cost={} {}'.format(pds.exp.file_base, ds.traj.size, cost, params_dict))
+    fe_pred.close()
     return cost
 
 
@@ -153,7 +154,7 @@ def optimise_iron_model_params(lon, method):
     return res
 
 
-@timeit(my_logger=logger)
+# @timeit(my_logger=logger)
 def optimise_multi_lon_dataset():
     """Save dataset for multi-lon paramater optimisation."""
     # Source iron profile.
@@ -207,7 +208,7 @@ def optimise_multi_lon_dataset():
 
 
 @timeit(my_logger=logger)
-def optimise_iron_model_params_multi_lon(method):
+def optimise_iron_model_params_multi_lon(lon, method):
     """Optimise Lagrangian iron model paramaters.
 
     Args:
@@ -235,15 +236,13 @@ def optimise_iron_model_params_multi_lon(method):
 
     if cfg.test:
         ds = ds.isel(traj=slice(10))
-        ds = ds.isel(traj=slice(10))
 
     # Source iron profile.
-    pds = FelxDataSet(ExpData(scenario=0, lon=0))
+    pds = FelxDataSet(ExpData(scenario=0, lon=lon))
 
     # Paramaters to optimise (e.g., a, b, c = params).
-    pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'I_0', 'PAR', 'mu_D', 'mu_D_180',
-                       'gamma_2', 'mu_P', 'a', 'b', 'c']
-
+    #pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'I_0', 'PAR', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'a', 'b', 'c']
+    pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']
     params_init = [pds.params[i] for i in pds.param_names]  # params = params_init
 
     param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5],
@@ -284,4 +283,4 @@ if __name__ == '__main__':
     if lon in [165, 190, 220, 250]:
         res = optimise_iron_model_params(lon, method=method)
     else:
-        res = optimise_iron_model_params_multi_lon(method=method)
+        res = optimise_iron_model_params_multi_lon(lon, method=method)
