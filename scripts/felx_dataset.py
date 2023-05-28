@@ -408,19 +408,19 @@ class FelxDataSet(object):
         # Detritus paramaters.
         params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
         # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
-        params['mu_D'] = 0.0175  # 0.02 b**cT
-        params['mu_D_180'] = 0.0121317  # 0.01 b**cT
+        params['mu_D'] = 0.02  # 0.02 b**cT
+        params['mu_D_180'] = 0.01  # 0.01 b**cT
 
         # Phytoplankton paramaters.
-        params['I_0'] = 280  # Surface incident solar radiation [W/m^2] (not actually constant)
+        params['I_0'] = 250  # Surface incident solar radiation [W/m^2] (not actually constant)
         params['alpha'] = 0.025  # Initial slope of P-I curve [day^-1 / (Wm^-2)]. (Qin: 0.256)
-        params['PAR'] = 0.3391  # Photosynthetically active radiation (0.34/0.43) [no unit]
-        params['a'] = 0.48645  # 0.6 Growth rate at 0C [day^-1] (Qin: 0.27?)
-        params['b'] = 0.8  # 1.066 Temperature sensitivity of growth [no units]
-        params['c'] = 1.1398  # Growth rate reference for light limitation [C^-1]
+        params['PAR'] = 0.34  # Photosynthetically active radiation (0.34/0.43) [no unit]
+        params['a'] = 0.6  # 0.6 Growth rate at 0C [day^-1] (Qin: 0.27?)
+        params['b'] = 1.066  # 1.066 Temperature sensitivity of growth [no units]
+        params['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
         params['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [needs converting to mmol Fe m^-3]
         params['k_N'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
-        params['mu_P'] = 0.014364  # (*b^cT) Phytoplankton mortality [day^-1]
+        params['mu_P'] = 0.01  # (*b^cT) Phytoplankton mortality [day^-1]
 
         # Zooplankton paramaters.
         params['gamma_1'] = 0.85  # Assimilation efficiency [no units]
