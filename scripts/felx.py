@@ -494,7 +494,7 @@ def run_iron_model(exp, NPZD=False):
 
         # Cost
         z = ds.z.ffill('obs').isel(obs=-1)
-        fe_obs = ds_fe.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
+        fe_obs = ds_fe.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
         fe_pred = ds.fe.ffill('obs').isel(obs=-1, drop=True)
         cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
         logger.info('{}: p={}: cost={}: {}'.format(pds.exp.file_base, ds.traj.size, cost, param_dict))
