@@ -453,8 +453,8 @@ def run_iron_model(exp, NPZD=False):
 
     if rank == 0:
         logger.info('{}: Running...'.format(exp.file_felx.stem))
-        ds = pds.init_felx_dataset()
-        # ds = pds.init_felx_optimise_dataset()
+        # ds = pds.init_felx_dataset()
+        ds = pds.init_felx_optimise_dataset()
 
         # Subset number of particles.
         if cfg.test:
@@ -484,9 +484,9 @@ def run_iron_model(exp, NPZD=False):
         ds = pds.add_variable_attrs(ds)
 
         # Write output to netCDF file
-        logger.info('{}: p={}: Saving dataset...'.format(exp.file_felx.stem, ds.traj.size))
-        save_dataset(ds, pds.exp.file_felx, msg='Created from Lagrangian iron model.')
-        logger.info('{}: Saved dataset.'.format(exp.file_felx.stem))
+        # logger.info('{}: p={}: Saving dataset...'.format(exp.file_felx.stem, ds.traj.size))
+        # save_dataset(ds, pds.exp.file_felx, msg='Created from Lagrangian iron model.')
+        # logger.info('{}: Saved dataset.'.format(exp.file_felx.stem))
 
         # Plot output
         test_plot_EUC_iron_depth_profile(pds, ds, dfs)
