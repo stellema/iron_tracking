@@ -7,20 +7,18 @@ Example:
 
 Todo:
 
-
-hist_165_v0_00: p=2135: cost=0.3138301968574524 {'c_scav': 2.5, 'k_inorg': 1.000000000000001e-08, 'k_org': 0.00018144043748232996, 'mu_D': 0.03999999999999999, 'mu_D_180': 0.03}
-hist_165_v0_00: p=2135, method=Nelder-Mead, nit=37, nfev=59, success=True, message=Optimization terminated successfully.
-hist_165_v0_00: Optimimal {'c_scav': 2.5, 'k_inorg': 1.000000000000001e-08, 'k_org': 0.00018144043748232996, 'mu_D': 0.03999999999999999, 'mu_D_180': 0.03}
-
-hist_190_v0_00: p=2782: cost=0.2835429012775421 {'c_scav': 2.0, 'k_inorg': 0.0006257817077636716, 'k_org': 0.00010003890991210938, 'mu_D': 0.02000781250464934, 'mu_D_180': 0.010062507627066224}
-
-hist_220_v0_00: p=3211: cost=0.21084801852703094 {'c_scav': 2.5, 'k_inorg': 0.001, 'k_org': 2.6156331054350042e-05, 'mu_D': 0.03999999999999993, 'mu_D_180': 0.03}
-hist_220_v0_00: p=3211, method=Nelder-Mead, nit=55, nfev=82, success=True, message=Optimization terminated successfully.
-hist_220_v0_00: Optimimal {'c_scav': 2.5, 'k_inorg': 0.001, 'k_org': 2.6156331054350042e-05, 'mu_D': 0.03999999999999993, 'mu_D_180': 0.03}
-
-hist_250_v0_00: p=3294: cost=0.30697357654571533 {'c_scav': 1.5, 'k_inorg': 0.001, 'k_org': 0.001, 'mu_D': 0.005, 'mu_D_180': 0.03}
-hist_250_v0_00: p=3294, method=Nelder-Mead, nit=59, nfev=90, success=True, message=Optimization terminated successfully.
-hist_250_v0_00: Optimimal {'c_scav': 1.5, 'k_inorg': 0.001, 'k_org': 0.001, 'mu_D': 0.005, 'mu_D_180': 0.03}
+Multi-lon:
+cost=0.2939159870147705: c_scav=2.5 k_inorg=0.001 k_org=0.0009568104638292959 mu_D=0.00, mu_D_180=0.03
+cost=0.29445257782936096: c_scav=2.5 k_inorg=0.001 k_org=1.4780934529146143e-05 mu_D=0.005 mu_D_180=0.03
+cost=0.29581040143966675: c_scav=2.499546896146215 k_inorg=0.001 k_org=0.00099 mu_D=0.01 mu_D_180=0.01
+cost=0.2875936031341553: c_scav=2.5 k_inorg=0.001 k_org=0.0001171 I_0=280 PAR=0.3391 mu_D=0.0175
+                         mu_D_180=0.0121317 gamma_2=0.0059699 mu_P=0.014364 a=0.48645 b=0.8 c=1.1398
+Single lon:
+hist_190: p=2782: cost=0.2835429012775421: c_scav=2.0 k_inorg=0.0006257817077636716
+                    k_org=0.00010003890991210938 mu_D=0.02000781250464934 mu_D_180=0.0100625
+hist_220: p=3211: cost=0.21084801852703094: c_scav=2.5 k_inorg=0.001 k_org=2.6156331054350042e-05
+                    mu_D=0.03999999999999993 mu_D_180=0.03
+hist_250: p=3294: cost=0.30697357654571: c_scav=1.5 k_inorg=0.001 k_org=0.001 mu_D=0.005 mu_D_180=0.03
 
 
 @author: Annette Stellema
