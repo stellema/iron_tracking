@@ -348,6 +348,10 @@ class FelxDataSet(object):
 
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
+        if self.exp.file_felx_tmp.exists():
+            ds = xr.open_dataset(self.exp.file_felx_tmp)
+            return ds
+
         file = self.exp.file_felx_bgc
         ds = xr.open_dataset(file)
         ds_inv = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
@@ -366,6 +370,7 @@ class FelxDataSet(object):
         # Apply new EUC definition (u > 0.1 m/s).2
         traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
         ds = ds.sel(traj=traj)
+        save_dataset(ds, self.exp.file_felx_tmp)
         return ds
 
     def init_felx_optimise_dataset(self):

@@ -337,6 +337,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
         # Distribute particles among processes
         particle_subset = pds.particle_subsets(ds, size)[rank]
         ds = ds.isel(traj=slice(*particle_subset))
+        logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
     else:
         rank = 0
 
@@ -345,8 +346,6 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
     # Constants.
     if params is not None:
         pds.update_params(dict([(k, v) for k, v in zip(param_names, params)]))
-    else:
-        logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
 
     field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z', 'J_max', 'J_I']
     constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
@@ -427,7 +426,7 @@ def update_particles(pds, ds, ds_fe, param_names=None, params=None):
     return ds
 
 
-def run_iron_model(exp, NPZD=False):
+def run_iron_model(pds, NPZD=False):
     """Set up and run Lagrangian iron model.
 
     Args:
@@ -447,32 +446,26 @@ def run_iron_model(exp, NPZD=False):
     ds_fe = dfs.dfe.ds_avg
 
     # Particle dataset
-    pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    if rank == 0:
-        logger.info('{}: Running...'.format(exp.file_felx.stem))
-        ds = pds.init_felx_dataset()
-        # ds = pds.init_felx_optimise_dataset()
+    logger.info('{}: Running...'.format(exp.file_felx.stem))
+    ds = pds.init_felx_dataset()
+    # ds = pds.init_felx_optimise_dataset()
 
-        # Subset number of particles.
-        if cfg.test:
-            ndays = 2
-            ds = ds.isel(traj=slice(750 * ndays))
-            target = np.datetime64('2012-12-31T12') - np.timedelta64(ndays * 6 - 1, 'D')
-            traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
-            ds = ds.sel(traj=traj)
-            # # Cut off particles in early years to load less ofam fields.
-            # trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
-            # ds = ds.sel(traj=trajs)
-            # ds = ds.isel(traj=slice(200)).dropna('obs', 'all')
-        param_dict = ['{}={}'.format(k, pds.params[k]) for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'PAR']]
-        logger.info('{}: p={}: {}'.format(exp.file_felx.stem, ds.traj.size, param_dict))
-    else:
-        ds = None
+    # Subset number of particles.
+    if cfg.test:
+        ndays = 2
+        ds = ds.isel(traj=slice(750 * ndays))
+        target = np.datetime64('2012-12-31T12') - np.timedelta64(ndays * 6 - 1, 'D')
+        traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
+        ds = ds.sel(traj=traj)
+        # # Cut off particles in early years to load less ofam fields.
+        # trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
+        # ds = ds.sel(traj=trajs)
+        # ds = ds.isel(traj=slice(200)).dropna('obs', 'all')
 
-    if MPI is not None:
-        ds = comm.bcast(ds, root=0)
+    param_dict = ['{}={}'.format(k, pds.params[k]) for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'PAR']]
+    logger.info('{}: p={}: {}'.format(exp.file_felx.stem, ds.traj.size, param_dict))
 
     # Run iron model for particles.
     ds = update_particles_MPI(pds, ds, ds_fe, NPZD=NPZD)
@@ -487,7 +480,9 @@ def run_iron_model(exp, NPZD=False):
         save_dataset(ds, pds.exp.file_felx, msg='Created from Lagrangian iron model.')
         logger.info('{}: Saved dataset.'.format(exp.file_felx.stem))
 
+    if rank == 0:
         # Plot output
+        logger.info('{}: Test plot.'.format(exp.file_felx.stem))
         test_plot_EUC_iron_depth_profile(pds, ds, dfs)
         # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
 
@@ -505,8 +500,16 @@ if __name__ == '__main__':
     p.add_argument('-x', '--lon', default=250, type=int,
                    help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
+    p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
     args = p.parse_args()
-    scenario, lon = args.scenario, args.lon
+    scenario, lon, version = args.scenario, args.lon, args.version
 
-    exp = ExpData(scenario=scenario, lon=lon, scav_eq='Galibraith', name='fe')
-    ds = run_iron_model(exp, NPZD=False)
+    exp = ExpData(scenario=scenario, lon=lon, version=version, name='fe',
+                  out_subdir='v{}'.format(version))
+    pds = FelxDataSet(exp)
+
+    if not pds.exp.file_felx_tmp.exists():
+        ds = pds.init_felx_dataset()
+        pds = FelxDataSet(exp)
+    else:
+        ds = run_iron_model(pds, NPZD=False)
