@@ -35,8 +35,8 @@ import xarray as xr  # NOQA
 import cfg  # NOQA
 from cfg import ExpData
 from datasets import save_dataset
-from felx_dataset import FelxDataSet
-from felx import update_particles_MPI
+from fe_exp import FelxDataSet
+from fe_model import update_particles_MPI
 from fe_obs_dataset import iron_source_profiles
 from test_iron_model_optimisation import (test_plot_iron_paths, test_plot_EUC_iron_depth_profile)
 from tools import mlogger, timeit

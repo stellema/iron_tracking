@@ -50,7 +50,7 @@ import cfg
 from cfg import ExpData
 from tools import mlogger, timeit
 from datasets import BGCFields, ofam_clim, save_dataset
-from felx_dataset import FelxDataSet
+from fe_exp import FelxDataSet
 from fe_obs_dataset import iron_source_profiles
 from particle_BGC_fields import update_field_AAA
 from test_iron_model_optimisation import (test_plot_iron_paths, test_plot_EUC_iron_depth_profile,

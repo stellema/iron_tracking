@@ -41,7 +41,7 @@ import xarray as xr  # NOQA
 import cfg
 from cfg import ExpData
 from datasets import save_dataset, BGCFields, plx_particle_dataset, convert_plx_times
-from felx_dataset import FelxDataSet
+from fe_exp import FelxDataSet
 from tools import timeit, mlogger
 try:
     from mpi4py import MPI

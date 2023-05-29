@@ -58,7 +58,7 @@ import xarray as xr
 from cfg import paths, ExpData
 from tools import timeit, mlogger
 from datasets import ofam3_datasets, save_dataset, BGCFields, convert_plx_times
-from felx_dataset import FelxDataSet
+from fe_exp import FelxDataSet
 from particle_BGC_fields import update_field_AAA, update_field_AAA_old
 from fieldsets import (get_fe_pclass, add_fset_constants,
                        ofam3_fieldset_parcels221, add_Kd490_field_parcels221,

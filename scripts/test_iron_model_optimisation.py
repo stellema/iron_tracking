@@ -35,7 +35,7 @@ import xarray as xr  # NOQA
 import cfg
 from cfg import paths
 from datasets import ofam_clim, BGCFields
-from felx_dataset import FelxDataSet
+from fe_exp import FelxDataSet
 from tools import mlogger, unique_name
 from particle_BGC_fields import update_field_AAA
 
