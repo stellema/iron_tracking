@@ -161,7 +161,7 @@ class FelxDataSet(object):
             open_kwargs (dict): xarray.open_dataset keywords.
 
         Notes:
-            - Saves file as './data/felx/plx_hist_165_v1r00.nc'
+            - Saves file as './data/plx/plx_hist_165_v1r00.nc'
             - Drops 'unbeached' variable.
             - Runs in 5-10 mins per file.
 
@@ -302,7 +302,7 @@ class FelxDataSet(object):
 
     def bgc_var_tmp_filenames(self, var, suffix='.nc'):
         """Get tmp filenames for BGC tmp subsets."""
-        tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx_bgc.stem)
+        tmp_dir = self.exp.out_dir / 'tmp_{}'.format(self.exp.file_felx_bgc.stem)
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
         tmp_files = [tmp_dir / '{}_{:03d}{}'.format(var, i, suffix) for i in range(self.n_subsets)]

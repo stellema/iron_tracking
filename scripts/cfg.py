@@ -154,13 +154,13 @@ class ExpData:
 
     scenario: int
     lon: int = field(default=165)
-    name: str = field(default='felx')
+    name: str = field(default='fe')
     version: int = field(default=0)
     file_index: int = field(default=0)
     test: bool = field(default=False)
     spinup_year_offset: int = field(default=4)
     spinup_num_years: int = field(default=10)
-    out_subdir: str = field(default='felx')
+    out_subdir: str = field(default='')
     test_month_bnds: int = field(default=3)
     # Iron model params
     scav_eq: str = field(default='Galibraith')
@@ -187,18 +187,17 @@ class ExpData:
                             datetime(self.year_bnds[1] - self.spinup_num_years, 12, 31)]
         # Data file names.
         self.file_index_orig = int(np.ceil((self.file_index - 1) / 2))
-        self.out_dir = paths.data
+        self.out_dir = paths.data / 'fe_model'
 
-        if self.out_subdir != '':
-            self.out_dir = self.out_dir / self.out_subdir
+        self.out_subdir = self.out_dir / self.out_subdir
 
         self.file_base = '{}_{}_v{}_{:02d}'.format(self.scenario_abbr, self.lon, self.version,
                                                    self.file_index)
 
-        self.file_felx = self.out_dir / '{}_{}.nc'.format(self.name, self.file_base)
-        self.file_felx_tmp = self.out_dir / '{}_{}_tmp.nc'.format(self.name, self.file_base)
-        self.file_felx_bgc = paths.data / 'felx/felx_bgc_{}.nc'.format(self.file_base)
-        self.file_felx_bgc_tmp = paths.data / 'felx/felx_bgc_{}_tmp.nc'.format(self.file_base)
+        self.file_felx = self.out_subdir / '{}_{}.nc'.format(self.name, self.file_base)
+        self.file_felx_tmp = self.out_subdir / '{}_{}_tmp.nc'.format(self.name, self.file_base)
+        self.file_felx_bgc = self.out_dir / 'felx_bgc_{}.nc'.format(self.file_base)
+        self.file_felx_bgc_tmp = self.out_dir / 'felx_bgc_{}_tmp.nc'.format(self.file_base)
         self.file_plx = paths.data / 'plx/plx_{}_{}_v1_{:02d}.nc'.format(self.scenario_abbr,
                                                                          self.lon, self.file_index)
         self.file_plx_inv = paths.data / 'plx/{}_inverse.nc'.format(self.file_plx.stem)

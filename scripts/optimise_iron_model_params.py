@@ -8,6 +8,7 @@ Example:
 Todo:
 
 Multi-lon:
+cost=0.29325631260871887: c_scav=2.5 k_inorg=0.001 k_org=0.001 mu_D=0.005 mu_D_180=0.03 (diff PAR & I_0)
 cost=0.2939159870147705: c_scav=2.5 k_inorg=0.001 k_org=0.0009568104638292959 mu_D=0.00, mu_D_180=0.03
 cost=0.29445257782936096: c_scav=2.5 k_inorg=0.001 k_org=1.4780934529146143e-05 mu_D=0.005 mu_D_180=0.03
 cost=0.29581040143966675: c_scav=2.499546896146215 k_inorg=0.001 k_org=0.00099 mu_D=0.01 mu_D_180=0.01
@@ -68,6 +69,7 @@ def cost_function(pds, ds, fe_obs, dfs, params, rank=0):
     if rank == 0:
         logger.info('{}: p={}: cost={} {}'.format(pds.exp.file_base, ds.traj.size, cost, params_dict))
     fe_pred.close()
+
     return cost
 
 
@@ -157,8 +159,8 @@ def optimise_multi_lon_dataset():
     """Save dataset for multi-lon paramater optimisation."""
     # Source iron profile.
     dfs = iron_source_profiles()
-    file_ds = cfg.paths.data / 'felx/felx_optimise_hist_multi.nc'
-    file_obs = cfg.paths.data / 'felx/fe_obs_optimise_hist_multi.nc'
+    file_ds = cfg.paths.data / 'fe_model/felx_optimise_hist_multi.nc'
+    file_obs = cfg.paths.data / 'fe_model/fe_obs_optimise_hist_multi.nc'
 
     if file_ds.exists() and file_obs.exists():
         ds = xr.open_dataset(file_ds)

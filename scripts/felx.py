@@ -504,7 +504,7 @@ if __name__ == '__main__':
     args = p.parse_args()
     scenario, lon, version = args.scenario, args.lon, args.version
 
-    exp = ExpData(scenario=scenario, lon=lon, version=version, name='fe',
+    exp = ExpData(scenario=scenario, lon=lon, version=version, name='fe_model',
                   out_subdir='v{}'.format(version))
     pds = FelxDataSet(exp)
 
