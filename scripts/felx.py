@@ -501,11 +501,12 @@ if __name__ == '__main__':
                    help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
+    p.add_argument('-r', '--index', default=0, type=int, help='File repeat index [0-7].')
     args = p.parse_args()
-    scenario, lon, version = args.scenario, args.lon, args.version
+    scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
 
-    exp = ExpData(scenario=scenario, lon=lon, version=version, name='fe_model',
-                  out_subdir='v{}'.format(version))
+    exp = ExpData(name='fe', out_subdir='v{}'.format(version), scenario=scenario, lon=lon,
+                  version=version, index=index)
     pds = FelxDataSet(exp)
 
     if not pds.exp.file_felx_tmp.exists():
