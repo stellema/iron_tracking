@@ -354,10 +354,9 @@ class FelxDataSet(object):
 
         file = self.exp.file_felx_bgc
         ds = xr.open_dataset(file)
-        ds_inv = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
+        ds_inv = xr.open_dataset(self.exp.file_plx_inv)
         for var in ['age', 'distance']:
             ds[var] = ds_inv[var]
-        ds_inv.close()
 
         variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
         for var in variables:
@@ -371,6 +370,7 @@ class FelxDataSet(object):
         traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
         ds = ds.sel(traj=traj)
         save_dataset(ds, self.exp.file_felx_tmp)
+        ds_inv.close()
         return ds
 
     def init_felx_optimise_dataset(self):
