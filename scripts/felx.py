@@ -385,19 +385,18 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
             ds['fe_reg'][dict(traj=p, obs=t - 1)] = fe_reg
             ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
 
-    # Synchronize all processes
     if MPI is not None:
+        # Save proc dataset as tmp file.
         tmp_files = pds.felx_tmp_filenames(size)
-        comm.Barrier()
-        if tmp_files[rank].exists():  # Delete previous tmp_file before saving
-            os.remove(tmp_files[rank])
         ds = ds.chunk()
         ds.to_netcdf(tmp_files[rank], compute=True)
         ds.close()
-        comm.Barrier()
+        logger.info('{}: rank={}: Saved dataset.'.format(pds.exp.file_felx.stem, rank))
 
+        # Synchronize all processes
+        comm.Barrier()
         ds = xr.open_mfdataset(tmp_files)
-        #comm.Barrier()
+        # comm.Barrier()
         # if tmp_files[rank].exists():  # Delete previous tmp_file before saving
         #     os.remove(tmp_files[rank])
     return ds
@@ -453,8 +452,8 @@ def run_iron_model(exp, NPZD=False):
 
     if rank == 0:
         logger.info('{}: Running...'.format(exp.file_felx.stem))
-        # ds = pds.init_felx_dataset()
-        ds = pds.init_felx_optimise_dataset()
+        ds = pds.init_felx_dataset()
+        # ds = pds.init_felx_optimise_dataset()
 
         # Subset number of particles.
         if cfg.test:
@@ -484,9 +483,9 @@ def run_iron_model(exp, NPZD=False):
         ds = pds.add_variable_attrs(ds)
 
         # Write output to netCDF file
-        # logger.info('{}: p={}: Saving dataset...'.format(exp.file_felx.stem, ds.traj.size))
-        # save_dataset(ds, pds.exp.file_felx, msg='Created from Lagrangian iron model.')
-        # logger.info('{}: Saved dataset.'.format(exp.file_felx.stem))
+        logger.info('{}: p={}: Saving dataset...'.format(exp.file_felx.stem, ds.traj.size))
+        save_dataset(ds, pds.exp.file_felx, msg='Created from Lagrangian iron model.')
+        logger.info('{}: Saved dataset.'.format(exp.file_felx.stem))
 
         # Plot output
         test_plot_EUC_iron_depth_profile(pds, ds, dfs)

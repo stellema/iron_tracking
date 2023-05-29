@@ -24,7 +24,7 @@ import xarray as xr  # NOQA
 import cfg
 from cfg import paths
 from datasets import plx_particle_dataset, save_dataset
-from tools import timeit, mlogger
+from tools import timeit, mlogger, unique_name
 
 logger = mlogger('files_felx')
 
@@ -391,6 +391,7 @@ class FelxDataSet(object):
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
         tmp_files = [tmp_dir / '{:02d}.nc'.format(i) for i in range(size)]
+        tmp_files = [unique_name(tmp_files[i]) for i in range(size)]
         return tmp_files
 
     def add_iron_model_params(self):
@@ -401,20 +402,20 @@ class FelxDataSet(object):
         params = {}
         # Scavenging paramaters.
         params['c_scav'] = 2.5  # Scavenging rate constant [no units]
-        params['k_org'] = 0.0001171  # Organic iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
+        params['k_org'] = 1e-3  # Organic iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
         params['k_inorg'] = 1e-3  # Inorganic iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
         params['tau'] = 1.24e-2  # Scavenging rate [day^-1] (OFAM3 equation) (Oke: 1, other: 1.24e-2)
 
         # Detritus paramaters.
         params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
         # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
-        params['mu_D'] = 0.02  # 0.02 b**cT
-        params['mu_D_180'] = 0.01  # 0.01 b**cT
+        params['mu_D'] = 0.005  # 0.02 b**cT
+        params['mu_D_180'] = 0.03  # 0.01 b**cT
 
         # Phytoplankton paramaters.
-        params['I_0'] = 250  # Surface incident solar radiation [W/m^2] (not actually constant)
+        params['I_0'] = 280  # Surface incident solar radiation [W/m^2] (not actually constant)
         params['alpha'] = 0.025  # Initial slope of P-I curve [day^-1 / (Wm^-2)]. (Qin: 0.256)
-        params['PAR'] = 0.34  # Photosynthetically active radiation (0.34/0.43) [no unit]
+        params['PAR'] = 0.43  # Photosynthetically active radiation (0.34/0.43) [no unit]
         params['a'] = 0.6  # 0.6 Growth rate at 0C [day^-1] (Qin: 0.27?)
         params['b'] = 1.066  # 1.066 Temperature sensitivity of growth [no units]
         params['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
