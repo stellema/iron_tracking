@@ -346,39 +346,48 @@ class FelxDataSet(object):
             ds[var] = da[var].interpolate_na('obs', method='slinear', limit=10)
         return ds
 
+    def get_updated_traj(self):
+        """Get and or save trajectory IDs after applying new EUC definition."""
+        file = self.exp.file_felx_init
+
+        if file.exists():
+            ds = xr.open_dataset(file)
+        else:
+            ds = xr.open_dataset(self.exp.file_felx_bgc)
+            logger.info('{}: Creating...'.format(file.stem))
+            logger.debug('{}: Applying new EUC definition'.format(file.stem))
+            # Apply new EUC definition (u > 0.1 m/s).2
+            traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
+            ds = ds.sel(traj=traj)
+            ds = ds.drop([v for v in ds.data_vars if v not in ['trajectory']])
+
+            logger.debug('{}: Saving...'.format(file.stem))
+            save_dataset(ds, file, msg='Saved init felx dataset')
+            logger.debug('{}: Saved.'.format(file.stem))
+
+        traj = ds.traj
+        ds.close()
+        return traj
+
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
-        if self.exp.file_felx_tmp.exists():
-            ds = xr.open_dataset(self.exp.file_felx_tmp)
-            if 'fe_scav' not in ds.data_vars:
-                variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
-                for var in variables:
-                    ds[var] = self.empty_DataArray(ds)
-            return ds
-
-        logger.info('{}: Creating...'.format(self.exp.file_felx_tmp.stem))
-        file = self.exp.file_felx_bgc
-        ds = xr.open_dataset(file)
+        ds = xr.open_dataset(self.exp.file_felx_bgc)
+        # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
+        traj = self.get_updated_traj()
+        ds = ds.sel(traj=traj)
 
         # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
         ds['kd'] = 10**ds.kd
         ds['kd'].attrs['scaling'] = ''
-
-        logger.debug('{}: Applying new EUC definition'.format(self.exp.file_felx_tmp.stem))
-        # Apply new EUC definition (u > 0.1 m/s).2
-        traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
-        ds = ds.sel(traj=traj)
-        logger.debug('{}: Saving...'.format(self.exp.file_felx_tmp.stem))
-        save_dataset(ds, self.exp.file_felx_tmp)
-        logger.debug('{}: Saved.'.format(self.exp.file_felx_tmp.stem))
-
         variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
         for var in variables:
             ds[var] = self.empty_DataArray(ds)
         return ds
 
     def save_felx_dataset(self):
-        """Get finished felx BGC dataset and format."""
+        """Save & format finished felx tmp datasets."""
+        file = self.exp.file_felx
+
         # Merge tmp files
         tmp_files = self.felx_tmp_filenames(48)
         ds_fe = xr.open_mfdataset(tmp_files)
@@ -390,18 +399,19 @@ class FelxDataSet(object):
             ds[var] = ds_fe[var]
 
         if 'age' not in ds.data_vars:
-            logger.debug('{}: Copying age and distance.'.format(self.exp.file_felx.stem))
+            logger.debug('{}: Copying age and distance.'.format(file.stem))
             ds_inv = xr.open_dataset(self.exp.file_plx_inv)
             for var in ['age', 'distance']:
                 ds[var] = ds_inv[var]
             ds_inv.close()
 
+        # Add metadata
         ds.attrs['constants'] = self.params.copy()
         ds = self.add_variable_attrs(ds)
 
-        logger.info('{}: Saving...'.format(self.exp.file_felx.stem))
-        save_dataset(ds, self.exp.file_felx, msg='Created from Lagrangian iron model.')
-        logger.info('{}: Saved.'.format(self.exp.file_felx.stem))
+        logger.info('{}: Saving...'.format(file.stem))
+        save_dataset(ds, file, msg='Created from Lagrangian iron model.')
+        logger.info('{}: Saved.'.format(file.stem))
         ds_fe.close()
         return ds
 

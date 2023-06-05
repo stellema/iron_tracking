@@ -474,21 +474,8 @@ def run_iron_model(pds, NPZD=False):
     ds = update_particles_MPI(pds, ds, ds_fe, NPZD=NPZD)
 
     # if rank == 0 and not cfg.test:
-    #     # Add metadata
     #     ds = pds.save_felx_dataset()
 
-    # if rank == 0:
-    #     # Plot output
-    #     logger.info('{}: Test plot.'.format(exp.file_felx.stem))
-    #     test_plot_EUC_iron_depth_profile(pds, ds, dfs)
-    #     # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
-
-    #     # Cost
-    #     z = ds.z.ffill('obs').isel(obs=-1)
-    #     fe_obs = ds_fe.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
-    #     fe_pred = ds.fe.ffill('obs').isel(obs=-1, drop=True)
-    #     cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
-    #     logger.info('{}: p={}: cost={}: {}'.format(pds.exp.file_base, ds.traj.size, cost, param_dict))
     return ds
 
 
@@ -499,14 +486,32 @@ if __name__ == '__main__':
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
     p.add_argument('-r', '--index', default=0, type=int, help='File repeat index [0-7].')
+    p.add_argument('-f', '--func', default='run', type=str, help='init, run or save.')
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
 
     exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
     pds = FelxDataSet(exp)
 
-    if not pds.exp.file_felx_tmp.exists():
-        ds = pds.init_felx_dataset()
-        pds = FelxDataSet(exp)
-    else:
+    if not pds.exp.file_felx_init.exists():
+        traj = pds.get_updated_traj()
+
+    if args.func == 'run':
         ds = run_iron_model(pds, NPZD=False)
+
+    elif args.func == 'save':
+        ds = pds.save_felx_dataset()
+        dfs = iron_source_profiles()
+        ds_fe = dfs.dfe.ds_avg
+
+        # Plot output
+        logger.info('{}: Test plot.'.format(exp.file_felx.stem))
+        test_plot_EUC_iron_depth_profile(pds, ds, dfs)
+        # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
+
+        # Cost
+        z = ds.z.ffill('obs').isel(obs=-1)
+        fe_obs = ds_fe.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
+        fe_pred = ds.fe.ffill('obs').isel(obs=-1, drop=True)
+        cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
+        logger.info('{}: p={}: cost={}:'.format(pds.exp.file_base, ds.traj.size, cost))
