@@ -350,27 +350,59 @@ class FelxDataSet(object):
         """Get finished felx BGC dataset and format."""
         if self.exp.file_felx_tmp.exists():
             ds = xr.open_dataset(self.exp.file_felx_tmp)
+            if 'fe_scav' not in ds.data_vars:
+                variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
+                for var in variables:
+                    ds[var] = self.empty_DataArray(ds)
             return ds
 
+        logger.info('{}: Creating...'.format(self.exp.file_felx_tmp.stem))
         file = self.exp.file_felx_bgc
         ds = xr.open_dataset(file)
-        ds_inv = xr.open_dataset(self.exp.file_plx_inv)
-        for var in ['age', 'distance']:
-            ds[var] = ds_inv[var]
-
-        variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
-        for var in variables:
-            ds[var] = self.empty_DataArray(ds)
 
         # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
         ds['kd'] = 10**ds.kd
         ds['kd'].attrs['scaling'] = ''
 
+        logger.debug('{}: Applying new EUC definition'.format(self.exp.file_felx_tmp.stem))
         # Apply new EUC definition (u > 0.1 m/s).2
         traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
         ds = ds.sel(traj=traj)
+        logger.debug('{}: Saving...'.format(self.exp.file_felx_tmp.stem))
         save_dataset(ds, self.exp.file_felx_tmp)
-        ds_inv.close()
+        logger.debug('{}: Saved.'.format(self.exp.file_felx_tmp.stem))
+
+        variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
+        for var in variables:
+            ds[var] = self.empty_DataArray(ds)
+        return ds
+
+    def save_felx_dataset(self):
+        """Get finished felx BGC dataset and format."""
+        # Merge tmp files
+        tmp_files = self.felx_tmp_filenames(48)
+        ds_fe = xr.open_mfdataset(tmp_files)
+
+        ds = self.init_felx_dataset()
+
+        variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
+        for var in variables:
+            ds[var] = ds_fe[var]
+
+        if 'age' not in ds.data_vars:
+            logger.debug('{}: Copying age and distance.'.format(self.exp.file_felx.stem))
+            ds_inv = xr.open_dataset(self.exp.file_plx_inv)
+            for var in ['age', 'distance']:
+                ds[var] = ds_inv[var]
+            ds_inv.close()
+
+        ds.attrs['constants'] = self.params.copy()
+        ds = self.add_variable_attrs(ds)
+
+        logger.info('{}: Saving...'.format(self.exp.file_felx.stem))
+        save_dataset(ds, self.exp.file_felx, msg='Created from Lagrangian iron model.')
+        logger.info('{}: Saved.'.format(self.exp.file_felx.stem))
+        ds_fe.close()
         return ds
 
     def init_felx_optimise_dataset(self):

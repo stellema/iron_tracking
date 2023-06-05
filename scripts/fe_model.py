@@ -388,6 +388,9 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
         # Save proc dataset as tmp file.
         tmp_files = pds.felx_tmp_filenames(size)
         ds = ds.chunk()
+        dvars = [v for v in ds.data_vars if v not in ['trajectory', 'fe_scav', 'fe_reg', 'fe_phy', 'fe']]
+        ds = ds.drop(dvars)
+
         ds.to_netcdf(tmp_files[rank], compute=True)
         ds.close()
         logger.info('{}: rank={}: Saved dataset.'.format(pds.exp.file_felx.stem, rank))
@@ -470,28 +473,22 @@ def run_iron_model(pds, NPZD=False):
     # Run iron model for particles.
     ds = update_particles_MPI(pds, ds, ds_fe, NPZD=NPZD)
 
-    if rank == 0 and not cfg.test:
-        # Add metadata
-        ds.attrs['constants'] = pds.params.copy()
-        ds = pds.add_variable_attrs(ds)
+    # if rank == 0 and not cfg.test:
+    #     # Add metadata
+    #     ds = pds.save_felx_dataset()
 
-        # Write output to netCDF file
-        logger.info('{}: p={}: Saving dataset...'.format(exp.file_felx.stem, ds.traj.size))
-        save_dataset(ds, pds.exp.file_felx, msg='Created from Lagrangian iron model.')
-        logger.info('{}: Saved dataset.'.format(exp.file_felx.stem))
+    # if rank == 0:
+    #     # Plot output
+    #     logger.info('{}: Test plot.'.format(exp.file_felx.stem))
+    #     test_plot_EUC_iron_depth_profile(pds, ds, dfs)
+    #     # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
 
-    if rank == 0:
-        # Plot output
-        logger.info('{}: Test plot.'.format(exp.file_felx.stem))
-        test_plot_EUC_iron_depth_profile(pds, ds, dfs)
-        # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
-
-        # Cost
-        z = ds.z.ffill('obs').isel(obs=-1)
-        fe_obs = ds_fe.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
-        fe_pred = ds.fe.ffill('obs').isel(obs=-1, drop=True)
-        cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
-        logger.info('{}: p={}: cost={}: {}'.format(pds.exp.file_base, ds.traj.size, cost, param_dict))
+    #     # Cost
+    #     z = ds.z.ffill('obs').isel(obs=-1)
+    #     fe_obs = ds_fe.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
+    #     fe_pred = ds.fe.ffill('obs').isel(obs=-1, drop=True)
+    #     cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
+    #     logger.info('{}: p={}: cost={}: {}'.format(pds.exp.file_base, ds.traj.size, cost, param_dict))
     return ds
 
 
@@ -505,8 +502,7 @@ if __name__ == '__main__':
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
 
-    exp = ExpData(name='fe', out_subdir='v{}'.format(version), scenario=scenario, lon=lon,
-                  version=version, index=index)
+    exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
     pds = FelxDataSet(exp)
 
     if not pds.exp.file_felx_tmp.exists():
