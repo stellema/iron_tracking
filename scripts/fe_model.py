@@ -38,23 +38,17 @@ N = N + dt * dN_dt
 
 """
 from argparse import ArgumentParser
+import gc
 import math
-import matplotlib.pyplot as plt
 import numba
 import numpy as np
-import os
-from scipy.optimize import minimize
 import xarray as xr  # NOQA
 
-import cfg
-from cfg import ExpData
+from cfg import ExpData, test
 from tools import mlogger, timeit
-from datasets import BGCFields, ofam_clim, save_dataset
 from fe_exp import FelxDataSet
 from fe_obs_dataset import iron_source_profiles
-from particle_BGC_fields import update_field_AAA
-from test_iron_model_optimisation import (test_plot_iron_paths, test_plot_EUC_iron_depth_profile,
-                                          add_particles_dD_dz)
+# from test_iron_model_optimisation import (test_plot_EUC_iron_depth_profile)
 
 try:
     from mpi4py import MPI
@@ -63,18 +57,6 @@ except ModuleNotFoundError:
     rank = 0
 
 logger = mlogger('fe_model_test')
-
-
-def estimate_runtime(ntraj, ndays, runtime):
-    """1 year run time (ndays * particles/day * runtime/particles).
-    estimate_runtime(386, 2, 2427.86)
-    """
-    ncpus = 48
-    hours = ((ntraj / ndays) * ((runtime * 4) / ntraj)) / (60 * 60)
-    hours_per_year = (365 / 6) * hours / ncpus
-    logger.info('Estimated yearly runtime using {} cpus: particles={}, ndays={}, hours/year={:.2f}'
-                .format(ncpus, ntraj, ndays, hours_per_year))
-
 
 def SourceIron(pds, ds, p, ds_fe, method='seperate'):
     """Assign Source Iron.
@@ -131,193 +113,43 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
     # ds['fe_src'][dict(traj=p)] = fe  # For reference.
     return ds
 
-
-def update_iron(pds, ds, p, t):
-    """Update iron at a particle location.
-
-    Args:
-        pds (FelxDataSet): FelxDataSet instance (contains constants and dataset functions).
-        ds (xarray.Dataset): Particle dataset (e.g., lat(traj, obs), zoo(traj, obs), fe_scav(traj, obs), etc).
-        p (int): Particle index.
-        t (int): Time index.
-
-    Returns:
-        ds (xarray.Dataset): Particle dataset.
-
-    Notes:
-        * Redfield ratio:
-            * 1P: 16N: 106C: 16*2e-5 Fe (Oke et al., 2012, Christian et al., 2002)
-            * ---> 1N:(2e-5 *1e3) 0.02 Fe (multiply Fe by 1e3 because mmol N m^-3 & umol Fe m^-3)
-             -> [mmol N m^-3 * 1e-3]=[1N: 10,000 Fe]  (1 uM N = 1 nM Fe)
-        * Variables and units:
-            * Temperature (T) [degrees C]
-            * Detritus (D) [mmol N m^-3]
-            * Zooplankton (Z) [mmol N m^-3]
-            * Phytoplankton (P) [mmol N m^-3]
-            * Nitrate/NO3 (N) [mmol N m^-3]
-            * Diffuse Attenuation Coefficient at 490 nm (Kd) [m^-1]
-            * Iron (fe) [umol Fe m^-3]
-            * Remineralised iron (fge_reg) [umol Fe m^-3 day^-1] (add to fe)
-            * Iron uptake for phytoplankton growth (fe_scav) [umol Fe m^-3 day^-1] (minus from fe)
-            * Scavenged iron [fe_scav] [umol Fe m^-3 day^-1] (minus from fe)
-    """
-    dt = 2  # Timestep [days]
-    loc_new = dict(traj=p, obs=t)  # Particle location indexes for subseting ds
-    loc = dict(traj=p, obs=t - 1)
-
-    # Variables from OFAM3 subset at previous particle location.
-    Fe, T, D, Z, P, N, Kd, z = [ds[v].isel(loc, drop=True)
-                                for v in ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z']]
-
-    # --------------------------------------------------------------------------------
-    # Iron Phytoplankton Uptake.
-    # Maximum phytoplankton growth [J_max] (assumes no light or nutrient limitations).
-    J_max = pds.a * pds.b**(pds.c * T)  # [day^-1] ((day^-1 * const)^const)
-
-    # Nitrate limit on phytoplankton growth rate.
-    J_limit_N = N / (N + pds.k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
-
-    # Iron limit on phytoplankton growth rate.
-    # Convert k_fe using 1N: 0.02Fe [mmol N m^-3 -> umol Fe m^-3]
-    J_limit_Fe = Fe / (Fe + (0.02 * pds.k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3)
-
-    # Light limit on phytoplankton growth rate.
-    Frac_z = math.exp(-z * Kd)  # [no units] (m * m^-1)
-
-    light = pds.PAR * pds.I_0 * Frac_z  # [W/m^2] (const * W m^-2 * const)
-    # day^-1 x (exp^(day^-1 * Wm^2x Wm^-2) / day^-1) -> [day^-1 * exp(const)]
-    J_I = J_max * (1 - math.exp(-(pds.alpha * light) / J_max))  # [day^-1]
-    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
-
-    # Phytoplankton growth rate (iron consumption associated with growth in amount of phytoplankton).
-    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
-    ds['fe_phy'][loc] = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
-
-    # --------------------------------------------------------------------------------
-    # Iron Remineralisation.
-    bcT = pds.b**(pds.c * T)  # [no units]
-    mu_P = pds.mu_P * bcT  # [day^-1]
-    gamma_2 = pds.gamma_2 * bcT  # [day^-1]
-    if z < 180:
-        mu_D = pds.mu_D * bcT  # [day^-1]
-    else:
-        mu_D = pds.mu_D_180 * bcT  # [day^-1]
-
-    # [umol Fe m^-3 day^-1] (0.02 * mmol N m^-3 * day^-1)
-    ds['fe_reg'][loc] = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)
-
-    # --------------------------------------------------------------------------------
-    # Iron Scavenging.
-    if pds.exp.scav_eq == 'OFAM':
-        # Scavenging Option 1: Oke et al., 2012 (Qin thesis pg. 144)
-        ds['fe_scav'][loc] = pds.tau_scav * max(0, Fe - 0.6)  # [umol Fe m^-3]
-
-    elif pds.exp.scav_eq == 'Galibraith':
-        # Scavenging Option 2: Galbraith et al., 2010
-        # Convert detritus (D) units: -> 0.02 * [mmol N m^-2 day^-1] = [umol Fe m^-3]
-        # =([umol Fe m^-3] * [(umol Fe m^-3)^-0.58 day^-1] * [((umol Fe m^-3))^0.58])
-        # + ([(nM Fe m)^-0.5 day^-1] * [(umol Fe m^-3)^1.5])
-        # = [umol Fe m^-3 day^-1] + [umol Fe m^-3 day^-1] - (Note that (nM Fe)^-0.5 * (nM Fe)^1.5 = (nM Fe)^1)
-        ds['fe_scav'][loc] = (Fe * pds.k_org * (0.02 * D)**0.58) + (pds.k_inorg * Fe**pds.c_scav)
-
-    # --------------------------------------------------------------------------------
-    # Iron (multiply by 2 because iron is updated every 2nd day). n days * [umol Fe m^-3 day^-1]
-    ds['fe'][loc_new] = ds.fe[loc] + dt * (ds.fe_reg[loc] - ds.fe_phy[loc] - ds.fe_scav[loc])
-    return ds
-
-
 @numba.njit
-def update_iron_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, k_org, k_inorg, c_scav, mu_D,
-                    mu_D_180, gamma_2, mu_P, a, b, c, k_N, k_fe, tau):
-    dt = 2  # Timestep [days]
+def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_scav, mu_D,
+                    mu_D_180, gamma_2, mu_P, b, c, k_N, k_fe):
     bcT = b**(c * T)  # [no units]
-    mu_P = mu_P * bcT  # [day^-1]
-    gamma_2 = gamma_2 * bcT  # [day^-1]
     if z < 180:
         mu_D = mu_D * bcT  # [day^-1]
     else:
         mu_D = mu_D_180 * bcT  # [day^-1]
 
-    # Nitrate limit on phytoplankton growth rate
-    J_limit_N = N / (N + k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
+    # # Nitrate limit on phytoplankton growth rate
+    # J_limit_N = N / (N + k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
 
-    # Iron limit on phytoplankton growth rate
-    J_limit_Fe = fe / (fe + (0.02 * k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3))
+    # # Iron limit on phytoplankton growth rate
+    # J_limit_Fe = fe / (fe + (0.02 * k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3))
 
-    # Light limit on phytoplankton growth rate
-    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
+    # # Light limit on phytoplankton growth rate
+    # J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
 
     # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
-    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
+    J = J_max * min(J_I / J_max, N / (N + k_N), fe / (fe + (0.02 * k_fe)))  # [day^-1]
 
     # Iron Phytoplankton Uptake
     fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
 
     # Iron Remineralisation
-    fe_reg = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)  # [umol Fe m^-3 day^-1]
+    fe_reg = 0.02 * (mu_D * D + gamma_2 * bcT * Z + mu_P * bcT * P)  # [umol Fe m^-3 day^-1]
 
     # Iron Scavenging
     fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)  # [umol Fe m^-3 day^-1]
     # fe_scav = tau * max(0, fe - 0.6)  # [umol Fe m^-3  day^-1]
 
     # Iron
-    fe = fe + dt * (fe_reg - fe_phy - fe_scav)
+    fe = fe + 2 * (fe_reg - fe_phy - fe_scav)
     return fe, fe_scav, fe_reg, fe_phy
 
 
-@numba.njit
-def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_org, k_inorg, c_scav,
-                         mu_D, mu_D_180, gamma_2, mu_P, a, b, c, k_N, k_fe, tau, g, epsilon,
-                         gamma_1, mu_Z, w_D):
-    dt = 2  # Timestep [days]
-    bcT = b**(c * T)  # [no units]
-    mu_P = mu_P * bcT  # [day^-1]
-    gamma_2 = gamma_2 * bcT  # [day^-1]
-    if z < 180:
-        mu_D = mu_D * bcT  # [day^-1]
-    else:
-        mu_D = mu_D_180 * bcT  # [day^-1]
-
-    # Nitrate limit on phytoplankton growth rate
-    J_limit_N = N / (N + k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
-
-    # Iron limit on phytoplankton growth rate
-    J_limit_Fe = fe / (fe + (0.02 * k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3))
-
-    # Light limit on phytoplankton growth rate
-    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
-
-    # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
-    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
-
-    # Update NPZD.
-    G = ((g * epsilon * P**2) / (g + (epsilon * P**2))) * Z
-    dP_dt = (J * P) - G - (mu_P * P)
-    dZ_dt = (gamma_1 * G) - (gamma_2 * Z) - (mu_Z * Z**2)
-    dD_dt = ((1 - gamma_1) * G) + (mu_Z * Z**2) - (mu_D * D) - (w_D * dD_dz)
-    dN_dt = (mu_D * D) - (gamma_2 * Z) + (mu_P * P) - (J * P)
-
-    P = P + dt * dP_dt
-    Z = Z + dt * dZ_dt
-    D = D + dt * dD_dt
-    N = N + dt * dN_dt
-
-    # Iron Phytoplankton Uptake
-    fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
-
-    # Iron Remineralisation
-    fe_reg = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)  # [umol Fe m^-3 day^-1]
-
-    # Iron Scavenging
-    fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)  # [umol Fe m^-3 day^-1]
-    # fe_scav = tau * max(0, fe - 0.6)  # [umol Fe m^-3  day^-1]
-
-    # Iron
-    fe = fe + dt * (fe_reg - fe_phy - fe_scav)
-    return fe, fe_scav, fe_reg, fe_phy
-
-
-# @timeit(my_logger=logger)  # Turn off for optimisation
+@timeit(my_logger=logger)  # Turn off for optimisation
 def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     """Run iron model for each particle.
 
@@ -340,7 +172,8 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
         else:
             particle_subsets = None
 
-        particle_subset = comm.bcast(particle_subsets[rank] if rank == 0 else None, root=0)
+        particle_subsets = comm.bcast(particle_subsets if rank == 0 else None, root=0)
+        particle_subset = particle_subsets[rank]
         ds = ds.isel(traj=slice(*particle_subset))
         logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
     else:
@@ -352,29 +185,24 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     if params is not None:
         pds.update_params(dict([(k, v) for k, v in zip(param_names, params)]))
 
-    field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z', 'J_max', 'J_I']
+    field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'z', 'J_max', 'J_I']
     constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
-                      'a', 'b', 'c', 'k_N', 'k_fe', 'tau']  # 'PAR', 'I_0', 'alpha'
+                      'b', 'c', 'k_N', 'k_fe']  # 'PAR', 'I_0', 'alpha''a', kd
     constants = [pds.params[i] for i in constant_names]
 
     # Pre calculate data_variables that require function calls.
-    if rank == 0:
-        logger.debug('{}: Calculating 10**kd.'.format(pds.exp.file_felx.stem))
-    # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
-    ds['kd'] = xr.apply_ufunc(np.power, 10, ds.kd, kwargs=dict(where=~np.isnan(ds.kd)))
-
     if rank == 0:
         logger.debug('{}: Calculating j_max.'.format(pds.exp.file_felx.stem))
     ds['J_max'] = pds.a * xr.apply_ufunc(np.power, pds.b, (pds.c * ds.temp))
 
     if rank == 0:
-        logger.debug('{}: Calculating light.'.format(pds.exp.file_felx.stem))
-    light = pds.PAR * pds.I_0 * xr.apply_ufunc(np.exp, -ds.z * ds.kd)
-
-    if rank == 0:
-        logger.debug('{}: Calculating j_I.'.format(pds.exp.file_felx.stem))
+        logger.debug('{}: Calculating light & J_i.'.format(pds.exp.file_felx.stem))
+    # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
+    light = pds.PAR * pds.I_0 * xr.apply_ufunc(np.exp, -ds.z * xr.apply_ufunc(np.power, 10, ds.kd))
     ds['J_I'] = ds.J_max * (1 - xr.apply_ufunc(np.exp, (-pds.alpha * light) / ds.J_max))
-
+    del light
+    ds = ds.drop('kd')
+    gc.collect()
 
     # Run simulation for each particle.
     logger.debug('{}: rank={}: Updating iron...'.format(pds.exp.file_felx.stem, rank))
@@ -389,12 +217,13 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
             # Data variables at particle location.
             fields = [ds[i].isel(traj=p, obs=t - 1, drop=True).load().item() for i in field_names]
             fe, fe_scav, fe_reg, fe_phy = update_iron_jit(p, t, *tuple([*fields, *constants]))
-            # fe, fe_scav, fe_reg, fe_phy, P, Z = update_iron_NPZD_jit(p, t, *args)
 
             ds['fe'][dict(traj=p, obs=t)] = fe
             ds['fe_scav'][dict(traj=p, obs=t - 1)] = fe_scav
             ds['fe_reg'][dict(traj=p, obs=t - 1)] = fe_reg
             ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
+            del fields
+            gc.collect()
 
     if MPI is not None:
         logger.debug('{}: rank={}: Saving dataset...'.format(pds.exp.file_felx.stem, rank))
@@ -459,7 +288,6 @@ def run_iron_model(pds):
 
     # Source Iron fields (observations or OFAM3 Fe).
     dfs = iron_source_profiles()
-    ds_fe = dfs.dfe.ds_avg
 
     # Particle dataset
     pds.add_iron_model_params()
@@ -470,7 +298,7 @@ def run_iron_model(pds):
     logger.debug('{}: rank={}: Dataset initializion complete.'.format(exp.file_felx.stem, rank))
 
     # Subset number of particles.
-    if cfg.test:
+    if test:
         ndays = 2
         ds = ds.isel(traj=slice(750 * ndays))
         target = np.datetime64('2012-12-31T12') - np.timedelta64(ndays * 6 - 1, 'D')
@@ -486,7 +314,7 @@ def run_iron_model(pds):
         logger.info('{}: Running update_particles_MPI...'.format(exp.file_felx.stem))
 
     # Run iron model for particles.
-    ds = update_particles_MPI(pds, ds, ds_fe)
+    ds = update_particles_MPI(pds, ds, dfs.dfe.ds_avg)
     return ds
 
 
@@ -517,7 +345,7 @@ if __name__ == '__main__':
 
         # Plot output
         logger.info('{}: Test plot.'.format(exp.file_felx.stem))
-        test_plot_EUC_iron_depth_profile(pds, ds, dfs)
+        # test_plot_EUC_iron_depth_profile(pds, ds, dfs)
         # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
 
         # Cost
