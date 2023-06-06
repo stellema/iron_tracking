@@ -365,6 +365,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
     light = pds.PAR * pds.I_0 * np.exp(-ds.z * ds.kd)
     ds['J_I'] = ds.J_max * (1 - np.exp((-pds.alpha * light) / ds.J_max))
 
+    logger.debug('{}: rank={}: Updating iron.'.format(pds.exp.file_felx.stem, rank))
     # Run simulation for each particle.
     for p in particles:
         # Assign initial iron.
@@ -385,6 +386,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
             ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
 
     if MPI is not None:
+        logger.debug('{}: rank={}: Saving dataset.'.format(pds.exp.file_felx.stem, rank))
         # Save proc dataset as tmp file.
         tmp_files = pds.felx_tmp_filenames(size)
         ds = ds.chunk()
@@ -451,9 +453,9 @@ def run_iron_model(pds, NPZD=False):
     # Particle dataset
     pds.add_iron_model_params()
 
-    logger.info('{}: Running...'.format(exp.file_felx.stem))
     ds = pds.init_felx_dataset()
     # ds = pds.init_felx_optimise_dataset()
+    logger.info('{}: rank={}: Completed dataset init.'.format(exp.file_felx.stem, rank))
 
     # Subset number of particles.
     if cfg.test:
@@ -467,8 +469,12 @@ def run_iron_model(pds, NPZD=False):
         # ds = ds.sel(traj=trajs)
         # ds = ds.isel(traj=slice(200)).dropna('obs', 'all')
 
-    param_dict = ['{}={}'.format(k, pds.params[k]) for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'PAR']]
-    logger.info('{}: p={}: {}'.format(exp.file_felx.stem, ds.traj.size, param_dict))
+    if rank == 0:
+        param_dict = ['{}={}'.format(k, pds.params[k]) for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'PAR']]
+        logger.info('{}: p={}: {}'.format(exp.file_felx.stem, ds.traj.size, param_dict))
+
+    if rank == 0:
+        logger.info('{}: Running...'.format(exp.file_felx.stem))
 
     # Run iron model for particles.
     ds = update_particles_MPI(pds, ds, ds_fe, NPZD=NPZD)

@@ -352,18 +352,18 @@ class FelxDataSet(object):
 
         if file.exists():
             ds = xr.open_dataset(file)
+
         else:
             ds = xr.open_dataset(self.exp.file_felx_bgc)
-            logger.info('{}: Creating...'.format(file.stem))
-            logger.debug('{}: Applying new EUC definition'.format(file.stem))
+
             # Apply new EUC definition (u > 0.1 m/s).2
             traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
             ds = ds.sel(traj=traj)
             ds = ds.drop([v for v in ds.data_vars if v not in ['trajectory']])
 
-            logger.debug('{}: Saving...'.format(file.stem))
-            save_dataset(ds, file, msg='Saved init felx dataset')
-            logger.debug('{}: Saved.'.format(file.stem))
+            # logger.debug('{}: Saving...'.format(file.stem))
+            # save_dataset(ds, file, msg='Saved init felx dataset')
+            # logger.debug('{}: Saved.'.format(file.stem))
 
         traj = ds.traj
         ds.close()
