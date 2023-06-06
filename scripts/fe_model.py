@@ -318,7 +318,7 @@ def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_or
 
 
 # @timeit(my_logger=logger)  # Turn off for optimisation
-def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=False):
+def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     """Run iron model for each particle.
 
     Args:
@@ -350,23 +350,29 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
     field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z', 'J_max', 'J_I']
     constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
                       'a', 'b', 'c', 'k_N', 'k_fe', 'tau']  # 'PAR', 'I_0', 'alpha'
-    if NPZD:
-        field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z',
-                       'J_max', 'J_I', 'dD_dz']
-        constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
-                          'a', 'b', 'c', 'k_N', 'k_fe', 'tau', 'g', 'epsilon', 'gamma_1',
-                          'mu_Z', 'w_D']  # 'PAR', 'I_0', 'alpha'
-        ds = add_particles_dD_dz(ds, pds.exp)
-
     constants = [pds.params[i] for i in constant_names]
 
     # Pre calculate data_variables that require function calls.
-    ds['J_max'] = pds.a * (pds.b**(pds.c * ds.temp))
-    light = pds.PAR * pds.I_0 * np.exp(-ds.z * ds.kd)
-    ds['J_I'] = ds.J_max * (1 - np.exp((-pds.alpha * light) / ds.J_max))
+    if rank == 0:
+        logger.debug('{}: Calculating 10**kd.'.format(pds.exp.file_felx.stem))
+    # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
+    ds['kd'] = xr.apply_ufunc(np.power, 10, ds.kd, kwargs=dict(where=~np.isnan(ds.kd)))
 
-    logger.debug('{}: rank={}: Updating iron.'.format(pds.exp.file_felx.stem, rank))
+    if rank == 0:
+        logger.debug('{}: Calculating j_max.'.format(pds.exp.file_felx.stem))
+    ds['J_max'] = pds.a * xr.apply_ufunc(np.power, pds.b, (pds.c * ds.temp))
+
+    if rank == 0:
+        logger.debug('{}: Calculating light.'.format(pds.exp.file_felx.stem))
+    light = pds.PAR * pds.I_0 * xr.apply_ufunc(np.exp, -ds.z * ds.kd)
+
+    if rank == 0:
+        logger.debug('{}: Calculating j_I.'.format(pds.exp.file_felx.stem))
+    ds['J_I'] = ds.J_max * (1 - xr.apply_ufunc(np.exp, (-pds.alpha * light) / ds.J_max))
+
+
     # Run simulation for each particle.
+    logger.debug('{}: rank={}: Updating iron...'.format(pds.exp.file_felx.stem, rank))
     for p in particles:
         # Assign initial iron.
         ds = SourceIron(pds, ds, p, ds_fe)
@@ -386,7 +392,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
             ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
 
     if MPI is not None:
-        logger.debug('{}: rank={}: Saving dataset.'.format(pds.exp.file_felx.stem, rank))
+        logger.debug('{}: rank={}: Saving dataset...'.format(pds.exp.file_felx.stem, rank))
         # Save proc dataset as tmp file.
         tmp_files = pds.felx_tmp_filenames(size)
         ds = ds.chunk()
@@ -397,10 +403,9 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, NPZD=Fal
         ds.close()
         logger.info('{}: rank={}: Saved dataset.'.format(pds.exp.file_felx.stem, rank))
 
-        # Synchronize all processes
-        comm.Barrier()
-        ds = xr.open_mfdataset(tmp_files)
+        # Synchronize all processes.
         # comm.Barrier()
+        # ds = xr.open_mfdataset(tmp_files)
         # if tmp_files[rank].exists():  # Delete previous tmp_file before saving
         #     os.remove(tmp_files[rank])
     return ds
@@ -431,7 +436,8 @@ def update_particles(pds, ds, ds_fe, param_names=None, params=None):
     return ds
 
 
-def run_iron_model(pds, NPZD=False):
+@timeit(my_logger=logger)
+def run_iron_model(pds):
     """Set up and run Lagrangian iron model.
 
     Args:
@@ -453,9 +459,10 @@ def run_iron_model(pds, NPZD=False):
     # Particle dataset
     pds.add_iron_model_params()
 
+    logger.debug('{}: rank={}: Initializing dataset...'.format(exp.file_felx.stem, rank))
     ds = pds.init_felx_dataset()
     # ds = pds.init_felx_optimise_dataset()
-    logger.info('{}: rank={}: Completed dataset init.'.format(exp.file_felx.stem, rank))
+    logger.debug('{}: rank={}: Dataset initializion complete.'.format(exp.file_felx.stem, rank))
 
     # Subset number of particles.
     if cfg.test:
@@ -464,24 +471,17 @@ def run_iron_model(pds, NPZD=False):
         target = np.datetime64('2012-12-31T12') - np.timedelta64(ndays * 6 - 1, 'D')
         traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
         ds = ds.sel(traj=traj)
-        # # Cut off particles in early years to load less ofam fields.
-        # trajs = ds.traj.where(ds.isel(obs=0, drop=True).time.dt.year > 2011, drop=True)
-        # ds = ds.sel(traj=trajs)
-        # ds = ds.isel(traj=slice(200)).dropna('obs', 'all')
+        # ds = ds.isel(traj=slice(50))
 
     if rank == 0:
-        param_dict = ['{}={}'.format(k, pds.params[k]) for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'PAR']]
+        param_dict = ['{}={}'.format(k, pds.params[k])
+                      for k in ['c_scav', 'k_org', 'k_inorg', 'mu_D', 'mu_D_180', 'PAR']]
         logger.info('{}: p={}: {}'.format(exp.file_felx.stem, ds.traj.size, param_dict))
 
-    if rank == 0:
-        logger.info('{}: Running...'.format(exp.file_felx.stem))
+        logger.info('{}: Running update_particles_MPI...'.format(exp.file_felx.stem))
 
     # Run iron model for particles.
-    ds = update_particles_MPI(pds, ds, ds_fe, NPZD=NPZD)
-
-    # if rank == 0 and not cfg.test:
-    #     ds = pds.save_felx_dataset()
-
+    ds = update_particles_MPI(pds, ds, ds_fe)
     return ds
 
 
@@ -499,11 +499,11 @@ if __name__ == '__main__':
     exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
     pds = FelxDataSet(exp)
 
-    if not pds.exp.file_felx_init.exists():
-        traj = pds.get_updated_traj()
+    # if not pds.exp.file_felx_init.exists():
+    #     traj = pds.get_updated_traj()
 
     if args.func == 'run':
-        ds = run_iron_model(pds, NPZD=False)
+        ds = run_iron_model(pds)
 
     elif args.func == 'save':
         ds = pds.save_felx_dataset()

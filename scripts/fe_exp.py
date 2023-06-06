@@ -62,8 +62,7 @@ class FelxDataSet(object):
 
     def empty_DataArray(self, ds, name=None, fill_value=np.nan, dtype=np.float32):
         """Add empty DataArray."""
-        return xr.DataArray(xr.full_like(ds.z, fill_value, dtype=dtype), dims=('traj', 'obs'),
-                            coords=ds.coords, name=name)
+        return xr.DataArray(fill_value, dims=('traj', 'obs'), coords=ds.coords, name=name)
 
     def override_spinup_particle_times(self, time):
         """Change the year of particle time during spinup to spinup year.
@@ -356,14 +355,14 @@ class FelxDataSet(object):
         else:
             ds = xr.open_dataset(self.exp.file_felx_bgc)
 
-            # Apply new EUC definition (u > 0.1 m/s).2
+            # Apply new EUC definition (u > 0.1 m/s)
             traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
             ds = ds.sel(traj=traj)
             ds = ds.drop([v for v in ds.data_vars if v not in ['trajectory']])
 
-            # logger.debug('{}: Saving...'.format(file.stem))
-            # save_dataset(ds, file, msg='Saved init felx dataset')
-            # logger.debug('{}: Saved.'.format(file.stem))
+            logger.debug('{}: Saving...'.format(file.stem))
+            save_dataset(ds, file, msg='Saved init felx dataset')
+            logger.debug('{}: Saved.'.format(file.stem))
 
         traj = ds.traj
         ds.close()
@@ -372,16 +371,15 @@ class FelxDataSet(object):
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
         ds = xr.open_dataset(self.exp.file_felx_bgc)
-        # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
-        traj = self.get_updated_traj()
+
+        # Apply new EUC definition (u > 0.1 m/s)
+        traj = ds.u.where((ds.u / cfg.DXDY) > 0.1, drop=True).traj
         ds = ds.sel(traj=traj)
 
-        # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
-        ds['kd'] = 10**ds.kd
-        ds['kd'].attrs['scaling'] = ''
         variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
         for var in variables:
-            ds[var] = self.empty_DataArray(ds)
+            # ds[var] = self.empty_DataArray(ds)
+            ds[var] = xr.DataArray(np.nan, dims=('traj', 'obs'), coords=ds.coords)
         return ds
 
     def save_felx_dataset(self):
