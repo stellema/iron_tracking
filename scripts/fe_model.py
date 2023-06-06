@@ -335,7 +335,12 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
         size = comm.Get_size()
 
         # Distribute particles among processes
-        particle_subset = pds.particle_subsets(ds, size)[rank]
+        if rank == 0:
+            particle_subsets = pds.particle_subsets(ds, size)
+        else:
+            particle_subsets = None
+
+        particle_subset = comm.bcast(particle_subsets[rank] if rank == 0 else None, root=0)
         ds = ds.isel(traj=slice(*particle_subset))
         logger.info('{}: rank={}: particles:{}'.format(pds.exp.file_base, rank, ds.traj.size))
     else:
