@@ -437,10 +437,10 @@ class FelxDataSet(object):
     def felx_tmp_filenames(self, size):
         """Get tmp filenames for felx tmp subsets."""
         # tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx.stem)
-        tmp_dir = self.exp.file_felx_tmp_dir / 'tmp_{}'.format(self.exp.file_felx.stem)
+        tmp_dir = self.exp.file_felx_tmp_dir
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
-        tmp_files = [tmp_dir / '{:02d}.nc'.format(i) for i in range(size)]
+        tmp_files = [tmp_dir / 'tmp_{}_{:02d}.nc'.format(self.exp.file_base, i) for i in range(size)]
         return tmp_files
 
     def felx_tmp_filenames_OLD(self, size):  # !!! tmp for compatability
