@@ -38,8 +38,8 @@ from datasets import save_dataset
 from fe_exp import FelxDataSet
 from fe_model import update_particles_MPI
 from fe_obs_dataset import iron_source_profiles
-from test_iron_model_optimisation import (test_plot_iron_paths, test_plot_EUC_iron_depth_profile)
 from tools import mlogger, timeit
+from plot_fe_model import test_plot_EUC_iron_depth_profile
 
 try:
     from mpi4py import MPI

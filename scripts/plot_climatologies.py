@@ -6,20 +6,6 @@ Notes:
 Example:
 
 Todo:
-    # OFAM3.
-    if cfg.test:
-        fieldset = BGCFields(exp)
-        ds_fe_ofam = fieldset.ofam_dataset(variables=['det', 'phy', 'zoo', 'fe'],
-                                            decode_times=True, chunks='auto')
-        ds_fe_ofam = ds_fe_ofam.rename({'depth': 'z', 'fe': 'Fe'})  # For SourceIron compatability.
-        ds_fe = [ds_fe_obs, ds_fe_ofam][1]  # Pick source iron dataset.
-
-        # Sample OFAM3 iron along trajectories (for testing).
-        dim_map = fieldset.dim_map_ofam.copy()
-        dim_map['z'] = dim_map.pop('depth')
-        ds['Fe'] = pds.empty_DataArray(ds)
-        fe = update_field_AAA(ds, ds_fe_ofam, 'Fe', dim_map=dim_map)
-        ds['Fe'] = (['traj', 'obs'], fe)
 
 
 @author: Annette Stellema
@@ -37,110 +23,84 @@ from cfg import paths
 from datasets import ofam_clim, BGCFields
 from fe_exp import FelxDataSet
 from tools import mlogger, unique_name
-from particle_BGC_fields import update_field_AAA
 
 logger = mlogger('fe_model_test')
 
 
-def test_plot_iron_paths(pds, ds, ntraj=5):
-    """Plot particle map, depth, dFe, remin, scav and phyto."""
-    fig, ax = plt.subplots(3, 2, figsize=(15, 13), squeeze=True)
-    ax = ax.flatten()
+def plot_seawifs_chlorophyll():
+    """Plot seaWIFIS chlorophyll climatology map."""
+    ds = xr.open_mfdataset([paths.obs / 'GMIS_SEAWIFS/GMIS_A_CHLA_{:02d}.nc'.format(i)
+                            for i in range(1, 13)], combine='nested', concat_dim='time',
+                           decode_cf=0)
+    ds = ds.Chl_a
+    ds = ds.assign_coords(lon=ds.lon % 360)
+    ds = ds.sortby(ds.lon)
+    ds = ds.drop_duplicates('lon')
+    dx = 0.1
+    ds = ds.interp(lon=np.arange(0, 360 + dx, dx), lat=np.arange(90, -90 - dx, -dx))
+    ds = ds.where((ds != -9999).compute(), drop=1)
+    df = ds.mean('time')
+    df = 10**df
 
-    for j, p in enumerate(range(ntraj)):
-        c = ['k', 'b', 'r', 'g', 'm', 'y', 'darkorange', 'hotpink', 'lime', 'navy'][j % 10]
-        ls = ['-', '--', '-.', ':'][int(np.floor((j / 10)) % 3)]
-        lw = 1
-        dx = ds.isel(traj=p).dropna('obs', 'all')
-        ax[0].plot(dx.lon, dx.lat, c=c, ls=ls, lw=lw, label=p)  # map
-        ax[1].plot(dx.obs, dx.z, c=c, ls=ls, lw=lw, label=p)  # Depth
-        ax[2].plot(dx.obs, dx.fe, c=c, ls=ls, lw=lw, label=p)  # lagrangian iron
-        if 'Fe' in dx.data_vars:
-            ax[2].plot(dx.obs, dx.Fe, c=c, ls=ls, lw=1.5, label=p + '(OFAM3)')  # ofam iron
+    cmap = plt.cm.jet
+    cmap.set_bad('k')
+    norm = mpl.colors.LogNorm(vmin=0.01, vmax=40)
 
-        for i, var in zip([3, 4, 5], ['fe_reg', 'fe_scav', 'fe_phy']):
-            ax[i].set_title(var)
-            ax[i].plot(dx.obs, dx[var], c=c, ls=ls, lw=lw, label=p)
+    # Plot
+    fig, ax = plt.subplots(1, 1, figsize=(12, 7))
+    pcm = ax.pcolormesh(df.lon, df.lat, df.where(df > 0), cmap=cmap, norm=norm)
 
-    ax[0].set_title('Particle lat & lon')
-    ax[1].set_title('Particle depth')
-    ax[2].set_title('Lagrangian iron')
+    # Colourbar
+    cb = fig.colorbar(pcm, ax=ax, extend='max', orientation='horizontal', pad=0.05,
+                      fraction=0.08, shrink=0.4, format='%.2f')
+    cb.set_label('Chlorophyll [mg m^-3]')
 
-    for i in range(1, 6):
-        ax[i].set_ylabel('Fe [nM Fe]')
-        ax[i].set_xlabel('obs')
-        ax[i].set_xmargin(0)
-        ax[i].set_ymargin(0)
-
-    ax[1].set_ylabel('Depth')
-    ax[1].invert_yaxis()
-    ax[0].set_xlabel('Lon')
-    ax[0].set_ylabel('Lat')
-    lgd = ax[-2].legend(ncol=16, loc='upper left', bbox_to_anchor=(0, -0.1))
+    # Ticks
+    ax.set_ylim(-80, 85)
+    ax.xaxis.set_minor_locator(mpl.ticker.MultipleLocator(25))
+    ax.yaxis.set_minor_locator(mpl.ticker.MultipleLocator(10))
+    ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%d°E"))
+    yticks = np.arange(-80, 85, 20)
+    ytick_labels = ['{:.0f}°{}'.format(np.fabs(i), 'N' if i >= 0 else 'S') for i in yticks]
+    ax.set_yticks(yticks)
+    ax.set_yticklabels(ytick_labels)
     plt.tight_layout()
-    fig.subplots_adjust(hspace=0.2, wspace=0.15)
-    plt.savefig(cfg.paths.figs / 'felx/dFe_paths_{}_{}.png'.format(pds.exp.file_base, ntraj),
-                bbox_extra_artists=(lgd,), bbox_inches='tight')
+    plt.savefig(paths.figs / 'clim/chl-a_clim_seawifs.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 
-def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
-    """Plot particle depth vs dFe (at source and EUC) and scatter start vs final dFe."""
-    # Particle data
-    ds_i = ds.isel(obs=0)  # at source
-    ds_f = ds.ffill('obs').isel(obs=-1, drop=True)  # at EUC
-    ds_f_z_mean = (ds_f.fe * ds_f.u).groupby(ds_f.z).sum() / (ds_f.u).groupby(ds_f.z).sum()
-    ds_f_mean = ds_f.fe.weighted(ds_f.u).mean().load().item()
+def plot_euc_obs_xz_profile():
+    # Johnson EUC
+    ds = xr.open_dataset(cfg.paths.obs / 'pac_mean_johnson_2002.cdf')
+    ds = ds.rename(dict(ZDEP1_50='z', YLAT11_101='y', XLON='x', UM='u'))
+    # ds.u.sel(y=0).plot(figsize=(14, 5), yincrease=0, cmap=plt.cm.seismic)
+    ds = ds.sel(x=slice(156, 270))
+    xe = ds.XLONedges[1:]
 
-    # Observations
-    df_h = dfs.Huang_iron_dataset().fe.sel(x=pds.exp.lon, method='nearest').sel(
-        y=slice(-2.6, 2.6)).mean('y')
-    df_avg = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, method='nearest')
-    df_avg_mean = df_avg.mean().item()
+    cmap = plt.cm.seismic
+    cmap.set_bad('grey')
+    fig, ax = plt.subplots(1, 1, figsize=(12, 5))
 
-    # Plot particle depth vs dFe (at initial/source and final/EUC).
-    fig, ax = plt.subplots(1, 2, figsize=(12, 6), squeeze=True)
-    ax[0].set_title('a) {} dFe at source'.format(pds.exp.scenario_name), loc='left')
-    ax[0].scatter(ds_i.fe, ds_i.z, c='k', s=7)  # dFe at source.
-    ax[0].invert_yaxis()
-    ax[0].set_ylabel('Depth [m]')
+    # levels = np.arange(-1.1, 1.12, 0.02)
+    # im = ax.contourf(ds.x, ds.z, ds.u.sel(y=0), cmap=plt.cm.seismic, levels=levels)
+    # ax.contour(ds.x, ds.z, ds.SIGMAM.sel(y=0), 10, colors='k')
+    im = ax.pcolormesh(xe, ds.z, ds.u.sel(y=0, z=slice(5, 485)), cmap=cmap, vmax=1.1, vmin=-1)
 
-    # Iron at the EUC (inc. obs & weighted mean depth profile)
-    ax[1].set_title('b) {} EUC dFe at {}'.format(pds.exp.scenario_name, pds.exp.lon_str), loc='left')
-    ax[1].plot(df_h.isel(t=-1), df_h.z, c='r', label='Huang et al. (2022)')
-    ax[1].plot(df_avg, df_avg.z, c='m', label='Obs. mean ({:.2f} nM)'.format(df_avg_mean))
-    ax[1].plot(ds_f_z_mean, ds_f_z_mean.z, c='k', label='Model mean ({:.2f} nM)'.format(ds_f_mean))
-    ax[1].scatter(ds_f.fe, ds_f.z, c='k', s=7, label='Model')  # dFe at EUC.
+    # Colour bar
+    cb = fig.colorbar(im, ax=ax, extend='both', pad=0.01)
+    cb.set_label('zonal velocity [m^-1]')
 
-    ax[1].axvline(0.6, c='darkgrey', lw=1)
-    ax[1].set_ylim(355, 20)
-    ax[1].set_xlim(min(0.1, ds_f.fe.min() - 0.1), max(1.2, ds_f.fe.max() + 0.1))
-    ax[1].set_xmargin(0.05)
-    lgd = ax[1].legend(ncol=1, loc='upper left', bbox_to_anchor=(1, 1))
-    for i in range(2):
-        ax[i].set_xlabel('dFe [nM]')
+    # Ticks
+    ax.set_ylim(400, 5)
+    ax.set_xlim(156, 270)
+    ax.set_xticks(ds.x)
+    ax.yaxis.set_minor_locator(mpl.ticker.MultipleLocator(25))
 
-    textstr = ', '.join(['{}={}'.format(i, pds.params[i])
-                         for i in ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']])
-    # ax[0].text(0, -0.1, 'params: ' + textstr, transform=ax[0].transAxes)
-    title = plt.suptitle('params: ' + textstr, x=0.42, y=0.005)
-
-    # plt.subplots_adjust(bottom=-0.1)
     plt.tight_layout()
-    file = unique_name(cfg.paths.figs / 'felx/iron_z_profile_{}.png'.format(pds.exp.file_base))
-    plt.savefig(file, bbox_extra_artists=(lgd, title,), bbox_inches='tight')
+
+    plt.savefig(paths.figs / 'clim/euc_obs_xz_profile.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-    # # Plot start vs final dFe.
-    # fig, ax = plt.subplots(1, 1, figsize=(10, 7), squeeze=True)
-    # ax.scatter(ds_i.fe, ds_f.fe, c='k', s=12)  # dFe at source.
-    # ax.set_title('{} EUC dFe at source vs EUC at {}'.format(pds.exp.scenario_name, pds.exp.lon_str), loc='left')
-    # ax.set_ylabel('EUC dFe [nM]')
-    # ax.set_xlabel('Source dFe [nM]')
-    # plt.tight_layout()
-    # plt.savefig(cfg.paths.figs / 'felx/dFe_scatter_source_EUC_{}.png'.format(pds.exp.file_base))
-    # plt.show()
-    return
 
 
 def plot_OFAM3_fields():
@@ -405,32 +365,3 @@ def plot_scav_param_constants():
     # ax[0].plot(f, inorg, 'hotpink', label='inorg={:.1e}'.format(inorg))
     # ax[0].plot(f, scav, 'k', label='c-{}, inorg={:.1e}, org={:.1e}'.format(c_scav, k_inorg, k_org))
     return
-
-
-def add_particles_dD_dz(ds, exp):
-    """Add OFAM det at depth above."""
-    df = ofam_clim().rename({'depth': 'z', 'det': 'dD_dz'}).mean('time')
-
-    # Calculate dD/dz (detritus flux)
-    zi_1 = (np.abs(df.z - ds.z.fillna(1))).argmin('z')  # Index of depth.
-    # zi_0 = zi_1 + 1 if zi_1 == 0 else zi_1 - 1  # Index of depth above/below
-    zi_0 = xr.where(zi_1 == 0, zi_1 + 1, zi_1 - 1)  # Index of depth above/below
-    D_z0 = df.dD_dz.sel(lat=0, lon=exp.lon, method='nearest').isel(z=zi_0, drop=True).drop(['lat', 'lon', 'z'])
-    # D_z0 = D_z0.sel(lat=ds.lat, lon=ds.lon, method='nearest', drop=True).drop(['lat', 'lon', 'z'])
-    dz = df.z.isel(z=zi_1, drop=True) - df.z.isel(z=zi_0, drop=True)  # Depth difference.
-    ds['dD_dz'] = np.fabs((ds.det - D_z0) / dz).load()
-    return ds
-
-
-def add_particles_ofam_iron(ds, pds):
-    """Add OFAM3 iron at particle locations."""
-    fieldset = BGCFields(pds.exp)
-    ds_fe_ofam = fieldset.ofam_dataset(variables=['det', 'phy', 'zoo', 'fe'], decode_times=True, chunks='auto')
-    ds_fe_ofam = ds_fe_ofam.rename({'depth': 'z', 'fe': 'Fe'})  # For SourceIron compatability.
-    # Sample OFAM3 iron along trajectories (for testing).
-    dim_map = fieldset.dim_map_ofam.copy()
-    dim_map['z'] = dim_map.pop('depth')
-    ds['Fe'] = pds.empty_DataArray(ds)
-    fe = update_field_AAA(ds, ds_fe_ofam, 'Fe', dim_map=dim_map)
-    ds['Fe'] = (['traj', 'obs'], fe)
-    return ds
