@@ -38,8 +38,55 @@ class FelxDataSet(object):
         self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'no3', 'kd']
         self.bgc_variables_nmap = {'Phy': 'phy', 'Zoo': 'zoo', 'Det': 'det', 'Temp': 'temp',
                                    'NO3': 'no3', 'kd': 'kd'}
-        self.variables = ['scav', 'fe_src', 'fe_p', 'reg', 'phy_up']
+        self.variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
         self.add_iron_model_params()
+
+    def add_iron_model_params(self):
+        """Add a constants to the FieldSet.
+
+        Redfield ratio of 1 P: 16 N: 106 5C: −172 O2: 3.2
+        """
+        params = {}
+        # Scavenging paramaters.
+        params['c_scav'] = 2.5  # Scavenging rate constant [no units]
+        params['k_org'] = 1e-3  # Organic iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
+        params['k_inorg'] = 1e-3  # Inorganic iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
+        params['tau'] = 1.24e-2  # Scavenging rate [day^-1] (OFAM3 equation) (Oke: 1, other: 1.24e-2)
+
+        # Detritus paramaters.
+        params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
+        # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
+        params['mu_D'] = 0.005  # 0.02 b**cT
+        params['mu_D_180'] = 0.03  # 0.01 b**cT
+
+        # Phytoplankton paramaters.
+        params['I_0'] = 280  # Surface incident solar radiation [W/m^2] (not actually constant)
+        params['alpha'] = 0.025  # Initial slope of P-I curve [day^-1 / (Wm^-2)]. (Qin: 0.256)
+        params['PAR'] = 0.43  # Photosynthetically active radiation (0.34/0.43) [no unit]
+        params['a'] = 0.6  # 0.6 Growth rate at 0C [day^-1] (Qin: 0.27?)
+        params['b'] = 1.066  # 1.066 Temperature sensitivity of growth [no units]
+        params['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
+        params['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [needs converting to mmol Fe m^-3]
+        params['k_N'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
+        params['mu_P'] = 0.01  # (*b^cT) Phytoplankton mortality [day^-1]
+
+        # Zooplankton paramaters.
+        params['gamma_1'] = 0.85  # Assimilation efficiency [no units]
+        params['g'] = 2.1  # Maximum grazing rate [day^-1]
+        params['epsilon'] = 1.1  # Prey capture rate [(mmol N m^-3)^-1 day^-1]
+        params['mu_Z'] = 0.06  # Quadratic mortality [(mmol N m^-3)^-1 day^-1]
+        params['gamma_2'] = 0.0059699  # (*b^cT) Excretion [day^-1]
+
+        for name, value in params.items():
+            setattr(self, name, value)
+        setattr(self, 'params', params)
+
+    def update_params(self, new_dict):
+        """Update params dictionary."""
+        self.params.update(new_dict)
+        for key, value in new_dict.items():
+            setattr(self, key, value)
+            self.params[key] = value
 
     def particles_after_start_time(self, ds):
         """Select particles that have reached a source at the start of the spinup period.
@@ -234,32 +281,6 @@ class FelxDataSet(object):
             ds[var] = self.empty_DataArray(ds)
 
         save_dataset(ds, str(self.exp.file_felx_bgc_tmp), msg='')
-
-        # ds = xr.open_dataset(self.exp.file_felx_bgc_tmp, decode_times=False, use_cftime=True,
-        #                       decode_cf=True)
-        # # Change time encoding (errors - can't overwrite file & doesen't work when not decoded).
-        # attrs = dict(units=ds.time.units, calendar=ds.time.calendar)
-        # attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
-        # times = np.apply_along_axis(convert_plx_times, 1, arr=ds.time,
-        #                             obs=ds.obs.astype(dtype=int), attrs=attrs,
-        #                             attrs_new=attrs_new)
-        # ds['time'] = (('traj', 'obs'), times)
-        # ds['time'].attrs['units'] = attrs_new['units']
-        # ds['time'].attrs['calendar'] = attrs_new['calendar']
-
-        # for var in ds.data_vars:
-        #     if ds[var].dtype == np.float64:
-        #         ds[var] = ds[var].astype(dtype=np.float32)
-        # ds.close()
-        # save_dataset(ds, self.exp.file_plx_inv, msg='Converted time calendar.')
-
-        # # alt
-        # ds = xr.open_dataset(exp.file_felx_bgc_tmp, decode_times=False, use_cftime=True,
-        #                       decode_cf=True)
-        # attrs_new = dict(units='days since 1979-01-01 00:00:00', calendar='gregorian')  # OFAM3
-        # ds['time'].attrs['units'] = attrs_new['units']
-        # ds['time'].attrs['calendar'] = attrs_new['calendar']
-        # save_dataset(ds, 'test.nc', msg='Converted time calendar.')
         return ds
 
     def check_file_complete(self, file):
@@ -344,29 +365,6 @@ class FelxDataSet(object):
             ds[var] = da[var].interpolate_na('obs', method='slinear', limit=10)
         return ds
 
-    def get_updated_traj(self):
-        """Get and or save trajectory IDs after applying new EUC definition."""
-        file = self.exp.file_felx_init
-
-        if file.exists():
-            ds = xr.open_dataset(file)
-
-        else:
-            ds = xr.open_dataset(self.exp.file_felx_bgc)
-
-            # Apply new EUC definition (u > 0.1 m/s)
-            traj = ds.u.where((ds.u / DXDY) > 0.1, drop=True).traj
-            ds = ds.sel(traj=traj)
-            ds = ds.drop([v for v in ds.data_vars if v not in ['trajectory']])
-
-            logger.debug('{}: Saving...'.format(file.stem))
-            save_dataset(ds, file, msg='Saved init felx dataset')
-            logger.debug('{}: Saved.'.format(file.stem))
-
-        traj = ds.traj
-        ds.close()
-        return traj
-
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
         ds = xr.open_dataset(self.exp.file_felx_bgc)
@@ -374,30 +372,35 @@ class FelxDataSet(object):
         # Apply new EUC definition (u > 0.1 m/s)
         traj = ds.u.where((ds.u / DXDY) > 0.1, drop=True).traj
         ds = ds.sel(traj=traj)
-        ds = ds.drop('u')
 
-        variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
-        for var in variables:
-            # ds[var] = self.empty_DataArray(ds)
+        for var in self.variables:
+            # ds[var] = self.empty_DataArray(ds)  # slower.
             ds[var] = xr.DataArray(None, dims=('traj', 'obs'), coords=ds.coords)
         return ds
 
-    def save_felx_dataset(self):
+    def save_felx_dataset(self, size):
         """Save & format finished felx tmp datasets."""
         file = self.exp.file_felx
 
-        # Merge tmp files
-        tmp_files = self.felx_tmp_filenames(48)
+        # Merge temp subsets of fe model output.
+        if ([self.exp.scenario, self.exp.lon, self.exp.file_index] in
+                [[0, 165, 7], [0, 190, 7], [0, 220, 7], [0, 220, 6], [0, 250, 0]]):
+            tmp_files = self.felx_tmp_filenames_OLD(size)
+        else:
+            tmp_files = self.felx_tmp_filenames(size)
+
         ds_fe = xr.open_mfdataset(tmp_files)
 
+        # Create initial dataset
         ds = self.init_felx_dataset()
 
-        variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
-        for var in variables:
+        # Add fe model output from temp files
+        for var in self.variables:
             ds[var] = ds_fe[var]
+        ds_fe.close()
 
+        # Add extra variables that aren't in dataset (age and distance)
         if 'age' not in ds.data_vars:
-            logger.debug('{}: Copying age and distance.'.format(file.stem))
             ds_inv = xr.open_dataset(self.exp.file_plx_inv)
             for var in ['age', 'distance']:
                 ds[var] = ds_inv[var]
@@ -407,6 +410,7 @@ class FelxDataSet(object):
         ds.attrs['constants'] = self.params.copy()
         ds = self.add_variable_attrs(ds)
 
+        # Save dataset.
         logger.info('{}: Saving...'.format(file.stem))
         save_dataset(ds, file, msg='Created from Lagrangian iron model.')
         logger.info('{}: Saved.'.format(file.stem))
@@ -432,79 +436,57 @@ class FelxDataSet(object):
 
     def felx_tmp_filenames(self, size):
         """Get tmp filenames for felx tmp subsets."""
-        tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx.stem)
+        # tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx.stem)
+        tmp_dir = self.exp.file_felx_tmp_dir / 'tmp_{}'.format(self.exp.file_felx.stem)
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
         tmp_files = [tmp_dir / '{:02d}.nc'.format(i) for i in range(size)]
-        tmp_files = [unique_name(tmp_files[i]) for i in range(size)]
         return tmp_files
 
-    def add_iron_model_params(self):
-        """Add a constants to the FieldSet.
+    def felx_tmp_filenames_OLD(self, size):  # !!! tmp for compatability
+        """Get tmp filenames for felx tmp subsets."""
+        tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx.stem)
+        if not tmp_dir.is_dir():
+            os.makedirs(tmp_dir, exist_ok=True)
 
-        Redfield ratio of 1 P: 16 N: 106 5C: −172 O2: 3.2
-        """
-        params = {}
-        # Scavenging paramaters.
-        params['c_scav'] = 2.5  # Scavenging rate constant [no units]
-        params['k_org'] = 1e-3  # Organic iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
-        params['k_inorg'] = 1e-3  # Inorganic iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
-        params['tau'] = 1.24e-2  # Scavenging rate [day^-1] (OFAM3 equation) (Oke: 1, other: 1.24e-2)
-
-        # Detritus paramaters.
-        params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
-        # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
-        params['mu_D'] = 0.005  # 0.02 b**cT
-        params['mu_D_180'] = 0.03  # 0.01 b**cT
-
-        # Phytoplankton paramaters.
-        params['I_0'] = 280  # Surface incident solar radiation [W/m^2] (not actually constant)
-        params['alpha'] = 0.025  # Initial slope of P-I curve [day^-1 / (Wm^-2)]. (Qin: 0.256)
-        params['PAR'] = 0.43  # Photosynthetically active radiation (0.34/0.43) [no unit]
-        params['a'] = 0.6  # 0.6 Growth rate at 0C [day^-1] (Qin: 0.27?)
-        params['b'] = 1.066  # 1.066 Temperature sensitivity of growth [no units]
-        params['c'] = 1.0  # Growth rate reference for light limitation [C^-1]
-        params['k_fe'] = 1.0  # Half saturation constant for Fe uptake [mmol N m^-3] [needs converting to mmol Fe m^-3]
-        params['k_N'] = 1.0  # Half saturation constant for N uptake [mmol N m^-3]
-        params['mu_P'] = 0.01  # (*b^cT) Phytoplankton mortality [day^-1]
-
-        # Zooplankton paramaters.
-        params['gamma_1'] = 0.85  # Assimilation efficiency [no units]
-        params['g'] = 2.1  # Maximum grazing rate [day^-1]
-        params['epsilon'] = 1.1  # Prey capture rate [(mmol N m^-3)^-1 day^-1]
-        params['mu_Z'] = 0.06  # Quadratic mortality [(mmol N m^-3)^-1 day^-1]
-        params['gamma_2'] = 0.0059699  # (*b^cT) Excretion [day^-1]
-
-        for name, value in params.items():
-            setattr(self, name, value)
-        setattr(self, 'params', params)
-
-    def update_params(self, new_dict):
-        """Update params dictionary."""
-        self.params.update(new_dict)
-        for key, value in new_dict.items():
-            setattr(self, key, value)
-            self.params[key] = value
+        tmp_files = [tmp_dir / '{:02d}_00.nc'.format(i) for i in range(size)]
+        # tmp_files = [tmp_dir / '{:02d}.nc'.format(i) for i in range(size)]
+        return tmp_files
 
     def add_variable_attrs(self, ds):
         """Add attributes metadata to dataset variables."""
-        attrs = {'trajectory': {'long_name': 'Unique identifier for each particle', 'cf_role': 'trajectory_id'},
+        attrs = {'trajectory': {'long_name': 'Unique identifier for each particle',
+                                'cf_role': 'trajectory_id'},
                  'time': {'long_name': 'time', 'standard_name': 'time', 'axis': 'T'},
-                 'lat': {'long_name': 'latitude', 'standard_name': 'latitude', 'units': 'degrees_north', 'axis': 'Y'},
-                 'lon': {'long_name': 'longitude', 'standard_name': 'longitude', 'units': 'degrees_east', 'axis': 'X'},
-                 'z': {'long_name': 'depth', 'standard_name': 'depth', 'units': 'm', 'axis': 'Z', 'positive': 'down'},
+                 'lat': {'long_name': 'latitude', 'standard_name': 'latitude',
+                         'units': 'degrees_north', 'axis': 'Y'},
+                 'lon': {'long_name': 'longitude', 'standard_name': 'longitude',
+                         'units': 'degrees_east', 'axis': 'X'},
+                 'z': {'long_name': 'depth', 'standard_name': 'depth', 'units': 'm', 'axis': 'Z',
+                       'positive': 'down'},
                  'age': {'long_name': 'Particle transit time', 'standard_name': 'age', 'units': 's'},
                  'u': {'long_name': 'Transport', 'standard_name': 'u', 'units': 'Sv'},
                  'zone': {'long_name': 'Source location ID', 'standard_name': 'zone'},
-                 'temp': {'long_name': 'Potential temperature', 'standard_name': 'sea_water_potential_temperature', 'units': 'degrees C', 'source': 'OFAM3-WOMBAT'},
-                 'phy': {'long_name': 'Phytoplankton', 'standard_name': 'phy', 'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
-                 'zoo': {'long_name': 'Zooplankton', 'standard_name': 'zoo', 'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
-                 'det': {'long_name': 'Detritus', 'standard_name': 'det', 'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
-                 'no3': {'long_name': 'Nitrate', 'standard_name': 'no3', 'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
-                 'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm', 'standard_name': 'Kd490', 'units': 'm^-1', 'scaling': 'log10', 'source': 'SeaWiFS-GMIS'},
-                 'fe_scav': {'long_name': 'Scavenged dFe', 'standard_name': 'dFe scav', 'units': 'μmol/m^3 Fe'},
-                 'fe_reg': {'long_name': 'Remineralised dFe', 'standard_name': 'dFe remin', 'units': 'μmol m^-3 Fe'},
-                 'fe_phy': {'long_name': 'Phytoplankton dFe Uptake', 'standard_name': 'dFe phyto', 'units': 'μmol m^-3 Fe'},
+                 'temp': {'long_name': 'Potential temperature',
+                          'standard_name': 'sea_water_potential_temperature', 'units': 'degrees C',
+                          'source': 'OFAM3-WOMBAT'},
+                 'phy': {'long_name': 'Phytoplankton', 'standard_name': 'phy', 'units': 'mmol/m^3 N',
+                         'source': 'OFAM3-WOMBAT'},
+                 'zoo': {'long_name': 'Zooplankton', 'standard_name': 'zoo', 'units': 'mmol/m^3 N',
+                         'source': 'OFAM3-WOMBAT'},
+                 'det': {'long_name': 'Detritus', 'standard_name': 'det', 'units': 'mmol/m^3 N',
+                         'source': 'OFAM3-WOMBAT'},
+                 'no3': {'long_name': 'Nitrate', 'standard_name': 'no3', 'units': 'mmol/m^3 N',
+                         'source': 'OFAM3-WOMBAT'},
+                 'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm',
+                        'standard_name': 'Kd490', 'units': 'm^-1', 'scaling': 'log10',
+                        'source': 'SeaWiFS-GMIS'},
+                 'fe_scav': {'long_name': 'Scavenged dFe', 'standard_name': 'dFe scav',
+                             'units': 'μmol/m^3 Fe'},
+                 'fe_reg': {'long_name': 'Remineralised dFe', 'standard_name': 'dFe remin',
+                            'units': 'μmol m^-3 Fe'},
+                 'fe_phy': {'long_name': 'Phytoplankton dFe Uptake', 'standard_name': 'dFe phyto',
+                            'units': 'μmol m^-3 Fe'},
                  'fe': {'long_name': 'Dissolved Iron', 'standard_name': 'dFe', 'units': 'μmol m^-3 Fe'}
                  }
 
@@ -512,149 +494,3 @@ class FelxDataSet(object):
             if k in ds.data_vars:
                 ds[k].attrs = v
         return ds
-
-
-# @numba.njit
-def update_iron_NPZD_jit(p, t, fe, T, D, Z, P, N, Kd, z, J_max, J_I, dD_dz, k_org, k_inorg, c_scav,
-                         mu_D, mu_D_180, gamma_2, mu_P, a, b, c, k_N, k_fe, tau, g, epsilon,
-                         gamma_1, mu_Z, w_D):
-    dt = 2  # Timestep [days]
-    bcT = b**(c * T)  # [no units]
-    mu_P = mu_P * bcT  # [day^-1]
-    gamma_2 = gamma_2 * bcT  # [day^-1]
-    if z < 180:
-        mu_D = mu_D * bcT  # [day^-1]
-    else:
-        mu_D = mu_D_180 * bcT  # [day^-1]
-
-    # Nitrate limit on phytoplankton growth rate
-    J_limit_N = N / (N + k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
-
-    # Iron limit on phytoplankton growth rate
-    J_limit_Fe = fe / (fe + (0.02 * k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3))
-
-    # Light limit on phytoplankton growth rate
-    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
-
-    # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
-    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
-
-    # Update NPZD.
-    G = ((g * epsilon * P**2) / (g + (epsilon * P**2))) * Z
-    dP_dt = (J * P) - G - (mu_P * P)
-    dZ_dt = (gamma_1 * G) - (gamma_2 * Z) - (mu_Z * Z**2)
-    dD_dt = ((1 - gamma_1) * G) + (mu_Z * Z**2) - (mu_D * D) - (w_D * dD_dz)
-    dN_dt = (mu_D * D) - (gamma_2 * Z) + (mu_P * P) - (J * P)
-
-    P = P + dt * dP_dt
-    Z = Z + dt * dZ_dt
-    D = D + dt * dD_dt
-    N = N + dt * dN_dt
-
-    # Iron Phytoplankton Uptake
-    fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
-
-    # Iron Remineralisation
-    fe_reg = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)  # [umol Fe m^-3 day^-1]
-
-    # Iron Scavenging
-    fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)  # [umol Fe m^-3 day^-1]
-    # fe_scav = tau * max(0, fe - 0.6)  # [umol Fe m^-3  day^-1]
-
-    # Iron
-    fe = fe + dt * (fe_reg - fe_phy - fe_scav)
-    return fe, fe_scav, fe_reg, fe_phy
-
-
-def update_iron(pds, ds, p, t):
-    """Update iron at a particle location.
-
-    Args:
-        pds (FelxDataSet): FelxDataSet instance (contains constants and dataset functions).
-        ds (xarray.Dataset): Particle dataset (e.g., lat(traj, obs), zoo(traj, obs), fe_scav(traj, obs), etc).
-        p (int): Particle index.
-        t (int): Time index.
-
-    Returns:
-        ds (xarray.Dataset): Particle dataset.
-
-    Notes:
-        * Redfield ratio:
-            * 1P: 16N: 106C: 16*2e-5 Fe (Oke et al., 2012, Christian et al., 2002)
-            * ---> 1N:(2e-5 *1e3) 0.02 Fe (multiply Fe by 1e3 because mmol N m^-3 & umol Fe m^-3)
-             -> [mmol N m^-3 * 1e-3]=[1N: 10,000 Fe]  (1 uM N = 1 nM Fe)
-        * Variables and units:
-            * Temperature (T) [degrees C]
-            * Detritus (D) [mmol N m^-3]
-            * Zooplankton (Z) [mmol N m^-3]
-            * Phytoplankton (P) [mmol N m^-3]
-            * Nitrate/NO3 (N) [mmol N m^-3]
-            * Diffuse Attenuation Coefficient at 490 nm (Kd) [m^-1]
-            * Iron (fe) [umol Fe m^-3]
-            * Remineralised iron (fge_reg) [umol Fe m^-3 day^-1] (add to fe)
-            * Iron uptake for phytoplankton growth (fe_scav) [umol Fe m^-3 day^-1] (minus from fe)
-            * Scavenged iron [fe_scav] [umol Fe m^-3 day^-1] (minus from fe)
-    """
-    dt = 2  # Timestep [days]
-    loc_new = dict(traj=p, obs=t)  # Particle location indexes for subseting ds
-    loc = dict(traj=p, obs=t - 1)
-
-    # Variables from OFAM3 subset at previous particle location.
-    Fe, T, D, Z, P, N, Kd, z = [ds[v].isel(loc, drop=True)
-                                for v in ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'kd', 'z']]
-
-    # --------------------------------------------------------------------------------
-    # Iron Phytoplankton Uptake.
-    # Maximum phytoplankton growth [J_max] (assumes no light or nutrient limitations).
-    J_max = pds.a * pds.b**(pds.c * T)  # [day^-1] ((day^-1 * const)^const)
-
-    # Nitrate limit on phytoplankton growth rate.
-    J_limit_N = N / (N + pds.k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
-
-    # Iron limit on phytoplankton growth rate.
-    # Convert k_fe using 1N: 0.02Fe [mmol N m^-3 -> umol Fe m^-3]
-    J_limit_Fe = Fe / (Fe + (0.02 * pds.k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3)
-
-    # Light limit on phytoplankton growth rate.
-    Frac_z = math.exp(-z * Kd)  # [no units] (m * m^-1)
-
-    light = pds.PAR * pds.I_0 * Frac_z  # [W/m^2] (const * W m^-2 * const)
-    # day^-1 x (exp^(day^-1 * Wm^2x Wm^-2) / day^-1) -> [day^-1 * exp(const)]
-    J_I = J_max * (1 - math.exp(-(pds.alpha * light) / J_max))  # [day^-1]
-    J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
-
-    # Phytoplankton growth rate (iron consumption associated with growth in amount of phytoplankton).
-    J = J_max * min(J_limit_I, J_limit_N, J_limit_Fe)  # [day^-1]
-    ds['fe_phy'][loc] = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
-
-    # --------------------------------------------------------------------------------
-    # Iron Remineralisation.
-    bcT = pds.b**(pds.c * T)  # [no units]
-    mu_P = pds.mu_P * bcT  # [day^-1]
-    gamma_2 = pds.gamma_2 * bcT  # [day^-1]
-    if z < 180:
-        mu_D = pds.mu_D * bcT  # [day^-1]
-    else:
-        mu_D = pds.mu_D_180 * bcT  # [day^-1]
-
-    # [umol Fe m^-3 day^-1] (0.02 * mmol N m^-3 * day^-1)
-    ds['fe_reg'][loc] = 0.02 * (mu_D * D + gamma_2 * Z + mu_P * P)
-
-    # --------------------------------------------------------------------------------
-    # Iron Scavenging.
-    if pds.exp.scav_eq == 'OFAM':
-        # Scavenging Option 1: Oke et al., 2012 (Qin thesis pg. 144)
-        ds['fe_scav'][loc] = pds.tau_scav * max(0, Fe - 0.6)  # [umol Fe m^-3]
-
-    elif pds.exp.scav_eq == 'Galibraith':
-        # Scavenging Option 2: Galbraith et al., 2010
-        # Convert detritus (D) units: -> 0.02 * [mmol N m^-2 day^-1] = [umol Fe m^-3]
-        # =([umol Fe m^-3] * [(umol Fe m^-3)^-0.58 day^-1] * [((umol Fe m^-3))^0.58])
-        # + ([(nM Fe m)^-0.5 day^-1] * [(umol Fe m^-3)^1.5])
-        # = [umol Fe m^-3 day^-1] + [umol Fe m^-3 day^-1] - (Note that (nM Fe)^-0.5 * (nM Fe)^1.5 = (nM Fe)^1)
-        ds['fe_scav'][loc] = (Fe * pds.k_org * (0.02 * D)**0.58) + (pds.k_inorg * Fe**pds.c_scav)
-
-    # --------------------------------------------------------------------------------
-    # Iron (multiply by 2 because iron is updated every 2nd day). n days * [umol Fe m^-3 day^-1]
-    ds['fe'][loc_new] = ds.fe[loc] + dt * (ds.fe_reg[loc] - ds.fe_phy[loc] - ds.fe_scav[loc])
-    return ds
