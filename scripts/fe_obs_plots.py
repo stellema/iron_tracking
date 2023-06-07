@@ -19,6 +19,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 import cfg
@@ -152,9 +153,6 @@ def plot_iron_obs_maps(dfs):
     if not hasattr(dfs, 'ds_tag'):
         dfs.ds_tag = dfs.Tagliabue_iron_dataset()
 
-    # Plot positions of observations in database.
-    # ds1 = GEOTRACES_iron_dataset()
-    # ds2 = Tagliabue_iron_dataset()
     names = ['a) GEOTRACES IDP2021', 'b) Tagliabue et al. (2012) Dataset [2015 Update]']
 
     # Global plot (seperate).
@@ -168,6 +166,7 @@ def plot_iron_obs_maps(dfs):
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_global.png')
 
+    ##############################################################################################
     # Tropical Pacific.
     fig = plt.figure(figsize=(12, 6))
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
@@ -181,6 +180,7 @@ def plot_iron_obs_maps(dfs):
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_pacific.png')
 
+    ##############################################################################################
     # Tropical Pacific (References/cruises).
     lats, lons = [-10.1, 10.1], [110, 290]
     colors = np.array(['navy', 'royalblue', 'orange', 'green', 'darkred', 'red',
@@ -205,6 +205,7 @@ def plot_iron_obs_maps(dfs):
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_references.png', dpi=300)
 
+    ##############################################################################################
     # Tropical Pacific (References/cruises & bounding boxes).
     fig = plt.figure(figsize=(13, 7))
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
@@ -236,6 +237,31 @@ def plot_iron_obs_maps(dfs):
     plt.tight_layout()
     plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_references_regions.png', dpi=300)
 
+    ##############################################################################################
+    # Tropical Pacific (dates).
+    lats, lons = [-10.1, 10.1], [110, 290]
+    colors = np.array(['navy', 'royalblue', 'orange', 'green', 'darkred', 'red',
+                       'm', 'brown', 'deeppink', 'cyan', 'darkviolet', 'y',
+                       'dodgerblue', 'hotpink', 'b', 'grey', 'springgreen', 'k'])
+    fig = plt.figure(figsize=(13, 7))
+    ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
+    fig, ax, proj = create_map_axis(fig, ax, extent=[110, 290, -12, 12])
+
+    for i, ds, mrk in zip(range(2), [dfs.ds_tag, dfs.ds_geo], ['o', 'P']):
+        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
+                      & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
+        ds['t'] = ('index', ['{}-{:02d}'.format(x.year, x.month) for x in pd.to_datetime(ds.t)])
+        refs = np.unique(ds.t)
+        for j, r in enumerate(refs):
+            dx = ds.where(ds.t == r, drop=True)
+
+            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j], alpha=0.9, transform=proj)
+
+    ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=5)
+    ax.set_title('Locations of iron observations')
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_dates.png', dpi=300)
 
 def plot_iron_obs_straits(dfe_geo, dfe_tag, dfe_ml):
     """Plot Tagliabue & GEOTRACES data positions."""
@@ -569,8 +595,8 @@ def plot_dfs_source_zprofile(dfs):
 
 logger = mlogger('iron_observations')
 dfs = FeObsDatasets()
-dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
-dfs.dfe = FeObsDataset(dfs.ds)
+# dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
+# dfs.dfe = FeObsDataset(dfs.ds)
 
 # setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
 # setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
