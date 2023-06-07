@@ -232,6 +232,10 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
         ds = ds.chunk()
         dvars = [v for v in ds.data_vars if v not in ['trajectory', 'fe_scav', 'fe_reg', 'fe_phy', 'fe']]
         ds = ds.drop(dvars)
+        ds = ds.where(~np.isnan(ds.trajectory))
+
+        for var in ['fe_scav', 'fe_reg', 'fe_phy', 'fe']:
+            ds[var] = ds[var].astype(dtype=np.float64)
 
         ds.to_netcdf(tmp_files[rank], compute=True)
         ds.close()
