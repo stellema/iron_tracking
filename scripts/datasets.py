@@ -393,7 +393,7 @@ def append_dataset_history(ds, msg):
 
 def save_dataset(ds, filename, msg=None):
     """Save dataset with history, message and encoding."""
-    ds = ds.chunk()
+
     if msg is not None:
         ds = append_dataset_history(ds, msg)
 
@@ -404,8 +404,9 @@ def save_dataset(ds, filename, msg=None):
             ds[var].encoding.update(comp)
     if type(ds) is xr.DataArray:
         ds.encoding.update(comp)
-
+    ds = ds.chunk()
     ds.to_netcdf(filename, compute=True)
+    return ds
 
 
 def add_coord_attrs(ds):

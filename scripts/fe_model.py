@@ -296,7 +296,7 @@ def run_iron_model(pds):
 
 if __name__ == '__main__':
     p = ArgumentParser(description="""Optimise iron model paramaters.""")
-    p.add_argument('-x', '--lon', default=250, type=int,
+    p.add_argument('-x', '--lon', default=220, type=int,
                    help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
@@ -306,7 +306,7 @@ if __name__ == '__main__':
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
 
     exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index,
-                  out_subdir='v{}'.format(index))
+                  out_subdir='v{}'.format(version))
     pds = FelxDataSet(exp)
 
     if args.func == 'run':

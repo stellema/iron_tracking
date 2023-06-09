@@ -22,7 +22,7 @@ import pandas as pd
 import xarray as xr
 
 from cfg import paths, DXDY
-from datasets import plx_particle_dataset, save_dataset
+from datasets import plx_particle_dataset, save_dataset, append_dataset_history
 from tools import timeit, mlogger, unique_name
 
 logger = mlogger('files_felx')
@@ -192,7 +192,7 @@ class FelxDataSet(object):
             logger.info('{}: Divided particles size={}->{}.'.format(file.stem, size, dx.traj.size))
             dx = dx.dropna('obs', 'all')
             logger.debug('{}: Saving subset...'.format(file.stem))
-            save_dataset(dx, str(file), msg='Subset plx file.')
+            dx = save_dataset(dx, str(file), msg='Subset plx file.')
             logger.debug('{}: Saved subset.'.format(file.stem))
             dx.close()
         ds.close()
@@ -263,7 +263,7 @@ class FelxDataSet(object):
         ds['zone'] = zone
 
         # Save dataset.
-        save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
+        ds = save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
         logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
 
     def init_felx_bgc_tmp_dataset(self):
@@ -280,7 +280,7 @@ class FelxDataSet(object):
         for var in self.bgc_variables:
             ds[var] = self.empty_DataArray(ds)
 
-        save_dataset(ds, str(self.exp.file_felx_bgc_tmp), msg='')
+        ds = save_dataset(ds, str(self.exp.file_felx_bgc_tmp), msg='')
         return ds
 
     def check_file_complete(self, file):
@@ -394,26 +394,32 @@ class FelxDataSet(object):
         # Create initial dataset
         ds = self.init_felx_dataset()
 
+        # Add extra variables that aren't in dataset (age and distance)
+        ds_inv = xr.open_dataset(self.exp.file_plx_inv)
+        for var in ['age', 'distance']:
+            ds[var] = ds_inv[var]
+
         # Add fe model output from temp files
         for var in self.variables:
             ds[var] = ds_fe[var]
-        ds_fe.close()
-
-        # Add extra variables that aren't in dataset (age and distance)
-        if 'age' not in ds.data_vars:
-            ds_inv = xr.open_dataset(self.exp.file_plx_inv)
-            for var in ['age', 'distance']:
-                ds[var] = ds_inv[var]
-            ds_inv.close()
 
         # Add metadata
-        ds.attrs['constants'] = self.params.copy()
         ds = self.add_variable_attrs(ds)
 
         # Save dataset.
         logger.info('{}: Saving...'.format(file.stem))
-        save_dataset(ds, file, msg='Created from Lagrangian iron model.')
+        ds = append_dataset_history(ds, msg='Created from Lagrangian iron model.')
+
+        comp = dict(zlib=True, complevel=5, contiguous=False)
+        for var in ds:
+            ds[var].encoding.update(comp)
+
+        ds = ds.chunk()
+        ds.to_netcdf(file, compute=True)
         logger.info('{}: Saved.'.format(file.stem))
+
+        ds_fe.close()
+        ds_inv.close()
         ds_fe.close()
         return ds
 
@@ -464,7 +470,8 @@ class FelxDataSet(object):
                          'units': 'degrees_east', 'axis': 'X'},
                  'z': {'long_name': 'depth', 'standard_name': 'depth', 'units': 'm', 'axis': 'Z',
                        'positive': 'down'},
-                 'age': {'long_name': 'Particle transit time', 'standard_name': 'age', 'units': 's'},
+                 'age': {'long_name': 'Transit time', 'standard_name': 'age', 'units': 's'},
+                 'distance': {'long_name': 'Distance', 'standard_name': 'distance', 'units': 'm'},
                  'u': {'long_name': 'Transport', 'standard_name': 'u', 'units': 'Sv'},
                  'zone': {'long_name': 'Source location ID', 'standard_name': 'zone'},
                  'temp': {'long_name': 'Potential temperature',
@@ -479,15 +486,13 @@ class FelxDataSet(object):
                  'no3': {'long_name': 'Nitrate', 'standard_name': 'no3', 'units': 'mmol/m^3 N',
                          'source': 'OFAM3-WOMBAT'},
                  'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm',
-                        'standard_name': 'Kd490', 'units': 'm^-1', 'scaling': 'log10',
-                        'source': 'SeaWiFS-GMIS'},
+                        'standard_name': 'Kd490', 'units': 'm^-1', 'source': 'SeaWiFS-GMIS'},
                  'fe_scav': {'long_name': 'Scavenged dFe', 'standard_name': 'dFe scav',
-                             'units': 'μmol/m^3 Fe'},
-                 'fe_reg': {'long_name': 'Remineralised dFe', 'standard_name': 'dFe remin',
-                            'units': 'μmol m^-3 Fe'},
+                             'units': 'umol/m^3 Fe'},
+                 'fe_reg': {'long_name': 'Remineralised dFe', 'standard_name': 'dFe remin', 'units': 'umol/m^3 Fe'},
                  'fe_phy': {'long_name': 'Phytoplankton dFe Uptake', 'standard_name': 'dFe phyto',
-                            'units': 'μmol m^-3 Fe'},
-                 'fe': {'long_name': 'Dissolved Iron', 'standard_name': 'dFe', 'units': 'μmol m^-3 Fe'}
+                            'units': 'umol/m^3 Fe'},
+                 'fe': {'long_name': 'Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'}
                  }
 
         for k, v in attrs.items():
