@@ -140,7 +140,7 @@ def save_felx_BGC_field_subset(exp, var, n):
     result = update_field_AAA(dx, field_dataset, var, dim_map)
     df = xr.Dataset(coords=dx.coords)
     df[var] = (['traj', 'obs'], result)
-    save_dataset(df, tmp_file, msg='')
+    df = save_dataset(df, tmp_file, msg='')
     logger.info('{}/{}: Saved.'.format(tmp_file.parent.stem, tmp_file.name))
     ds.close()
     df.close()
@@ -239,7 +239,7 @@ def save_felx_BGC_fields(exp):
         logger.info('Error check: Missing some obs?')
 
     # Save file.
-    save_dataset(ds, file, msg='Added BGC fields at paticle positions.')
+    ds = save_dataset(ds, file, msg='Added BGC fields at paticle positions.')
     logger.info('{}: Felx BGC fields file saved.'.format(file.stem))
     ds.close()
     return

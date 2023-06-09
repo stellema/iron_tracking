@@ -105,7 +105,7 @@ class FeObsDatasets():
         ds.coords['index'] = ds.index
 
         # Save to new filename.
-        save_dataset(ds, file_new, msg='Modified {}'.format(file.name))
+        ds = save_dataset(ds, file_new, msg='Modified {}'.format(file.name))
         return ds
 
     def GEOTRACES_iron_dataset_4D(self):
@@ -159,7 +159,7 @@ class FeObsDatasets():
         # Add data var attrs.
         ds = ds.rename(dict(t='time', z='depth', y='lat', x='lon'))
         ds = add_coord_attrs(ds)
-        save_dataset(ds, file, msg='Created multi-dimensional tropical Pacific subset.')
+        ds = save_dataset(ds, file, msg='Created multi-dimensional tropical Pacific subset.')
         return ds
 
     def Tagliabue_iron_dataset(self):
@@ -220,7 +220,7 @@ class FeObsDatasets():
         ds['dFe'].attrs['units'] = 'nM'
 
         # Save to new filename.
-        save_dataset(ds, file_new, msg='Modified {}'.format(file.name))
+        ds = save_dataset(ds, file_new, msg='Modified {}'.format(file.name))
         return ds
 
     def Tagliabue_iron_dataset_4D(self):
@@ -250,7 +250,7 @@ class FeObsDatasets():
 
         ds = ds.rename(dict(t='time', z='depth', y='lat', x='lon'))
         ds = add_coord_attrs(ds)
-        save_dataset(ds, file, msg='Created multi-dimensional tropical Pacific subset.')
+        ds = save_dataset(ds, file, msg='Created multi-dimensional tropical Pacific subset.')
         return ds
 
     def log_iron_obs_dataset_information(self, name='GEOTRACES'):
@@ -459,7 +459,7 @@ class FeObsDatasets():
             temp = temp.to_dataset(name=name)
 
             ds_merged = xr.merge([ds_merged, temp])
-        save_dataset(ds_merged, file, msg='Not finished version')
+        ds = save_dataset(ds_merged, file, msg='Not finished version')
 
         return ds_merged
 
