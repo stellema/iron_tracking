@@ -2,6 +2,7 @@
 *.pyc
 data/fe_model/
 data/plx/
+data/felx/
 data/test/
 plots/dask/
 jobs/*.sh.*
