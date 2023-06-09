@@ -169,7 +169,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
 
         # Distribute particles among processes
         if rank == 0:
-            logger.debug('{}: Subsetting dataset.'.format(exp.file_felx.stem))
+            logger.debug('{}: p={}: Subsetting dataset.'.format(exp.file_felx.stem, ds.traj.size))
             particle_subsets = pds.particle_subsets(ds, size)
         else:
             particle_subsets = None
@@ -266,7 +266,7 @@ def run_iron_model(pds):
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
-    rank = MPI.COMM_WORLD.Get_size() if MPI is not None else 0
+    rank = MPI.COMM_WORLD.Get_rank() if MPI is not None else 0
     logger.info('{}: Running update_particles_MPI...'.format(exp.file_felx.stem))
 
     # Source Iron fields (observations or OFAM3 Fe).
@@ -275,10 +275,12 @@ def run_iron_model(pds):
     # Particle dataset
     pds.add_iron_model_params()
 
-    logger.debug('{}: rank={}: Initializing dataset...'.format(exp.file_felx.stem, rank))
+    if rank == 0:
+        logger.debug('{}: rank={}: Initializing dataset...'.format(exp.file_felx.stem, rank))
     ds = pds.init_felx_dataset()
     # ds = pds.init_felx_optimise_dataset()
-    logger.debug('{}: rank={}: Dataset initializion complete.'.format(exp.file_felx.stem, rank))
+    if rank == 0:
+        logger.debug('{}: rank={}: Dataset initializion complete.'.format(exp.file_felx.stem, rank))
 
     # Subset number of particles.
     if test:
