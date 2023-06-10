@@ -368,6 +368,7 @@ class FelxDataSet(object):
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
         ds = xr.open_dataset(self.exp.file_felx_bgc, chunks='auto')
+        ds = ds.unify_chunks()
 
         # Apply new EUC definition (u > 0.1 m/s)
         traj = ds.u.where(((ds.u / DXDY) > 0.1).load(), drop=True).traj
