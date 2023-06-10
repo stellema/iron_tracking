@@ -193,11 +193,14 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     if rank == 0:
         logger.debug('{}: Calculating J_max and J_I.'.format(exp.file_felx.stem))
 
-    ds['J_max'] = pds.a * xr.apply_ufunc(np.power, pds.b, (pds.c * ds.temp))
+    ds['J_max'] = pds.a * np.power(pds.b, (pds.c * ds.temp))
+    light = pds.PAR * pds.I_0 * np.exp(-ds.z * np.power(10, ds.kd))
+    ds['J_I'] = ds.J_max * (1 - np.exp((-pds.alpha * light) / ds.J_max))
 
-    # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
-    light = pds.PAR * pds.I_0 * xr.apply_ufunc(np.exp, -ds.z * xr.apply_ufunc(np.power, 10, ds.kd))
-    ds['J_I'] = ds.J_max * (1 - xr.apply_ufunc(np.exp, (-pds.alpha * light) / ds.J_max))
+    # ds['J_max'] = pds.a * xr.apply_ufunc(np.power, pds.b, (pds.c * ds.temp))
+    # # N.B. Use 10**Kd instead of Kd because it was scaled by log10.
+    # light = pds.PAR * pds.I_0 * xr.apply_ufunc(np.exp, -ds.z * xr.apply_ufunc(np.power, 10, ds.kd))
+    # ds['J_I'] = ds.J_max * (1 - xr.apply_ufunc(np.exp, (-pds.alpha * light) / ds.J_max))
 
     # Free memory
     del light
