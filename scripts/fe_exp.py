@@ -367,7 +367,7 @@ class FelxDataSet(object):
 
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
-        ds = xr.open_dataset(self.exp.file_felx_bgc)
+        ds = xr.open_dataset(self.exp.file_felx_bgc, chunks='auto')
 
         # Apply new EUC definition (u > 0.1 m/s)
         traj = ds.u.where((ds.u / DXDY) > 0.1, drop=True).traj
@@ -389,19 +389,30 @@ class FelxDataSet(object):
         else:
             tmp_files = self.felx_tmp_filenames(size)
 
-        ds_fe = xr.open_mfdataset(tmp_files)
+        ds_fe = xr.open_mfdataset([f for f in tmp_files if f.exists()])
 
         # Create initial dataset
-        ds = self.init_felx_dataset()
+        logger.info('{}: Get initial dataset.'.format(file.stem))
+        # ds = self.init_felx_dataset()
+        ds = xr.open_dataset(self.exp.file_felx_bgc, chunks='auto')
+        ds = ds.sel(traj=ds_fe.traj.load())
+        ds = ds.drop(['kd', 'no3', 'det', 'zoo'])
 
         # Add extra variables that aren't in dataset (age and distance)
-        ds_inv = xr.open_dataset(self.exp.file_plx_inv)
-        for var in ['age', 'distance']:
-            ds[var] = ds_inv[var]
+        logger.info('{}: Add age.'.format(file.stem))
+        ds_inv = xr.open_dataset(self.exp.file_plx_inv, chunks={'traj': ds.traj.size, 'obs': ds.obs.size})
+        ds['age'] = ds_inv['age'].sel(traj=ds.traj)
 
         # Add fe model output from temp files
+        logger.info('{}: Add fe variables.'.format(file.stem))
         for var in self.variables:
             ds[var] = ds_fe[var]
+
+        ds = ds.unify_chunks()
+
+        logger.info('{}: Drop trailing NaNs (pre={}).'.format(file.stem, ds.obs.size))
+        ds = ds.where(~np.isnan(ds.z).load(), drop=True)
+        logger.info('{}: Dropped trailing NaNs (post={}).'.format(file.stem, ds.obs.size))
 
         # Add metadata
         ds = self.add_variable_attrs(ds)
@@ -415,7 +426,7 @@ class FelxDataSet(object):
             ds[var].encoding.update(comp)
 
         ds = ds.chunk()
-        ds.to_netcdf(file, compute=True)
+        ds.to_netcdf(file)
         logger.info('{}: Saved.'.format(file.stem))
 
         ds_fe.close()
