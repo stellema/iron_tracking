@@ -370,8 +370,9 @@ class FelxDataSet(object):
         ds = xr.open_dataset(self.exp.file_felx_bgc, chunks='auto')
 
         # Apply new EUC definition (u > 0.1 m/s)
-        traj = ds.u.where((ds.u / DXDY) > 0.1, drop=True).traj
+        traj = ds.u.where(((ds.u / DXDY) > 0.1).load(), drop=True).traj
         ds = ds.sel(traj=traj)
+        ds = ds.chunk()
 
         for var in self.variables:
             # ds[var] = self.empty_DataArray(ds)  # slower.
