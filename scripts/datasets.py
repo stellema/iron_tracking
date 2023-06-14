@@ -397,7 +397,7 @@ def save_dataset(ds, filename, msg=None):
     if msg is not None:
         ds = append_dataset_history(ds, msg)
 
-    comp = dict(zlib=True, complevel=5)
+    comp = dict(zlib=True, complevel=5, contiguous=False)
 
     if type(ds) is xr.Dataset:
         for var in ds:
