@@ -385,11 +385,7 @@ class FelxDataSet(object):
         file = self.exp.file_felx
 
         # Merge temp subsets of fe model output.
-        if ([self.exp.scenario, self.exp.lon, self.exp.file_index] in
-                [[0, 165, 7], [0, 190, 7], [0, 220, 7], [0, 220, 6], [0, 250, 0]]):
-            tmp_files = self.felx_tmp_filenames_OLD(size)
-        else:
-            tmp_files = self.felx_tmp_filenames(size)
+        tmp_files = self.felx_tmp_filenames(size)
 
         ds_fe = xr.open_mfdataset([f for f in tmp_files if f.exists()])
 
@@ -414,6 +410,7 @@ class FelxDataSet(object):
 
         logger.info('{}: Drop trailing NaNs (pre={}).'.format(file.stem, ds.obs.size))
         ds = ds.where(~np.isnan(ds.z).load(), drop=True)
+        ds['u'] = ds.u.isel(obs=0, drop=True)
         logger.info('{}: Dropped trailing NaNs (post={}).'.format(file.stem, ds.obs.size))
 
         # Add metadata
@@ -460,16 +457,6 @@ class FelxDataSet(object):
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
         tmp_files = [tmp_dir / 'tmp_{}_{:02d}.nc'.format(self.exp.file_base, i) for i in range(size)]
-        return tmp_files
-
-    def felx_tmp_filenames_OLD(self, size):  # !!! tmp for compatability
-        """Get tmp filenames for felx tmp subsets."""
-        tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx.stem)
-        if not tmp_dir.is_dir():
-            os.makedirs(tmp_dir, exist_ok=True)
-
-        tmp_files = [tmp_dir / '{:02d}_00.nc'.format(i) for i in range(size)]
-        # tmp_files = [tmp_dir / '{:02d}.nc'.format(i) for i in range(size)]
         return tmp_files
 
     def add_variable_attrs(self, ds):
