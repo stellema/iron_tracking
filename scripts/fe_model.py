@@ -44,6 +44,7 @@ import numpy as np
 import xarray as xr  # NOQA
 
 from cfg import ExpData, test
+from datasets import save_dataset
 from tools import mlogger, timeit
 from fe_exp import FelxDataSet
 from fe_obs_dataset import iron_source_profiles
@@ -146,6 +147,7 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_sc
 
     # Iron
     fe = fe + 2 * (fe_reg - fe_phy - fe_scav)
+    fe = max([fe, 0])
     return fe, fe_scav, fe_reg, fe_phy
 
 
@@ -299,14 +301,126 @@ def run_iron_model(pds):
     return ds
 
 
+@timeit(my_logger=logger)
+def fix_particles_v0_err(pds):
+    """Run iron model for each particle.
+
+    Args:
+        pds (FelxDataSet): class instance (contains constants and dataset functions).
+        ds (xarray.Dataset): Particle dataset (e.g., lat(traj, obs), zoo(traj, obs), fe_scav(traj, obs), etc).
+        ds_fe (xarray.Dataset): Source dFe depth profiles dataset.
+
+    Returns:
+        ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
+    """
+    if MPI is not None:
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+    else:
+        rank = 0
+        size = 52
+
+    logger.info('{}: Running fix_update_particles_v0_err.'.format(exp.file_felx.stem))
+    # Particle dataset
+    pds.add_iron_model_params()
+
+    # Source Iron fields (observations or OFAM3 Fe).
+    dfs = iron_source_profiles()
+    ds_fe = dfs.dfe.ds_avg
+
+    if rank == 0:
+        logger.debug('{}: rank={}: Initializing dataset...'.format(exp.file_felx.stem, rank))
+    ds = pds.init_felx_dataset()
+
+    # Fix error particles
+    # Merge temp subsets of fe model output.
+    tmp_files = pds.felx_tmp_filenames(size)
+    tmp_files_old = [f.parent.parent / 'tmp_err/{}/{}'.format(f.parent.stem, f.name)
+                     for f in tmp_files]
+
+    dx = xr.open_dataset(tmp_files_old[rank])
+    ds = ds.sel(traj=dx.traj)
+    for var in pds.variables:
+        ds[var] = dx[var]
+
+    particle_ids = dx.where(dx.fe < 0, drop=True).traj
+    particles = np.arange(ds.traj.size, dtype=int)[ds.traj.isin(particle_ids)]
+
+    ds = ds.where(ds.fe > 0, drop=False)
+
+    # Constants.
+    field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'z', 'J_max', 'J_I']
+    constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'b', 'c', 'k_N', 'k_fe']
+    constants = [pds.params[i] for i in constant_names]
+
+    # Pre calculate data_variables that require function calls.
+    if rank == 0:
+        logger.debug('{}: Calculating J_max and J_I.'.format(exp.file_felx.stem))
+
+    ds['J_max'] = pds.a * np.power(pds.b, (pds.c * ds.temp))
+    light = pds.PAR * pds.I_0 * np.exp(-ds.z * np.power(10, ds.kd))
+    ds['J_I'] = ds.J_max * (1 - np.exp((-pds.alpha * light) / ds.J_max))
+
+    # Free memory
+    del light
+    ds = ds.drop('kd')
+    ds = ds.drop('u')
+    gc.collect()
+
+    # Run simulation for each particle.
+    logger.info('{}: rank={}: particles={}/{}: Updating iron.'.format(pds.exp.file_base, rank, particles.size, ds.traj.size))
+    for p in particles:
+        # Assign initial iron.
+        ds = SourceIron(pds, ds, p, ds_fe)
+
+        # Number of non-NaN observations.
+        timesteps = range(1, ds.z.isel(traj=p).dropna('obs', 'all').obs.size)
+
+        for t in timesteps:
+            # Data variables at particle location.
+            fields = [ds[i].isel(traj=p, obs=t - 1, drop=True).load().item() for i in field_names]
+            fe, fe_scav, fe_reg, fe_phy = update_iron_jit(p, t, *tuple([*fields, *constants]))
+
+            ds['fe'][dict(traj=p, obs=t)] = fe
+            ds['fe_scav'][dict(traj=p, obs=t - 1)] = fe_scav
+            ds['fe_reg'][dict(traj=p, obs=t - 1)] = fe_reg
+            ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
+            del fields
+            gc.collect()
+
+    if MPI is not None:
+        logger.debug('{}: rank={}: Saving dataset...'.format(pds.exp.file_felx.stem, rank))
+
+        # Save proc dataset as tmp file.
+        tmp_files = pds.felx_tmp_filenames(size)
+        ds = ds.chunk()
+        ds = ds.unify_chunks()
+
+        # Drop existing variables.
+        dvars = [v for v in ds.data_vars if v not in ['trajectory', *pds.variables]]
+        ds = ds.drop(dvars)
+        ds = ds.where(~np.isnan(ds.trajectory))  # Fill empty with NaNs
+
+        # Set variable data type (otherwise dtype='object')
+        for var in pds.variables:
+            ds[var] = ds[var].astype(dtype=np.float64)
+
+        # Save output as temp dataset.
+        save_dataset(ds, tmp_files[rank], msg='./iron_model.py')
+        logger.info('{}: rank={}: Saved dataset.'.format(pds.exp.file_felx.stem, rank))
+        ds.close()
+    return
+
+
 if __name__ == '__main__':
     p = ArgumentParser(description="""Optimise iron model paramaters.""")
     p.add_argument('-x', '--lon', default=220, type=int,
                    help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
-    p.add_argument('-r', '--index', default=0, type=int, help='File repeat index [0-7].')
-    p.add_argument('-f', '--func', default='run', type=str, help='run or save.')
+    p.add_argument('-r', '--index', default=7, type=int, help='File repeat index [0-7].')
+    p.add_argument('-f', '--func', default='run', type=str, help='run, fix or save.')
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
 
@@ -316,6 +430,9 @@ if __name__ == '__main__':
 
     if args.func == 'run':
         ds = run_iron_model(pds)
+
+    elif args.func == 'fix':
+        fix_particles_v0_err(pds)
 
     elif args.func == 'save':
         ds = pds.save_felx_dataset(size=52)
