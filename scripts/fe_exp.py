@@ -433,6 +433,51 @@ class FelxDataSet(object):
         ds_fe.close()
         return ds
 
+    def save_fixed_felx_dataset(self, size):
+        """Save & format finished felx tmp datasets."""
+        file = self.exp.file_felx
+
+        # Merge temp subsets of fe model output.
+        tmp_files = self.felx_tmp_filenames(size)
+
+        ds_new = xr.open_mfdataset([f for f in tmp_files if f.exists()])
+
+        felx_file_old = self.exp.file_felx.parent / 'tmp_err/{}'.format(self.exp.file_felx.name)
+        ds = xr.open_dataset(felx_file_old)  # Open error complete felx dataset.
+
+        error_particle_ids = ds.fe.where(ds.fe < 0, drop=True).traj  # Particles to re-run
+        ok_particle_ids = ds.traj[~ds.traj.isin(error_particle_ids)]
+
+        # Add fe model output from temp files
+        logger.info('{}: Add fe variables.'.format(file.stem))
+        for var in self.variables:
+            ds[var] = xr.merge([ds[var].sel(traj=ok_particle_ids), ds_new[var]])
+
+        ds = ds.unify_chunks()
+
+        logger.info('{}: Drop trailing NaNs (pre={}).'.format(file.stem, ds.obs.size))
+        ds = ds.where(~np.isnan(ds.z).load(), drop=True)
+        ds['u'] = ds.u.isel(obs=0, drop=True)
+        logger.info('{}: Dropped trailing NaNs (post={}).'.format(file.stem, ds.obs.size))
+
+        # Add metadata
+        ds = self.add_variable_attrs(ds)
+
+        # Save dataset.
+        logger.info('{}: Saving...'.format(file.stem))
+        ds = append_dataset_history(ds, msg='Fixed negative iron values.')
+
+        comp = dict(zlib=True, complevel=5, contiguous=False)
+        for var in ds:
+            ds[var].encoding.update(comp)
+
+        ds = ds.chunk()
+        ds.to_netcdf(file)
+        logger.info('{}: Saved.'.format(file.stem))
+
+        ds_new.close()
+        return ds
+
     def init_felx_optimise_dataset(self):
         """Initialise empty felx dataset subset to 1 year and close to equator."""
         file = paths.data / 'felx/{}_tmp_optimise.nc'.format(self.exp.file_base)
