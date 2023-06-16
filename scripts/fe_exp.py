@@ -334,7 +334,7 @@ class FelxDataSet(object):
         n_obs = ds.z.where(np.isnan(ds.z), 1).sum(dim='obs')
         n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / size)).astype(dtype=int)
         # Number of particles per subset.
-        n_traj = [n_obs_grp.where(n_obs_grp == i, drop=True).traj.size for i in range(size)]
+        n_traj = [n_obs_grp.where((n_obs_grp == i).load(), drop=True).traj.size for i in range(size)]
         # Particle index [first, last+1] in each subset.
         n_traj = np.array([0, *n_traj])
         traj_bnds = [[np.cumsum(n_traj)[i], np.cumsum(n_traj)[i + 1]] for i in range(size)]
@@ -367,11 +367,12 @@ class FelxDataSet(object):
 
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
-        ds = xr.open_dataset(self.exp.file_felx_bgc, chunks='auto')
-        ds = ds.unify_chunks()
+        ds = xr.open_dataset(self.exp.file_felx_bgc)  # chunks='auto'
+        # ds = ds.unify_chunks()
 
         # Apply new EUC definition (u > 0.1 m/s)
-        traj = ds.u.where(((ds.u / DXDY) > 0.1).load(), drop=True).traj
+        # traj = ds.u.where(((ds.u / DXDY) > 0.1).load(), drop=True).traj
+        traj = ds.u.where((ds.u / DXDY) > 0.1, drop=True).traj
         ds = ds.sel(traj=traj)
         ds = ds.chunk()
 

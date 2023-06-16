@@ -325,8 +325,8 @@ def fix_particles_v0_err(pds):
     else:
         rank = 0
         size = 52
-
-    logger.info('{}: Running fix_update_particles_v0_err.'.format(pds.exp.file_felx.stem))
+    if rank == 0:
+        logger.info('{}: Running fix_update_particles_v0_err.'.format(pds.exp.file_felx.stem))
     # Particle dataset
     pds.add_iron_model_params()
 
