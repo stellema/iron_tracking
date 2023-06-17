@@ -434,32 +434,33 @@ class FelxDataSet(object):
         ds_fe.close()
         return ds
 
-    def save_fixed_felx_dataset(self, size):
+    def get_particle_IDs_of_fe_errors(self, ds):
+        """Get particle IDs of particles with negative iron variables."""
+        pids = ds.where(ds.fe < 0, drop=True).traj
+        return pids
+
+    def save_fixed_felx_dataset(self):
         """Save & format finished felx tmp datasets."""
+        size = 65
         file = self.exp.file_felx
 
         # Merge temp subsets of fe model output.
         tmp_files = self.felx_tmp_filenames(size)
 
-        ds_new = xr.open_mfdataset([f for f in tmp_files if f.exists()])
+        ds_fix = xr.open_mfdataset([f for f in tmp_files if f.exists()])
 
         felx_file_old = self.exp.file_felx.parent / 'tmp_err/{}'.format(self.exp.file_felx.name)
         ds = xr.open_dataset(felx_file_old)  # Open error complete felx dataset.
 
-        error_particle_ids = ds.fe.where(ds.fe < 0, drop=True).traj  # Particles to re-run
+        error_particle_ids = self.get_particle_IDs_of_fe_errors(ds)  # Particles to re-run
         ok_particle_ids = ds.traj[~ds.traj.isin(error_particle_ids)]
+
+        assert all(ds_fix.traj == error_particle_ids).item()
 
         # Add fe model output from temp files
         logger.info('{}: Add fe variables.'.format(file.stem))
         for var in self.variables:
-            ds[var] = xr.merge([ds[var].sel(traj=ok_particle_ids), ds_new[var]])
-
-        ds = ds.unify_chunks()
-
-        logger.info('{}: Drop trailing NaNs (pre={}).'.format(file.stem, ds.obs.size))
-        ds = ds.where(~np.isnan(ds.z).load(), drop=True)
-        ds['u'] = ds.u.isel(obs=0, drop=True)
-        logger.info('{}: Dropped trailing NaNs (post={}).'.format(file.stem, ds.obs.size))
+            ds[var] = xr.merge([ds[var].sel(traj=ok_particle_ids), ds_fix[var]])[var]
 
         # Add metadata
         ds = self.add_variable_attrs(ds)
@@ -473,10 +474,11 @@ class FelxDataSet(object):
             ds[var].encoding.update(comp)
 
         ds = ds.chunk()
+        ds = ds.unify_chunks()
         ds.to_netcdf(file)
         logger.info('{}: Saved.'.format(file.stem))
 
-        ds_new.close()
+        ds_fix.close()
         return ds
 
     def init_felx_optimise_dataset(self):
