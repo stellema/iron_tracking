@@ -324,63 +324,74 @@ def fix_particles_v0_err(pds):
         size = comm.Get_size()
     else:
         rank = 0
-        size = 52
-    if rank == 0:
-        logger.info('{}: Running fix_update_particles_v0_err.'.format(pds.exp.file_felx.stem))
-    # Particle dataset
-    pds.add_iron_model_params()
+        size = 65
 
     if rank == 0:
-        logger.debug('{}: rank={}: Initializing dataset...'.format(pds.exp.file_felx.stem, rank))
+        logger.info('{}: Running fix_update_particles_v0_err.'.format(pds.exp.file_felx.stem))
+        logger.debug('{}: rank={}: Initializing dataset.'.format(pds.exp.file_felx.stem, rank))
+
+    # Open particle dataset of BGC fields.
     ds = xr.open_dataset(pds.exp.file_felx_bgc)
 
     # Fix error particles.
+    if rank == 0:
+        logger.info('{}: Open previous iron particle dataset.'.format(pds.exp.file_felx.stem))
     felx_file_old = pds.exp.file_felx.parent / 'tmp_err/{}'.format(pds.exp.file_felx.name)
     dx = xr.open_dataset(felx_file_old)  # Open error complete felx dataset.
-    particle_ids = dx.where(dx.fe < 0, drop=True).traj  # Particles to re-run
+
+    # Subset to particles to re-run.
+    if rank == 0:
+        logger.info('{}: Subset particles with negative iron.'.format(pds.exp.file_felx.stem))
+    particle_ids = dx.where(dx.fe < 0, drop=True).traj
     ds = ds.sel(traj=particle_ids)
 
     # Distribute particles among processes
     if rank == 0:
-        logger.debug('{}: p={}: Subsetting dataset.'.format(pds.exp.file_felx.stem, ds.traj.size))
+        logger.debug('{}: p={}: Subsetting dataset among processors.'.format(pds.exp.file_felx.stem, ds.traj.size))
         particle_subsets = pds.particle_subsets(ds, size)
-    else:
-        particle_subsets = None
 
     particle_subsets = comm.bcast(particle_subsets if rank == 0 else None, root=0)
     particle_subset = particle_subsets[rank]
     ds = ds.isel(traj=slice(*particle_subset))
 
+    # Add dataarrays for fe variables.
+    if rank == 0:
+        logger.info('{}: Add arrays for iron variables.'.format(pds.exp.file_felx.stem))
+
     for var in pds.variables:
         ds[var] = xr.DataArray(None, dims=('traj', 'obs'), coords=ds.coords)
 
-    # Constants.
+    # Constants & field names for function input.
     field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'z', 'J_max', 'J_I']
-    constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'b', 'c', 'k_N', 'k_fe']
+    constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
+                      'b', 'c', 'k_N', 'k_fe']
+    pds.add_iron_model_params()
     constants = [pds.params[i] for i in constant_names]
 
     # Pre calculate data_variables that require function calls.
     if rank == 0:
-        logger.debug('{}: Calculating J_max and J_I.'.format(pds.exp.file_felx.stem))
-
+        logger.info('{}: Pre-calculate phyto variables.'.format(pds.exp.file_felx.stem))
     ds['J_max'] = pds.a * np.power(pds.b, (pds.c * ds.temp))
     light = pds.PAR * pds.I_0 * np.exp(-ds.z * np.power(10, ds.kd))
     ds['J_I'] = ds.J_max * (1 - np.exp((-pds.alpha * light) / ds.J_max))
 
-    # Source Iron fields (observations or OFAM3 Fe).
-    dfs = iron_source_profiles()
-    ds_fe = dfs.dfe.ds_avg
+    # Source Iron fields (observations).
+    if rank == 0:
+        logger.info('{}: Get iron source profiles from observations.'.format(pds.exp.file_felx.stem))
+    ds_fe = iron_source_profiles().dfe.ds_avg
 
-    # Free memory
+    # Free up memory.
     del light
     ds = ds.drop('kd')
     ds = ds.drop('u')
     gc.collect()
 
+    logger.info('{}: rank={}: particles={}/{} (total={}): Updating iron.'
+                .format(pds.exp.file_base, rank, ds.traj.size, particle_ids.size, dx.traj.size))
+
     # Run simulation for each particle.
     particles = range(ds.traj.size)
-    logger.info('{}: rank={}: particles={}/{}: Updating iron.'.format(pds.exp.file_base, rank,
-                                                                      ds.traj.size, dx.traj.size))
+
     for p in particles:
         # Assign initial iron.
         ds = SourceIron(pds, ds, p, ds_fe)
@@ -397,11 +408,13 @@ def fix_particles_v0_err(pds):
             ds['fe_scav'][dict(traj=p, obs=t - 1)] = fe_scav
             ds['fe_reg'][dict(traj=p, obs=t - 1)] = fe_reg
             ds['fe_phy'][dict(traj=p, obs=t - 1)] = fe_phy
+
+            # Free up memory.
             del fields
             gc.collect()
 
     if MPI is not None:
-        logger.debug('{}: rank={}: Saving dataset...'.format(pds.exp.file_felx.stem, rank))
+        logger.debug('{}: rank={}: Saving dataset.'.format(pds.exp.file_felx.stem, rank))
 
         # Save proc dataset as tmp file.
         tmp_files = pds.felx_tmp_filenames(size)
@@ -426,11 +439,11 @@ def fix_particles_v0_err(pds):
 
 if __name__ == '__main__':
     p = ArgumentParser(description="""Optimise iron model paramaters.""")
-    p.add_argument('-x', '--lon', default=220, type=int,
+    p.add_argument('-x', '--lon', default=250, type=int,
                    help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
-    p.add_argument('-r', '--index', default=7, type=int, help='File repeat index [0-7].')
+    p.add_argument('-r', '--index', default=0, type=int, help='File repeat index [0-7].')
     p.add_argument('-f', '--func', default='run', type=str, help='run, fix or save.')
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
@@ -446,12 +459,11 @@ if __name__ == '__main__':
         fix_particles_v0_err(pds)
 
     elif args.func == 'save':
-        size = 52
         felx_file_tmp = pds.exp.file_felx.parent / 'tmp_err/{}'.format(pds.exp.file_felx.name)
         if felx_file_tmp.exists():
-            ds = pds.save_fixed_felx_dataset(size=size)
+            ds = pds.save_fixed_felx_dataset()
         else:
-            ds = pds.save_felx_dataset(size=size)
+            ds = pds.save_felx_dataset()
 
         dfs = iron_source_profiles()
 
