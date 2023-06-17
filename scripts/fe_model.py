@@ -112,7 +112,9 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
     ds['fe'][dict(traj=p, obs=t)] = fe
 
     return ds
-
+    field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'z', 'J_max', 'J_I']
+    constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
+                      'b', 'c', 'k_N', 'k_fe']  # 'PAR', 'I_0', 'alpha''a', kd
 
 @numba.njit
 def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_scav, mu_D,
@@ -133,7 +135,7 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_sc
     # J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
 
     # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
-    J = J_max * min(J_I / J_max, N / (N + k_N), fe / (fe + (0.02 * k_fe)))  # [day^-1]
+    J = J_max * min(J_I / J_max, N / (N + k_N), fe / (fe + (0.02 * k_fe)), 0)  # [day^-1]
 
     # Iron Phytoplankton Uptake
     fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
@@ -144,6 +146,10 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_sc
     # Iron Scavenging
     fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)  # [umol Fe m^-3 day^-1]
     # fe_scav = tau * max(0, fe - 0.6)  # [umol Fe m^-3  day^-1]
+
+    fe_phy = max([fe_phy, 0])
+    fe_scav = max([fe_scav, 0])
+    fe_reg = max([fe_reg, 0])
 
     # Iron
     fe = fe + 2 * (fe_reg - fe_phy - fe_scav)
@@ -342,7 +348,7 @@ def fix_particles_v0_err(pds):
     # Subset to particles to re-run.
     if rank == 0:
         logger.info('{}: Subset particles with negative iron.'.format(pds.exp.file_felx.stem))
-    particle_ids = dx.where(dx.fe < 0, drop=True).traj
+    particle_ids = pds.get_particle_IDs_of_fe_errors(dx)  # Particles to re-run
     ds = ds.sel(traj=particle_ids)
 
     # Distribute particles among processes
@@ -443,7 +449,7 @@ if __name__ == '__main__':
                    help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
-    p.add_argument('-r', '--index', default=0, type=int, help='File repeat index [0-7].')
+    p.add_argument('-r', '--index', default=7, type=int, help='File repeat index [0-7].')
     p.add_argument('-f', '--func', default='run', type=str, help='run, fix or save.')
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
