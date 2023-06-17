@@ -332,8 +332,7 @@ def fix_particles_v0_err(pds):
 
     if rank == 0:
         logger.debug('{}: rank={}: Initializing dataset...'.format(pds.exp.file_felx.stem, rank))
-    ds = xr.open_dataset(pds.exp.file_felx_bgc, chunks='auto')
-    ds = ds.unify_chunks()
+    ds = xr.open_dataset(pds.exp.file_felx_bgc)
 
     # Fix error particles.
     felx_file_old = pds.exp.file_felx.parent / 'tmp_err/{}'.format(pds.exp.file_felx.name)
