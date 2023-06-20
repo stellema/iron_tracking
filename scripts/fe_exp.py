@@ -379,7 +379,7 @@ class FelxDataSet(object):
             ds[var] = xr.DataArray(None, dims=('traj', 'obs'), coords=ds.coords)
         return ds
 
-    def save_felx_dataset(self, size):
+    def save_felx_dataset(self, size=80):
         """Save & format finished felx tmp datasets."""
         file = self.exp.file_felx
 
@@ -437,9 +437,8 @@ class FelxDataSet(object):
         pids = ds.where(ds.fe < 0, drop=True).traj
         return pids
 
-    def save_fixed_felx_dataset(self):
+    def save_fixed_felx_dataset(self, size=80):
         """Save & format finished felx tmp datasets."""
-        size = 65
         file = self.exp.file_felx
 
         # Merge temp subsets of fe model output.
@@ -450,14 +449,17 @@ class FelxDataSet(object):
         felx_file_old = self.exp.file_felx.parent / 'tmp_err/{}'.format(self.exp.file_felx.name)
         ds = xr.open_dataset(felx_file_old)  # Open error complete felx dataset.
 
+        ds_fix = ds_fix.isel(obs=slice(ds.obs.size))  # Other file dropped trailing NaNs
+
         error_particle_ids = self.get_particle_IDs_of_fe_errors(ds)  # Particles to re-run
         ok_particle_ids = ds.traj[~ds.traj.isin(error_particle_ids)]
 
-        assert all(ds_fix.traj == error_particle_ids).item()
+        assert all(ds_fix.traj == error_particle_ids)
 
         # Add fe model output from temp files
         logger.info('{}: Add fe variables.'.format(file.stem))
         for var in self.variables:
+            logger.info('{}: Add {}.'.format(file.stem, var))
             ds[var] = xr.merge([ds[var].sel(traj=ok_particle_ids), ds_fix[var]])[var]
 
         # Add metadata
