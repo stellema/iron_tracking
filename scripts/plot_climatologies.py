@@ -42,12 +42,13 @@ def plot_seawifs_chlorophyll():
     df = ds.mean('time')
     df = 10**df
 
+    # Define colormap
     cmap = plt.cm.jet
     cmap.set_bad('k')
     norm = mpl.colors.LogNorm(vmin=0.01, vmax=40)
 
     # Plot
-    fig, ax = plt.subplots(1, 1, figsize=(12, 7))
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
     pcm = ax.pcolormesh(df.lon, df.lat, df.where(df > 0), cmap=cmap, norm=norm)
 
     # Colourbar
@@ -56,11 +57,11 @@ def plot_seawifs_chlorophyll():
     cb.set_label('Chlorophyll [mg m^-3]')
 
     # Ticks
-    ax.set_ylim(-80, 85)
+    ax.set_ylim(-40, 40)
     ax.xaxis.set_minor_locator(mpl.ticker.MultipleLocator(25))
     ax.yaxis.set_minor_locator(mpl.ticker.MultipleLocator(10))
     ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%d°E"))
-    yticks = np.arange(-80, 85, 20)
+    yticks = np.arange(-40, 41, 20)
     ytick_labels = ['{:.0f}°{}'.format(np.fabs(i), 'N' if i >= 0 else 'S') for i in yticks]
     ax.set_yticks(yticks)
     ax.set_yticklabels(ytick_labels)
@@ -70,37 +71,53 @@ def plot_seawifs_chlorophyll():
 
 
 def plot_euc_obs_xz_profile():
-    # Johnson EUC
+    """Plot Johnson et al 2002 EUC obs climatology as a function of depth and longitude."""
     ds = xr.open_dataset(cfg.paths.obs / 'pac_mean_johnson_2002.cdf')
     ds = ds.rename(dict(ZDEP1_50='z', YLAT11_101='y', XLON='x', UM='u'))
     # ds.u.sel(y=0).plot(figsize=(14, 5), yincrease=0, cmap=plt.cm.seismic)
-    ds = ds.sel(x=slice(156, 270))
+    ds = ds.sel(x=slice(140, 280))
     xe = ds.XLONedges[1:]
+
+    # Pad edges
+    # Evenly spaced lat and lon (single level time and depth arrays).
+    dx = 5
+    x = np.arange(140, ds.x[-1] + dx, dx, dtype=np.float32)
+
+    coords = dict(x=('x', x))
+    temp = xr.DataArray(np.full(x.size, np.nan), dims=list(coords.keys()), coords=coords)
+    temp = temp.to_dataset(name='u')
+
+    ds = xr.merge([ds, temp])
 
     cmap = plt.cm.seismic
     cmap.set_bad('grey')
-    fig, ax = plt.subplots(1, 1, figsize=(12, 5))
 
+    # Plots.
+    fig, ax = plt.subplots(1, 1, figsize=(12, 5))
+    ax.set_title('Zonal Velocity at the Equator', loc='left')
     # levels = np.arange(-1.1, 1.12, 0.02)
-    # im = ax.contourf(ds.x, ds.z, ds.u.sel(y=0), cmap=plt.cm.seismic, levels=levels)
+    # im = ax.contourf(ds.x, ds.z, ds.u.sel(y=0), cmap=plt.cm.seismic)#, levels=levels)
     # ax.contour(ds.x, ds.z, ds.SIGMAM.sel(y=0), 10, colors='k')
-    im = ax.pcolormesh(xe, ds.z, ds.u.sel(y=0, z=slice(5, 485)), cmap=cmap, vmax=1.1, vmin=-1)
+    im = ax.pcolormesh(ds.x, ds.z, ds.u.sel(y=0), cmap=cmap, vmax=1.1, vmin=-1.1)
 
     # Colour bar
     cb = fig.colorbar(im, ax=ax, extend='both', pad=0.01)
-    cb.set_label('zonal velocity [m^-1]')
+    cb.set_label('zonal velocity [m/s]')
 
     # Ticks
     ax.set_ylim(400, 5)
-    ax.set_xlim(156, 270)
-    ax.set_xticks(ds.x)
+    # ax.set_xlim(156, 270)
+    ax.set_xticks(ds.u.dropna('x', 'all').x)
     ax.yaxis.set_minor_locator(mpl.ticker.MultipleLocator(25))
-
+    ax.xaxis.set_minor_locator(mpl.ticker.MultipleLocator(5))
+    ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%d°E"))
+    ax.yaxis.set_ticks_position('both')
+    # ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
+    ax.set_ylabel('Depth [m]')
     plt.tight_layout()
 
     plt.savefig(paths.figs / 'clim/euc_obs_xz_profile.png', dpi=300, bbox_inches='tight')
     plt.show()
-
 
 
 def plot_OFAM3_fields():
