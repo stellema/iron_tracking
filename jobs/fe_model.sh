@@ -1,9 +1,9 @@
 #!/bin/bash
 #PBS -P e14
 #PBS -q normalsr
-#PBS -l walltime=30:00:00
-#PBS -l mem=250GB
-#PBS -l ncpus=52
+#PBS -l walltime=48:00:00
+#PBS -l mem=500GB
+#PBS -l ncpus=56
 #PBS -l storage=gdata/hh5+gdata/e14
 #PBS -l wd
 #PBS -m ae
@@ -18,5 +18,5 @@
 ECHO=/bin/echo
 $ECHO "version=0, scenario=$EXP, longitude=$LON, index=$R."
 module use /g/data3/hh5/public/modules
-module load conda/analysis3-22.04
+module load conda/analysis3-23.01
 mpiexec -n $PBS_NCPUS python3 /g/data/e14/as3189/stellema/felx/scripts/fe_model.py -s $EXP -x $LON -v 0 -r $R -f 'run'
