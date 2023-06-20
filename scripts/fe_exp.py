@@ -21,7 +21,7 @@ import os
 import pandas as pd
 import xarray as xr
 
-from cfg import paths, DXDY
+from cfg import paths, DXDY, ExpData, zones, test
 from datasets import plx_particle_dataset, save_dataset, append_dataset_history
 from tools import timeit, mlogger, unique_name
 
@@ -547,3 +547,120 @@ class FelxDataSet(object):
             if k in ds.data_vars:
                 ds[k].attrs = v
         return ds
+
+    def weighted_mean(self, ds, var='fe', dim='traj', groupby_depth=False):
+        # Particle data
+        if 'obs' in ds[var].dims:
+            # ds_i = ds.isel(obs=0)  # at source
+            ds = ds.ffill('obs').isel(obs=-1, drop=True)  # at EUC
+
+        weights = ds.u
+
+        if groupby_depth:
+            var_mean = (ds[var] * weights).groupby(ds.z).sum() / (weights).groupby(ds.z).sum()
+        else:
+            var_mean = ds[var].weighted(weights).mean(dim).load()
+        return var_mean
+
+    def get_final_particle_obs(self, ds):
+        """Reduce particle dataset variables to first/last observation."""
+        # First value (at the source).
+
+        ds['fe_src'] = ds['fe'].isel(obs=0, drop=True)
+        ds['time_at_src'] = ds['time'].isel(obs=0, drop=True)
+
+        for var in ['trajectory']:
+            ds[var] = ds[var].isel(obs=0, drop=True)
+
+        # Maximum value.
+        for var in ['age']:
+            ds[var] = ds[var].max('obs', skipna=True, keep_attrs=True)
+
+        # Calculate the mean.
+        for var in ['temp', 'phy']:
+            ds[var + '_mean'] = ds[var].mean('obs', skipna=True, keep_attrs=True)
+
+        # Last value (at the EUC).
+        for var in ['time', 'z', 'lat', 'lon', 'fe']:
+            ds[var] = ds[var].ffill('obs').isel(obs=-1)
+
+        # Calculate the sum.
+        for var in ['fe_scav', 'fe_reg', 'fe_phy']:
+            ds[var] = ds[var].sum('obs', skipna=True, keep_attrs=True)
+
+        for var in ['u', 'zone']:
+            if 'obs' in ds[var].dims:
+                ds[var] = ds[var].max('obs', skipna=True, keep_attrs=True)
+
+        # Drop extra coords and unused 'obs'.
+        for var in ds.variables:
+            if 'obs' in ds[var].dims:
+                ds = ds.drop(var)
+        return ds
+
+    def source_particle_ID_dict(self, ds):
+        """Create dictionary of particle IDs from each source.
+
+        Args:
+            ds (xarray.Dataset): Fe model particle dataset.
+
+        Returns:
+            source_traj (dict of lists): Dictionary of particle IDs.
+                dict[zone] = list(traj)
+
+        """
+        # Dictionary filename (to save/open).
+        file = paths.data / 'sources/id/source_particle_id_map_{}.npy'.format(self.exp.file_base)
+
+        # Return saved dictionary if available.
+        if file.exists():
+            return np.load(file, allow_pickle=True).item()
+
+        # Source region IDs (0-10).
+        zone_indexes = range(len(zones._all))
+        source_traj = dict()
+
+        # Particle IDs that reach each source.
+        for z in zone_indexes:
+            traj = ds.traj.where(ds.zone == z, drop=True)
+            traj = traj.values.astype(dtype=int).tolist()  # Convert to list.
+            source_traj[z] = traj
+        if not test:
+            np.save(file, source_traj)  # Save dictionary as numpy file.
+        return source_traj
+
+
+    def map_var_to_particle_ids(self, ds, var='zone', var_array=range(len(zones._all)), file=None):
+        """Create dictionary of particle IDs from each source.
+
+        Args:
+            ds (xarray.Dataset): Fe model particle dataset.
+
+        Returns:
+            pid_map (dict of lists): Dictionary of particle IDs.
+                dict[zone] = list(traj)
+
+        Example:
+            source_traj = map_var_to_particle_ids(ds, var='zone', var_array=range(len(zones._all)),
+                                                  file=pds.exp.file_source_map)
+            pid_map = map_var_to_particle_ids(ds, var='z', var_array=range(25, 350 + 25, 25))
+
+        Notes:
+            Generic version of source_particle_ID_dict
+
+        """
+
+        if file is not None:
+            if file.exists():
+                return np.load(file, allow_pickle=True).item()
+
+        pid_map = dict()
+        # Particle IDs that reach each source.
+        for i in var_array:
+            traj = ds.traj.where(ds[var] == i, drop=True)
+            traj = traj.values.astype(dtype=int).tolist()  # Convert to list.
+            pid_map[i] = traj
+
+        if file is not None and not test:
+            np.save(file, pid_map)  # Save dictionary as numpy file.
+        return pid_map

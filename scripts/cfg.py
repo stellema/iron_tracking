@@ -17,9 +17,8 @@ Notes:
 Example:
 
 Todo:
-    - unzip zoo, det
-    - replace exp with era
-    @ TODO: replace args in plx_particle_dataset
+    - Replace felx_bgc_rcp_165_v0_00.nc
+    - Replace felx_bgc_rcp_190_v0_01.nc
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -193,11 +192,19 @@ class ExpData:
 
         self.file_base = '{}_{}_v{}_{:02d}'.format(self.scenario_abbr, self.lon, self.version,
                                                    self.file_index)
-
+        # Iron model finished files
         self.file_felx = self.out_subdir / '{}_{}.nc'.format(self.name, self.file_base)
+        self.file_source = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base)
+        self.file_felx_all = [self.file_felx.parent / '{}{:02d}.nc'
+                              .format(self.file_felx.stem[:-2], i) for i in range(8)]
+
+        self.file_source_map = paths.data / 'sources/id/source_particle_id_map_{}.npy'.format(self.file_base)
+        # Iron model prereq and temporary files.
         self.file_felx_tmp_dir = self.out_subdir / 'tmp_{}_{}/'.format(self.name, self.file_base)
         self.file_felx_bgc = self.out_dir / 'felx_bgc_{}.nc'.format(self.file_base)
         self.file_felx_bgc_tmp = self.out_dir / 'felx_bgc_{}_tmp.nc'.format(self.file_base)
+
+        # Plx files
         self.file_plx = paths.data / 'plx/plx_{}_{}_v1_{:02d}.nc'.format(self.scenario_abbr,
                                                                          self.lon, self.file_index)
         self.file_plx_inv = paths.data / 'plx/{}_inverse.nc'.format(self.file_plx.stem)
