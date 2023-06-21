@@ -105,6 +105,7 @@ def group_fe_by_source(pds, ds, source_traj):
     df = ds.drop([v for v in ds.data_vars if v not in [var, 'u', 'time']])
 
     df = group_particles_by_variable(df, 'time')
+    df['zone'] = df.zone.isel(obs=0, drop=True)
     df.coords['zone'] = np.arange(len(zones._all))
     df.coords['z'] = np.arange(25, 350 + 25, 25, dtype=int)  # !!! Check
     pid_map = pds.map_var_to_particle_ids(ds, var='z', var_array=df.z.values)
@@ -190,8 +191,10 @@ def create_source_file(pds):
     fe_zone = group_fe_by_source(pds, ds, source_traj)
 
     logger.info('{}: Group by source.'.format(file.stem))
+
     # Group variables by source: (traj) -> (zone, traj).
     df = group_particles_by_variable(ds, var='zone')
+    df['zone'] = df.zone.isel(obs=0, drop=True)
 
     # Merge transport grouped by release time with source grouped variables.
     df.coords['zone'] = u_zone.zone.copy()  # Match 'zone' coord.
