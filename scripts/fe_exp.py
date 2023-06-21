@@ -569,6 +569,7 @@ class FelxDataSet(object):
     def get_final_particle_obs(self, ds):
         """Reduce particle dataset variables to first/last observation."""
         df = xr.Dataset()
+        df.assign_attrs(ds.attrs)
 
         df['trajectory'] = ds['trajectory'].isel(obs=0, drop=True)  # First value (at the source).
 

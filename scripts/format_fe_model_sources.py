@@ -17,7 +17,7 @@ import numpy as np
 import xarray as xr
 from argparse import ArgumentParser
 
-from cfg import paths, ExpData, test
+from cfg import ExpData, test
 from datasets import save_dataset
 from tools import mlogger, timeit
 from fe_exp import FelxDataSet
@@ -25,7 +25,6 @@ from fe_exp import FelxDataSet
 dask.config.set(**{'array.slicing.split_large_chunks': True})
 np.seterr(divide='ignore', invalid='ignore')
 logger = mlogger('source_files')
-
 
 
 def group_particles_by_variable(ds, var='time'):
@@ -181,7 +180,7 @@ def create_source_file(pds):
         u_total_src (rtime, zone): EUC transport / release time & source.
 
     """
-    file = exp.file_source
+    file = exp.file_source_tmp
     logger.info('{}: Creating particle source file.'.format(file.stem))
 
     ds = xr.open_dataset(pds.exp.file_felx)
@@ -203,34 +202,26 @@ def create_source_file(pds):
     u_zone = group_euc_transport(pds, ds, pid_source_map)
 
     logger.info('{}: Iron weighted mean per source.'.format(file.stem))
-    fe_zone = group_fe_by_source(pds, ds, pid_source_map, var='fe')
-    fe_src_zone = group_fe_by_source(pds, ds, pid_source_map, var='fe_src')
-    temp_zone = group_fe_by_source(pds, ds, pid_source_map, var='temp')
-    phy_zone = group_fe_by_source(pds, ds, pid_source_map, var='phy')
+    varz = ['fe', 'fe_src', 'fe_phy', 'fe_reg', 'fe_scav', 'temp', 'phy'][::-1]
+
+    varz_ds_list = []
+    for var in varz:
+        varz_ds_list = group_fe_by_source(pds, ds, pid_source_map, var=var)
 
     logger.info('{}: Group by source.'.format(file.stem))
-
     # Group variables by source: (traj) -> (zone, traj).
     df = group_particles_by_variable(ds, var='zone')
 
     # Merge transport grouped by release time with source grouped variables.
     df.coords['zone'] = u_zone.zone.copy()  # Match 'zone' coord.
-    df.coords['z'] = fe_zone.z.copy()  # Match 'zone' coord.
+    df.coords['z'] = varz_ds_list[0].z.copy()  # Match 'zone' coord.
 
     df['u_total_src'] = u_zone
     df['u_total'] = df['u_total_src'].sum('zone', keep_attrs=True)  # Add total transport per release.
 
-    for v in ['_mean', '_mean_src']:
-        df['temp' + v] = temp_zone['temp' + v]
-
-    for v in ['_mean', '_mean_src']:
-        df['phy' + v] = phy_zone['phy' + v]
-
-    for v in ['_mean', '_mean_src', '_mean_src_depth']:
-        df['fe' + v] = fe_zone['fe' + v]
-
-    for v in ['_mean', '_mean_src', '_mean_src_depth']:
-        df['fe_src' + v] = fe_src_zone['fe_src' + v]
+    for var, dz in zip(varz, varz_ds_list):
+        for v in ['_mean', '_mean_src', '_mean_src_depth']:
+            df[var + v] = dz[var + v]
 
     # Convert age: seconds to days.
     df['age'] *= 1 / (60 * 60 * 24)
@@ -242,15 +233,16 @@ def create_source_file(pds):
     df = df.unify_chunks()
     save_dataset(df, file, msg='Calculated grouped source statistics.')
     logger.info('{}: Saved.'.format(file.stem))
+    df.close()
+    ds.close()
 
 
 if __name__ == "__main__":
     p = ArgumentParser(description="""Format source file.""")
-    p.add_argument('-x', '--lon', default=250, type=int, help='Release longitude [165, 190, 220, 250].')
+    p.add_argument('-x', '--lon', default=220, type=int, help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
     p.add_argument('-r', '--index', default=7, type=int, help='File repeat index [0-7].')
-    p.add_argument('-f', '--func', default='run', type=str, help='run, fix or save.')
     args = p.parse_args()
 
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
@@ -259,7 +251,18 @@ if __name__ == "__main__":
                   out_subdir='v{}'.format(version))
     pds = FelxDataSet(exp)
 
-    create_source_file(pds)
+    # Create source file for file index.
+    if not pds.exp.file_source_tmp.exists():
+        create_source_file(pds)
 
-    # files_all = pds.exp.file_felx_all
-    # ds = xr.open_mfdataset(files_all, combine='nested', chunks='auto', coords='minimal')
+    # Create combined source file.
+    if not pds.exp.file_source.exists():
+        files_all = pds.exp.file_source_tmp_all
+        if all([f.exists() for f in files_all]):
+            logger.info('{}: Saving combined source file.'.format(pds.exp.file_source.stem))
+            ds = xr.open_mfdataset(files_all, data_vars='minimal')
+            ds = ds.chunk()
+            ds = ds.unify_chunks()
+            save_dataset(ds, pds.exp.file_source, msg='Combined source files.')
+            logger.info('{}: Saved combined source file.'.format(pds.exp.file_source.stem))
+            ds.close()

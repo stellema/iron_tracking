@@ -194,7 +194,10 @@ class ExpData:
                                                    self.file_index)
         # Iron model finished files
         self.file_felx = self.out_subdir / '{}_{}.nc'.format(self.name, self.file_base)
-        self.file_source = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base)
+        self.file_source = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base[:-2])
+        self.file_source_tmp = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base)
+        self.file_source_tmp_all = [self.out_subdir / '{}_source_{}{:02d}.nc'
+                                    .format(self.name, self.file_base[:-2], i) for i in range(8)]
         self.file_felx_all = [self.file_felx.parent / '{}{:02d}.nc'
                               .format(self.file_felx.stem[:-2], i) for i in range(8)]
 
