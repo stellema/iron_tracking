@@ -17,17 +17,17 @@ import numpy as np
 import xarray as xr
 from argparse import ArgumentParser
 
-from cfg import paths, ExpData, zones, test
+from cfg import paths, ExpData, test
 from datasets import save_dataset
-from tools import unique_name, mlogger, timeit
+from tools import mlogger, timeit
 from fe_exp import FelxDataSet
 
 dask.config.set(**{'array.slicing.split_large_chunks': True})
-
+np.seterr(divide='ignore', invalid='ignore')
 logger = mlogger('source_files')
 
 
-@timeit
+
 def group_particles_by_variable(ds, var='time'):
     """Group particles by time.
 
@@ -53,8 +53,7 @@ def group_particles_by_variable(ds, var='time'):
     return ds
 
 
-@timeit
-def group_euc_transport(ds, source_traj):
+def group_euc_transport(pds, ds, pid_source_map):
     """Calculate EUC transport per release time & source.
 
     Args:
@@ -68,24 +67,25 @@ def group_euc_transport(ds, source_traj):
     # Group particle transport by time.
     df = ds.drop([v for v in ds.data_vars if v not in ['u', 'time']])
     df = group_particles_by_variable(df, 'time')
-    df.coords['zone'] = np.arange(len(zones._all))
+    df.coords['zone'] = np.arange(len(pds.zones._all))
 
     # Rename stacked time coordinate (avoid duplicate 'time' variable).
     df = df.rename({'time': 'rtime'})
 
     # Initialise source-grouped transport variable.
-    df['u_zone'] = (['rtime', 'zone'], np.empty((df.rtime.size, df.zone.size)))
+    df['u_src'] = (['rtime', 'zone'], np.empty((df.rtime.size, df.zone.size)))
+    df['u_src'].attrs = df.u.attrs
 
     for z in df.zone.values:
-        df_zone = df.sel(traj=df.traj[df.traj.isin(source_traj[z])])
+        df_zone = df.sel(traj=df.traj[df.traj.isin(pid_source_map[z])])
 
         # Sum particle transport.
-        df['u_zone'][dict(zone=z)] = df_zone.u.sum('traj', keep_attrs=True)
+        df['u_src'][dict(zone=z)] = df_zone.u.sum('traj', keep_attrs=True)
 
-    return df['u_zone']
+    return df['u_src']
 
-@timeit
-def group_fe_by_source(pds, ds, source_traj):
+
+def group_fe_by_source(pds, ds, pid_source_map, var='fe'):
     """Calculate EUC iron weighted mean per release time, source and depth.
 
     Args:
@@ -96,100 +96,117 @@ def group_fe_by_source(pds, ds, source_traj):
         ds[u_zone] (xarray.DataArray): Transport from source (rtime, zone).
 
     """
-    var = 'fe'
-    var_avg = 'fe_mean'
-    var_new = 'fe_mean_zone'
-    var_new_z = 'fe_mean_zone_depth'
+    var_avg = var + '_mean'
+    var_avg_src = var + '_mean_src'
+    var_avg_depth = var + '_mean_src_depth'
 
     # Group particle transport by time.
     df = ds.drop([v for v in ds.data_vars if v not in [var, 'u', 'time']])
 
     df = group_particles_by_variable(df, 'time')
-    df.coords['zone'] = np.arange(len(zones._all))
-    df.coords['z'] = np.arange(25, 350 + 25, 25, dtype=int)  # !!! Check
-    pid_map = pds.map_var_to_particle_ids(ds, var='z', var_array=df.z.values)
+    df.coords['zone'] = pds.zone_indexes
+    df.coords['z'] = pds.release_depths
+
+    pid_depth_map = pds.map_var_to_particle_ids(ds, var='z', var_array=df.z.values)
 
     # Rename stacked time coordinate (avoid duplicate 'time' variable).
     df = df.rename({'time': 'rtime'})
 
     # Initialise source-grouped transport variable.
-    df[var_new] = (['rtime', 'zone'], np.empty((df.rtime.size, df.zone.size)))
-    df[var_new_z] = (['rtime', 'zone', 'z'], np.empty((df.rtime.size, df.zone.size, df.z.size)))
-    df[var_avg] = (df[var] * df.u) / df.u.sum('traj')
+    df[var_avg] = (df[var] * df.u).sum('traj') / df.u.sum('traj')  # Particle weighted mean (rtime).
+    df[var_avg_src] = (['rtime', 'zone'], np.full((df.rtime.size, df.zone.size), np.nan))
+    df[var_avg_src].attrs = ds[var].attrs
+    df[var_avg_depth] = (['rtime', 'zone', 'z'], np.full((df.rtime.size, df.zone.size, df.z.size), np.nan))
+    df[var_avg_depth].attrs = ds[var].attrs
 
     for zone_i, zone in enumerate(df.zone.values):
-        pids = df.traj[df.traj.isin(source_traj[zone])]
-        df_zone = df.sel(traj=pids)
+        # Subset to particles at the same source.
+        pids_src = df.traj[df.traj.isin(pid_source_map[zone])]
+        df_src = df.sel(traj=pids_src)
 
-        if df_zone.traj.size > 0:
-            # Sum particle transport.
-            df[var_new][dict(zone=zone_i)] = (df_zone[var] * df_zone.u).sum('traj', keep_attrs=True) / df_zone.u.sum('traj')
-        else:
-            df[var_new][dict(zone=zone_i)] = np.nan
+        if df_src.traj.size > 0:
+            # Weighted mean grouped by source.
+            loc = dict(zone=zone_i)
+            df[var_avg_src][loc] = (df_src[var] * df_src.u).sum('traj') / df_src.u.sum('traj')
 
-        for depth_i, depth in enumerate(df.z.values):
-            loc = dict(zone=zone_i, z=depth_i)
-            pids = df_zone.traj[df_zone.traj.isin(pid_map[depth])]
-            df_zone_z = df_zone.sel(traj=pids)
-            if df_zone_z.traj.size > 0:
-                # Sum particle transport.
-                df[var_new_z][loc] = (df_zone_z[var] * df_zone_z.u).sum('traj', keep_attrs=True) / df_zone_z.u.sum('traj')
-            else:
-                df[var_new_z][loc] = np.nan
+            for depth_i, depth in enumerate(df.z.values):
+                # Subset to particles at the same source and depth.
+                pids_src_z = df_src.traj[df_src.traj.isin(pid_depth_map[depth])]
+                df_src_z = df_src.sel(traj=pids_src_z)
+
+                if df_src_z.traj.size > 0:
+                    # Weighted mean grouped by source and EUC release depth.
+                    loc = dict(zone=zone_i, z=depth_i)
+                    df[var_avg_depth][loc] = (df_src_z[var] * df_src_z.u).sum('traj') / df_src_z.u.sum('traj')
     return df
 
 
-@timeit
+@timeit(my_logger=logger)
 def create_source_file(pds):
     """Create netcdf file with particle source information.
 
     Coordinates:
-        traj: particle IDs
-        source: source regions 0-10
-        rtime: particle release times
+        traj: particle ID
+        zone: source region id 0-9
+        rtime: particle release time
 
     Data variables:
         trajectory   (zone, traj): Particle ID.
         time         (zone, traj): Release time.
-        age          (zone, traj): Transit time.
-        zone         (zone, traj): Source ID.
-        distance     (zone, traj): Transit distance.
+        lat          (zone, traj): latitude at the EUC.
+        lon          (zone, traj): Longitude at the EUC.
+        z            (zone, traj): Depth at the EUC.
+        time_at_src  (zone, traj): Time at the source.
+        z_at_src     (zone, traj): Depth at the source.
         u            (zone, traj): Initial transport.
-        u_zone       (rtime, zone): EUC transport / release time & source.
-        u_sum        (rtime): Total EUC transport at each release time.
-        time_at_zone (zone, traj): Time at source.
-        z_at_zone    (zone, traj): Depth at source.
+        age          (zone, traj): Transit time.
 
-        lat_max      (zone, traj): Max latitude.
-        lat_min      (zone, traj): Min latitude.
-        lon_max      (zone, traj): Max longitude.
-        lon_min      (zone, traj): Min longitude
-        z_max        (zone, traj): Max depth.
-        z_min        (zone, traj): Min depth.
+        temp         (zone, traj): Mean temperature.
+        phy          (zone, traj): Mean phytoplankton concentration.
+        fe           (zone, traj): Iron at the EUC.
+        fe_src       (zone, traj): Iron at the source.
+        fe_scav      (zone, traj): Total iron scavenged.
+        fe_reg       (zone, traj): Total iron remineralized.
+        fe_phy       (zone, traj): Total phytoplankton uptake of iron.
+
+        fe_mean      (rtime): EUC iron (weighted mean).
+        fe_mean_src  (rtime, zone): EUC iron (source weighted mean).
+        fe_mean_src_depth (rtime, zone, z): EUC iron (source & depth weighted mean).
+
+        fe_src_mean  (rtime): Source iron (weighted mean).
+        fe_src_mean_src (rtime, zone): Source iron (source weighted mean).
+        fe_src_mean_src_depth (rtime, zone, z): Source iron (source & depth weighted mean).
+
+        u_total     (rtime): Total EUC transport at each release time.
+        u_total_src (rtime, zone): EUC transport / release time & source.
 
     """
     file = exp.file_source
     logger.info('{}: Creating particle source file.'.format(file.stem))
 
     ds = xr.open_dataset(pds.exp.file_felx)
-    # if test:
-    #     ds = ds.isel(traj=slice(400, 700))
+    if test:
+        ds = ds.isel(traj=slice(400, 700))
     ds['zone'] = ds.zone.isel(obs=0)
 
     logger.info('{}: Particle information at source.'.format(file.stem))
     ds = pds.get_final_particle_obs(ds)
 
     logger.info('{}: Dictionary of particle IDs at source.'.format(file.stem))
-    source_traj = pds.map_var_to_particle_ids(ds, var='zone', var_array=range(len(zones._all)),
-                                              file=pds.exp.file_source_map)
+    pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes,
+                                                 file=None)
 
     logger.info('{}: Sum EUC transport per source.'.format(file.stem))
 
     # Group variables by source.
     # EUC transport: (traj) -> (rtime, zone). Run first bc can't stack 2D.
-    u_zone = group_euc_transport(ds, source_traj)
+    u_zone = group_euc_transport(pds, ds, pid_source_map)
+
     logger.info('{}: Iron weighted mean per source.'.format(file.stem))
-    fe_zone = group_fe_by_source(pds, ds, source_traj)
+    fe_zone = group_fe_by_source(pds, ds, pid_source_map, var='fe')
+    fe_src_zone = group_fe_by_source(pds, ds, pid_source_map, var='fe_src')
+    temp_zone = group_fe_by_source(pds, ds, pid_source_map, var='temp')
+    phy_zone = group_fe_by_source(pds, ds, pid_source_map, var='phy')
 
     logger.info('{}: Group by source.'.format(file.stem))
 
@@ -200,10 +217,20 @@ def create_source_file(pds):
     df.coords['zone'] = u_zone.zone.copy()  # Match 'zone' coord.
     df.coords['z'] = fe_zone.z.copy()  # Match 'zone' coord.
 
-    for v in ['fe_mean', 'fe_mean_zone', 'fe_mean_zone_depth']:
-        df[v] = fe_zone[v]
-    df['u_zone'] = u_zone
-    df['u_sum'] = df.u_zone.sum('zone', keep_attrs=True)  # Add total transport per release.
+    df['u_total_src'] = u_zone
+    df['u_total'] = df['u_total_src'].sum('zone', keep_attrs=True)  # Add total transport per release.
+
+    for v in ['_mean', '_mean_src']:
+        df['temp' + v] = temp_zone['temp' + v]
+
+    for v in ['_mean', '_mean_src']:
+        df['phy' + v] = phy_zone['phy' + v]
+
+    for v in ['_mean', '_mean_src', '_mean_src_depth']:
+        df['fe' + v] = fe_zone['fe' + v]
+
+    for v in ['_mean', '_mean_src', '_mean_src_depth']:
+        df['fe_src' + v] = fe_src_zone['fe_src' + v]
 
     # Convert age: seconds to days.
     df['age'] *= 1 / (60 * 60 * 24)
@@ -230,8 +257,8 @@ if __name__ == "__main__":
 
     exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index,
                   out_subdir='v{}'.format(version))
-
     pds = FelxDataSet(exp)
+
     create_source_file(pds)
 
     # files_all = pds.exp.file_felx_all

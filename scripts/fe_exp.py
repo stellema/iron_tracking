@@ -34,11 +34,15 @@ class FelxDataSet(object):
     def __init__(self, exp):
         """Initialise & format felx particle dataset."""
         self.exp = exp
-        self.n_subsets = 100
+        self.zones = zones
+        self.zone_indexes = np.arange(len(zones._all), dtype=int)
+        self.n_subsets = 100  # For felx_bgc tmp subsets.
         self.bgc_variables = ['phy', 'zoo', 'det', 'temp', 'no3', 'kd']
         self.bgc_variables_nmap = {'Phy': 'phy', 'Zoo': 'zoo', 'Det': 'det', 'Temp': 'temp',
                                    'NO3': 'no3', 'kd': 'kd'}
         self.variables = ['fe_scav', 'fe_reg', 'fe_phy', 'fe']
+        self.release_depths = np.arange(25, 350 + 25, 25, dtype=int)
+        self.release_lons = np.array([165, 190, 220, 250], dtype=int)
         self.add_iron_model_params()
 
     def add_iron_model_params(self):
@@ -564,39 +568,45 @@ class FelxDataSet(object):
 
     def get_final_particle_obs(self, ds):
         """Reduce particle dataset variables to first/last observation."""
-        # First value (at the source).
+        df = xr.Dataset()
 
-        ds['fe_src'] = ds['fe'].isel(obs=0, drop=True)
-        ds['time_at_src'] = ds['time'].isel(obs=0, drop=True)
+        df['trajectory'] = ds['trajectory'].isel(obs=0, drop=True)  # First value (at the source).
 
-        for var in ['trajectory']:
-            ds[var] = ds[var].isel(obs=0, drop=True)
+        # Location variables.
+        for var in ['time', 'lat', 'lon', 'z']:
+            df[var] = ds[var].ffill('obs').isel(obs=-1)  # Last value (at the EUC).
+            df[var].attrs['long_name'] += ' at the EUC'
 
-        # Maximum value.
-        for var in ['age']:
-            ds[var] = ds[var].max('obs', skipna=True, keep_attrs=True)
+        df['time_at_src'] = ds['time'].isel(obs=0, drop=True)  # First value (at the source).
+        df['time_at_src'].attrs['long_name'] = 'Source Time'
+        df['z_at_src'] = ds['z'].isel(obs=0, drop=True)  # First value (at the source).
+        df['z_at_src'].attrs['long_name'] = 'Source Depth'
 
-        # Calculate the mean.
+        # Physical variables.
+        df['u'] = ds['u'].isel(obs=0, drop=True) if 'obs' in ds['u'].dims else ds['u']
+        df['age'] = ds['age'].max('obs', skipna=True, keep_attrs=True)  # Maximum value.
+        df['zone'] = ds['zone'].isel(obs=0, drop=True) if 'obs' in ds['zone'].dims else ds['zone']
+
+        # Biogeochemical variables.
         for var in ['temp', 'phy']:
-            ds[var + '_mean'] = ds[var].mean('obs', skipna=True, keep_attrs=True)
+            df[var] = ds[var].mean('obs', skipna=True, keep_attrs=True)  # Particle mean.
+            df[var].attrs['long_name'] = 'Mean ' + df[var].attrs['long_name']
 
-        # Last value (at the EUC).
-        for var in ['time', 'z', 'lat', 'lon', 'fe']:
-            ds[var] = ds[var].ffill('obs').isel(obs=-1)
+        # Iron variables.
+        # Iron at the EUC.
+        df['fe'] = ds['fe'].ffill('obs').isel(obs=-1)  # Last value (at the EUC).
+        df['fe'].attrs['long_name'] = 'EUC ' + df['fe'].attrs['long_name']
+
+        # Iron at the source.
+        df['fe_src'] = ds['fe'].isel(obs=0, drop=True)  # First value (at the source).
+        df['fe_src'].attrs['long_name'] = 'Source ' + df['fe_src'].attrs['long_name']
 
         # Calculate the sum.
         for var in ['fe_scav', 'fe_reg', 'fe_phy']:
-            ds[var] = ds[var].sum('obs', skipna=True, keep_attrs=True)
+            df[var] = ds[var].sum('obs', skipna=True, keep_attrs=True)  # Particle sum.
+            df[var].attrs['long_name'] = 'Total ' + df[var].attrs['long_name']
 
-        for var in ['u', 'zone']:
-            if 'obs' in ds[var].dims:
-                ds[var] = ds[var].max('obs', skipna=True, keep_attrs=True)
-
-        # Drop extra coords and unused 'obs'.
-        for var in ds.variables:
-            if 'obs' in ds[var].dims:
-                ds = ds.drop(var)
-        return ds
+        return df
 
     def source_particle_ID_dict(self, ds):
         """Create dictionary of particle IDs from each source.
