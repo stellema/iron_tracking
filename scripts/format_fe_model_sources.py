@@ -17,7 +17,7 @@ import numpy as np
 import xarray as xr
 from argparse import ArgumentParser
 
-from cfg import paths, ExpData, zones
+from cfg import paths, ExpData, zones, test
 from datasets import save_dataset
 from tools import unique_name, mlogger, timeit
 from fe_exp import FelxDataSet
@@ -105,7 +105,6 @@ def group_fe_by_source(pds, ds, source_traj):
     df = ds.drop([v for v in ds.data_vars if v not in [var, 'u', 'time']])
 
     df = group_particles_by_variable(df, 'time')
-    df['zone'] = df.zone.isel(obs=0, drop=True)
     df.coords['zone'] = np.arange(len(zones._all))
     df.coords['z'] = np.arange(25, 350 + 25, 25, dtype=int)  # !!! Check
     pid_map = pds.map_var_to_particle_ids(ds, var='z', var_array=df.z.values)
@@ -116,7 +115,7 @@ def group_fe_by_source(pds, ds, source_traj):
     # Initialise source-grouped transport variable.
     df[var_new] = (['rtime', 'zone'], np.empty((df.rtime.size, df.zone.size)))
     df[var_new_z] = (['rtime', 'zone', 'z'], np.empty((df.rtime.size, df.zone.size, df.z.size)))
-    df[var_avg] = df[var].weighted(df.u).mean('traj')
+    df[var_avg] = (df[var] * df.u) / df.u.sum('traj')
 
     for zone_i, zone in enumerate(df.zone.values):
         pids = df.traj[df.traj.isin(source_traj[zone])]
@@ -173,6 +172,8 @@ def create_source_file(pds):
     logger.info('{}: Creating particle source file.'.format(file.stem))
 
     ds = xr.open_dataset(pds.exp.file_felx)
+    # if test:
+    #     ds = ds.isel(traj=slice(400, 700))
     ds['zone'] = ds.zone.isel(obs=0)
 
     logger.info('{}: Particle information at source.'.format(file.stem))
@@ -194,7 +195,6 @@ def create_source_file(pds):
 
     # Group variables by source: (traj) -> (zone, traj).
     df = group_particles_by_variable(ds, var='zone')
-    df['zone'] = df.zone.isel(obs=0, drop=True)
 
     # Merge transport grouped by release time with source grouped variables.
     df.coords['zone'] = u_zone.zone.copy()  # Match 'zone' coord.
