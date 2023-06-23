@@ -17,8 +17,8 @@ Notes:
 Example:
 
 Todo:
-    - Replace felx_bgc_rcp_165_v0_00.nc
-    - Replace felx_bgc_rcp_190_v0_01.nc
+    - Rename source files (e.g., fe_source_hist_165_v0_.nc => fe_source_hist_165_v0.nc)
+    - Delete data/fe_model/v0/tmp folders once compressed
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -194,7 +194,7 @@ class ExpData:
                                                    self.file_index)
         # Iron model finished files
         self.file_felx = self.out_subdir / '{}_{}.nc'.format(self.name, self.file_base)
-        self.file_source = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base[:-2])
+        self.file_source = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base[:-3])
         self.file_source_tmp = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base)
         self.file_source_tmp_all = [self.out_subdir / '{}_source_{}{:02d}.nc'
                                     .format(self.name, self.file_base[:-2], i) for i in range(8)]
