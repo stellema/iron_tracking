@@ -206,7 +206,7 @@ def create_source_file(pds):
 
     varz_ds_list = []
     for var in varz:
-        varz_ds_list = group_fe_by_source(pds, ds, pid_source_map, var=var)
+        varz_ds_list.append(group_fe_by_source(pds, ds, pid_source_map, var=var))
 
     logger.info('{}: Group by source.'.format(file.stem))
     # Group variables by source: (traj) -> (zone, traj).
@@ -266,3 +266,11 @@ if __name__ == "__main__":
             save_dataset(ds, pds.exp.file_source, msg='Combined source files.')
             logger.info('{}: Saved combined source file.'.format(pds.exp.file_source.stem))
             ds.close()
+
+    # # Test creating combined source file.
+    # files_all = pds.exp.file_source_tmp_all
+    # files_all = [f for f in files_all if f.exists()]  # !!!
+
+    # dx = xr.open_dataset(files_all[0])
+    # dx2 = xr.open_dataset(files_all[1])
+    # ds = xr.open_mfdataset(files_all, data_vars='minimal')
