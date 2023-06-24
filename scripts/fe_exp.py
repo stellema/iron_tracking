@@ -4,9 +4,7 @@
 Includes functions for sampling and saving BGC fields at particle positions.
 
 Notes:
-
 Example:
-
 Todo:
 
 @author: Annette Stellema
@@ -15,15 +13,15 @@ Todo:
 
 """
 import calendar
-import math
 import numpy as np
 import os
 import pandas as pd
 import xarray as xr
 
 from cfg import paths, DXDY, ExpData, zones, test
-from datasets import plx_particle_dataset, save_dataset, append_dataset_history
-from tools import timeit, mlogger, unique_name
+from datasets import (plx_particle_dataset, save_dataset, append_dataset_history,
+                      concat_exp_dimension)
+from tools import timeit, mlogger
 
 logger = mlogger('files_felx')
 
@@ -524,27 +522,28 @@ class FelxDataSet(object):
                        'positive': 'down'},
                  'age': {'long_name': 'Transit time', 'standard_name': 'age', 'units': 's'},
                  'distance': {'long_name': 'Distance', 'standard_name': 'distance', 'units': 'm'},
-                 'u': {'long_name': 'Transport', 'standard_name': 'u', 'units': 'Sv'},
+                 'u': {'long_name': 'Transport', 'standard_name': 'transport', 'units': 'Sv'},
                  'zone': {'long_name': 'Source location ID', 'standard_name': 'zone'},
                  'temp': {'long_name': 'Potential temperature',
                           'standard_name': 'sea_water_potential_temperature', 'units': 'degrees C',
                           'source': 'OFAM3-WOMBAT'},
-                 'phy': {'long_name': 'Phytoplankton', 'standard_name': 'phy', 'units': 'mmol/m^3 N',
+                 'phy': {'long_name': 'Phytoplankton', 'standard_name': 'phytplankton',
+                         'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
+                 'zoo': {'long_name': 'Zooplankton', 'standard_name': 'zooplankton',
+                         'units': 'mmol/m^3 N', 'source': 'OFAM3-WOMBAT'},
+                 'det': {'long_name': 'Detritus', 'standard_name': 'detritus', 'units': 'mmol/m^3 N',
                          'source': 'OFAM3-WOMBAT'},
-                 'zoo': {'long_name': 'Zooplankton', 'standard_name': 'zoo', 'units': 'mmol/m^3 N',
-                         'source': 'OFAM3-WOMBAT'},
-                 'det': {'long_name': 'Detritus', 'standard_name': 'det', 'units': 'mmol/m^3 N',
-                         'source': 'OFAM3-WOMBAT'},
-                 'no3': {'long_name': 'Nitrate', 'standard_name': 'no3', 'units': 'mmol/m^3 N',
+                 'no3': {'long_name': 'Nitrate', 'standard_name': 'NO3', 'units': 'mmol/m^3 N',
                          'source': 'OFAM3-WOMBAT'},
                  'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm',
                         'standard_name': 'Kd490', 'units': 'm^-1', 'source': 'SeaWiFS-GMIS'},
-                 'fe_scav': {'long_name': 'Scavenged dFe', 'standard_name': 'dFe scav',
+                 'fe': {'long_name': 'Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},
+                 'fe_scav': {'long_name': 'Scavenged Dissolved Iron', 'standard_name': 'dFe',
                              'units': 'umol/m^3 Fe'},
-                 'fe_reg': {'long_name': 'Remineralised dFe', 'standard_name': 'dFe remin', 'units': 'umol/m^3 Fe'},
-                 'fe_phy': {'long_name': 'Phytoplankton dFe Uptake', 'standard_name': 'dFe phyto',
-                            'units': 'umol/m^3 Fe'},
-                 'fe': {'long_name': 'Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'}
+                 'fe_reg': {'long_name': 'remineralised Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},
+                 'fe_phy': {'long_name': 'Phytoplankton Dissolved Iron Uptake', 'standard_name': 'dFe',
+                            'units': 'umol/m^3 Fe'}
+
                  }
 
         for k, v in attrs.items():
@@ -553,6 +552,7 @@ class FelxDataSet(object):
         return ds
 
     def weighted_mean(self, ds, var='fe', dim='traj', groupby_depth=False):
+        """Calculate particle weighted mean."""
         # Particle data
         if 'obs' in ds[var].dims:
             # ds_i = ds.isel(obs=0)  # at source
@@ -640,7 +640,6 @@ class FelxDataSet(object):
             np.save(file, source_traj)  # Save dictionary as numpy file.
         return source_traj
 
-
     def map_var_to_particle_ids(self, ds, var='zone', var_array=range(len(zones._all)), file=None):
         """Create dictionary of particle IDs from each source.
 
@@ -660,18 +659,34 @@ class FelxDataSet(object):
             Generic version of source_particle_ID_dict
 
         """
-
         if file is not None:
             if file.exists():
                 return np.load(file, allow_pickle=True).item()
 
         pid_map = dict()
         # Particle IDs that reach each source.
-        for i in var_array:
-            traj = ds.traj.where(ds[var] == i, drop=True)
+
+        traj = ds.traj.where((ds[var] <= var_array[0]), drop=True)
+        traj = traj.values.astype(dtype=int).tolist()  # Convert to list.
+        pid_map[var_array[0]] = traj
+
+        for i in range(1, len(var_array)):
+            traj = ds.traj.where((ds[var] > var_array[i - 1]) & (ds[var] <= var_array[i]), drop=True)
             traj = traj.values.astype(dtype=int).tolist()  # Convert to list.
-            pid_map[i] = traj
+            pid_map[var_array[i]] = traj
 
         if file is not None and not test:
             np.save(file, pid_map)  # Save dictionary as numpy file.
         return pid_map
+
+    def fe_model_sources(self, add_diff=False):
+        """Open fe model source dataset."""
+        # Open and concat data for exah scenario.
+        exps = [ExpData(name='fe', scenario=i, lon=self.exp.lon, version=self.exp.version,
+                        out_subdir=self.exp.out_subdir) for i in range(2)]
+        ds = [xr.open_dataset(exp.file_source) for exp in exps]
+        ds = concat_exp_dimension(ds, add_diff=add_diff)
+
+        ds['names'] = ('zone', zones.names)
+        ds['colors'] = ('zone', zones.colors)
+        return ds

@@ -248,13 +248,5 @@ class ZoneData:
                        'seagreen', 'y', 'red', 'darkviolet', 'blue']
         self.names = np.array([z.name_full for z in self._all])
 
-        self.inner_names = ['{} ({}-{}°E)'.format(z.name_full, *self.inner_lons[i][x:x+2])
-                            for i, z in enumerate([self.sth, self.nth]) for x in range(5)]
-
-        self.names_all = np.concatenate([self.names[:-2], self.inner_names])
-
-        self.colors_all = np.concatenate([self.colors[:-2],
-                                          *[[self.colors[i]] * 5 for i in [-2, -1]]])
-
 
 zones = ZoneData()

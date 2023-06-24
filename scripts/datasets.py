@@ -78,6 +78,11 @@ def get_ofam_filenames(var, times):
     return files
 
 
+def get_ofam3_coords():
+    """Get OFAM3 coords."""
+    return xr.open_dataset(paths.data / 'ofam_mesh_grid.nc')
+
+
 def rename_ofam3_coords(ds):
     """Rename OFAM3 coords."""
     mesh = xr.open_dataset(paths.data / 'ofam_mesh_grid_part.nc')
@@ -406,6 +411,32 @@ def save_dataset(ds, filename, msg=None):
         ds.encoding.update(comp)
     ds = ds.chunk()
     ds.to_netcdf(filename, compute=True)
+    return ds
+
+
+def concat_exp_dimension(ds, add_diff=False):
+    """Concatenate list of datasets along 'exp' dimension.
+
+    Args:
+        ds (list of xarray.Dataset): List of datasets.
+
+    Returns:
+        ds (xarray.Dataset): Concatenated dataset.
+
+    """
+
+    for var in ['time', 'rtime']:
+        if var in ds[0].dims:
+            if ds[0][var].size == ds[-1][var].size:
+                for i in range(len(ds)):
+                    ds[i][var] = ds[0][var]
+
+    if add_diff:
+        # Calculate projected change (RCP-hist).
+        ds = [*ds, ds[1] - ds[0]]
+
+    ds = [ds[i].expand_dims(dict(exp=[i])) for i in range(len(ds))]
+    ds = xr.concat(ds, 'exp')
     return ds
 
 

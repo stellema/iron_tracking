@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
-"""
+"""Fe model output: calculate source statistics and save as netcdf file.
 
 Notes:
+    - Calculate and save datasets for each file repeat and then merge.
+    - Saved in felx/data/fe_model/v*/fe_source*.nc
+    - Ignore "RuntimeWarning: invalid value encountered in divide"
 
 Example:
 
@@ -12,18 +15,19 @@ Todo:
 @created: Wed Jun 14 14:09:24 2023
 
 """
+from argparse import ArgumentParser
 import dask
 import numpy as np
+import warnings
 import xarray as xr
-from argparse import ArgumentParser
 
 from cfg import ExpData, test
-from datasets import save_dataset
+from datasets import save_dataset, get_ofam3_coords
 from tools import mlogger, timeit
 from fe_exp import FelxDataSet
 
 dask.config.set(**{'array.slicing.split_large_chunks': True})
-np.seterr(divide='ignore', invalid='ignore')
+warnings.filterwarnings('ignore', category=RuntimeWarning)
 logger = mlogger('source_files')
 
 
@@ -84,7 +88,7 @@ def group_euc_transport(pds, ds, pid_source_map):
     return df['u_src']
 
 
-def group_fe_by_source(pds, ds, pid_source_map, var='fe'):
+def group_var_by_source(pds, ds, pid_source_map, var='fe', depth_var='z'):
     """Calculate EUC iron weighted mean per release time, source and depth.
 
     Args:
@@ -95,48 +99,63 @@ def group_fe_by_source(pds, ds, pid_source_map, var='fe'):
         ds[u_zone] (xarray.DataArray): Transport from source (rtime, zone).
 
     """
-    var_avg = var + '_mean'
-    var_avg_src = var + '_mean_src'
-    var_avg_depth = var + '_mean_src_depth'
+    var_avg = var + '_avg'
+    var_avg_src = var_avg + '_src'
+    var_avg_depth = var_avg + '_depth'
+    var_avg_src_depth = var_avg + '_src_depth'
+    var_list = [var_avg, var_avg_src, var_avg_depth, var_avg_src_depth]
 
     # Group particle transport by time.
-    df = ds.drop([v for v in ds.data_vars if v not in [var, 'u', 'time']])
+    df = ds.drop([v for v in ds.data_vars if v not in [var, 'z', 'u', 'time']])
 
     df = group_particles_by_variable(df, 'time')
+
+    mesh = get_ofam3_coords()
     df.coords['zone'] = pds.zone_indexes
     df.coords['z'] = pds.release_depths
+    df.coords['z_at_src'] = mesh.st_ocean.values
 
-    pid_depth_map = pds.map_var_to_particle_ids(ds, var='z', var_array=df.z.values)
+    pid_depth_map = pds.map_var_to_particle_ids(ds, var=depth_var, var_array=df[depth_var].values)
 
     # Rename stacked time coordinate (avoid duplicate 'time' variable).
     df = df.rename({'time': 'rtime'})
 
     # Initialise source-grouped transport variable.
-    df[var_avg] = (df[var] * df.u).sum('traj') / df.u.sum('traj')  # Particle weighted mean (rtime).
-    df[var_avg_src] = (['rtime', 'zone'], np.full((df.rtime.size, df.zone.size), np.nan))
-    df[var_avg_src].attrs = ds[var].attrs
-    df[var_avg_depth] = (['rtime', 'zone', 'z'], np.full((df.rtime.size, df.zone.size, df.z.size), np.nan))
-    df[var_avg_depth].attrs = ds[var].attrs
+    for v, dims in zip(var_list, [['rtime'], ['rtime', 'zone'], ['rtime', depth_var],
+                                  ['rtime', 'zone', depth_var]]):
+        df[v] = (dims, np.full(tuple([df[v].size for v in dims]), np.nan))
+        df[v].attrs = ds[var].attrs
+
+    # Calculate variables
+    # Particle weighted mean (rtime).
+    df[var_avg] = (df[var] * df.u).sum('traj') / df.u.sum('traj')
 
     for zone_i, zone in enumerate(df.zone.values):
         # Subset to particles at the same source.
-        pids_src = df.traj[df.traj.isin(pid_source_map[zone])]
-        df_src = df.sel(traj=pids_src)
+        dx = df.sel(traj=df.traj[df.traj.isin(pid_source_map[zone])])
 
-        if df_src.traj.size > 0:
+        if dx.traj.size > 0:
             # Weighted mean grouped by source.
             loc = dict(zone=zone_i)
-            df[var_avg_src][loc] = (df_src[var] * df_src.u).sum('traj') / df_src.u.sum('traj')
+            df[var_avg_src][loc] = (dx[var] * dx.u).sum('traj') / dx.u.sum('traj')
 
-            for depth_i, depth in enumerate(df.z.values):
+            for depth_i, depth in enumerate(df[depth_var].values):
                 # Subset to particles at the same source and depth.
-                pids_src_z = df_src.traj[df_src.traj.isin(pid_depth_map[depth])]
-                df_src_z = df_src.sel(traj=pids_src_z)
+                dxx = dx.sel(traj=dx.traj[dx.traj.isin(pid_depth_map[depth])])
 
-                if df_src_z.traj.size > 0:
+                if dxx.traj.size > 0:
                     # Weighted mean grouped by source and EUC release depth.
-                    loc = dict(zone=zone_i, z=depth_i)
-                    df[var_avg_depth][loc] = (df_src_z[var] * df_src_z.u).sum('traj') / df_src_z.u.sum('traj')
+                    loc = {'zone': zone_i, depth_var: depth_i}
+                    df[var_avg_src_depth][loc] = (dxx[var] * dxx.u).sum('traj') / dxx.u.sum('traj')
+
+    for depth_i, depth in enumerate(df[depth_var].values):
+        # Subset to particles at the same depth.
+        dx = df.sel(traj=df.traj[df.traj.isin(pid_depth_map[depth])])
+
+        if dx.traj.size > 0:
+            # Weighted mean grouped by source and EUC release depth.
+            loc = {depth_var: depth_i}
+            df[var_avg_depth][loc] = (dx[var] * dx.u).sum('traj') / dx.u.sum('traj')
     return df
 
 
@@ -148,6 +167,8 @@ def create_source_file(pds):
         traj: particle ID
         zone: source region id 0-9
         rtime: particle release time
+        z: release depths
+        z_at_src: OFAM3 depths (binned)
 
     Data variables:
         trajectory   (zone, traj): Particle ID.
@@ -168,16 +189,18 @@ def create_source_file(pds):
         fe_reg       (zone, traj): Total iron remineralized.
         fe_phy       (zone, traj): Total phytoplankton uptake of iron.
 
-        fe_mean      (rtime): EUC iron (weighted mean).
-        fe_mean_src  (rtime, zone): EUC iron (source weighted mean).
-        fe_mean_src_depth (rtime, zone, z): EUC iron (source & depth weighted mean).
+        fe_avg       (rtime): EUC iron (weighted mean).
+        fe_avg_src   (rtime, zone): EUC iron (source weighted mean).
+        fe_avg_depth (rtime, z): EUC iron (depth weighted mean).
+        fe_avg_src_depth (rtime, zone, z): EUC iron (source & depth weighted mean).
 
-        fe_src_mean  (rtime): Source iron (weighted mean).
-        fe_src_mean_src (rtime, zone): Source iron (source weighted mean).
-        fe_src_mean_src_depth (rtime, zone, z): Source iron (source & depth weighted mean).
+        fe_src_avg   (rtime): Source iron (weighted mean).
+        fe_src_avg_src (rtime, zone): Source iron (source weighted mean).
+        fe_src_avg_depth (rtime, z_at_src): Source iron (depth weighted mean).
+        fe_src_avg_src_depth (rtime, zone, z_at_src): Source iron (source & depth weighted mean).
 
-        u_total     (rtime): Total EUC transport at each release time.
-        u_total_src (rtime, zone): EUC transport / release time & source.
+        u_sum     (rtime): Total EUC transport at each release time.
+        u_sum_src (rtime, zone): EUC transport / release time & source.
 
     """
     file = exp.file_source_tmp
@@ -185,8 +208,9 @@ def create_source_file(pds):
 
     ds = xr.open_dataset(pds.exp.file_felx)
     if test:
-        ds = ds.isel(traj=slice(400, 700))
+        ds = ds.isel(traj=slice(0, 700))
     ds['zone'] = ds.zone.isel(obs=0)
+    ds = pds.add_variable_attrs(ds)
 
     logger.info('{}: Particle information at source.'.format(file.stem))
     ds = pds.get_final_particle_obs(ds)
@@ -206,7 +230,8 @@ def create_source_file(pds):
 
     varz_ds_list = []
     for var in varz:
-        varz_ds_list.append(group_fe_by_source(pds, ds, pid_source_map, var=var))
+        depth_var = 'z_at_src' if var == 'fe_src' else 'z'
+        varz_ds_list.append(group_var_by_source(pds, ds, pid_source_map, var=var, depth_var=depth_var))
 
     logger.info('{}: Group by source.'.format(file.stem))
     # Group variables by source: (traj) -> (zone, traj).
@@ -214,13 +239,14 @@ def create_source_file(pds):
 
     # Merge transport grouped by release time with source grouped variables.
     df.coords['zone'] = u_zone.zone.copy()  # Match 'zone' coord.
-    df.coords['z'] = varz_ds_list[0].z.copy()  # Match 'zone' coord.
+    df.coords['z'] = varz_ds_list[0].z.copy()
+    df.coords['z_at_src'] = varz_ds_list[0].z_at_src.copy()
 
-    df['u_total_src'] = u_zone
-    df['u_total'] = df['u_total_src'].sum('zone', keep_attrs=True)  # Add total transport per release.
+    df['u_sum_src'] = u_zone
+    df['u_sum'] = df['u_sum_src'].sum('zone', keep_attrs=True)  # Add total transport per release.
 
     for var, dz in zip(varz, varz_ds_list):
-        for v in ['_mean', '_mean_src', '_mean_src_depth']:
+        for v in ['_avg', '_avg_src', '_avg_depth', '_avg_src_depth']:
             df[var + v] = dz[var + v]
 
     # Convert age: seconds to days.
@@ -229,6 +255,7 @@ def create_source_file(pds):
 
     # Save dataset.
     logger.info('{}: Saving...'.format(file.stem))
+
     df = df.chunk()
     df = df.unify_chunks()
     save_dataset(df, file, msg='Calculated grouped source statistics.')
@@ -239,7 +266,7 @@ def create_source_file(pds):
 
 if __name__ == "__main__":
     p = ArgumentParser(description="""Format source file.""")
-    p.add_argument('-x', '--lon', default=220, type=int, help='Release longitude [165, 190, 220, 250].')
+    p.add_argument('-x', '--lon', default=250, type=int, help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
     p.add_argument('-r', '--index', default=7, type=int, help='File repeat index [0-7].')
@@ -266,11 +293,3 @@ if __name__ == "__main__":
             save_dataset(ds, pds.exp.file_source, msg='Combined source files.')
             logger.info('{}: Saved combined source file.'.format(pds.exp.file_source.stem))
             ds.close()
-
-    # # Test creating combined source file.
-    # files_all = pds.exp.file_source_tmp_all
-    # files_all = [f for f in files_all if f.exists()]  # !!!
-
-    # dx = xr.open_dataset(files_all[0])
-    # dx2 = xr.open_dataset(files_all[1])
-    # ds = xr.open_mfdataset(files_all, data_vars='minimal')
