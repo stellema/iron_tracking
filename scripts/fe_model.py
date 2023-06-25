@@ -87,21 +87,25 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
     zone = int(dx.zone.load().item())
 
     # Option 1: Select region data variable based on source ID.
-    if method == 'combined':
-        if zone in [1, 2, 3, 4, 6]:
-            var = 'llwbcs'
-        elif zone in [0, 5] or zone >= 7:
-            var = 'interior'
+    if method == 'seperate':
+        var = ['interior', 'png', 'nicu', 'mc', 'mc', 'interior', 'nicu', 'interior', 'interior'][zone]
         da_fe = ds_fe[var]
 
-    elif method == 'seperate':
-        var = ['interior', 'png', 'nicu', 'mc', 'mc', 'interior', 'nicu', 'interior', 'interior'][zone]
+    elif method == 'high':
+        var = ['interior', 'png_high', 'nicu_high', 'mc_high', 'mc_high', 'interior', 'nicu_high',
+               'interior', 'interior'][zone]
+        da_fe = ds_fe[var]
+
+    elif method == 'background':
+        da_fe = ds_fe['interior']
+
+    elif method == 'combined':
+        var = 'llwbcs' if zone in [1, 2, 3, 4, 6] else 'interior'
         da_fe = ds_fe[var]
 
     elif method == 'ofam':
         # Use OFAM3 iron.
-        var = 'Fe'
-        da_fe = ds_fe[var].sel(time=dx.time, drop=True)
+        da_fe = ds_fe['Fe'].sel(time=dx.time, drop=True)
 
     # Particle location map (e.g., lat, lon, depth)
     particle_loc = dict([[c, dx[c].load().item()] for c in da_fe.dims])
@@ -112,9 +116,7 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
     ds['fe'][dict(traj=p, obs=t)] = fe
 
     return ds
-    field_names = ['fe', 'temp', 'det', 'zoo', 'phy', 'no3', 'z', 'J_max', 'J_I']
-    constant_names = ['k_org', 'k_inorg', 'c_scav', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P',
-                      'b', 'c', 'k_N', 'k_fe']  # 'PAR', 'I_0', 'alpha''a', kd
+
 
 @numba.njit
 def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_scav, mu_D,
@@ -221,7 +223,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
 
     for p in particles:
         # Assign initial iron.
-        ds = SourceIron(pds, ds, p, ds_fe)
+        ds = SourceIron(pds, ds, p, ds_fe, method=pds.exp.source_iron)
 
         # Number of non-NaN observations.
         timesteps = range(1, ds.z.isel(traj=p).dropna('obs', 'all').obs.size)
@@ -289,9 +291,18 @@ def run_iron_model(pds):
     if rank == 0:
         logger.debug('{}: rank={}: Initializing dataset...'.format(exp.file_felx.stem, rank))
     ds = pds.init_felx_dataset()
-    # ds = pds.init_felx_optimise_dataset()
+
     if rank == 0:
         logger.debug('{}: rank={}: Dataset initializion complete.'.format(exp.file_felx.stem, rank))
+
+    if pds.exp.source_iron != 'seperate':
+        if rank == 0:
+            logger.debug('{}: Dropping background sources p={}.'.format(exp.file_felx.stem, ds.traj.size))
+        pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes)
+        pids = np.concatenate([pid_source_map[i] for i in [1, 2, 3, 4, 6]])
+        ds = ds.sel(traj=pids)
+        if rank == 0:
+            logger.debug('{}: Dropped background sources p={}.'.format(exp.file_felx.stem, ds.traj.size))
 
     # Subset number of particles.
     if test:
@@ -400,7 +411,7 @@ def fix_particles_v0_err(pds):
 
     for p in particles:
         # Assign initial iron.
-        ds = SourceIron(pds, ds, p, ds_fe)
+        ds = SourceIron(pds, ds, p, ds_fe, method=pds.exp.source_iron)
 
         # Number of non-NaN observations.
         timesteps = range(1, ds.z.isel(traj=p).dropna('obs', 'all').obs.size)
@@ -453,9 +464,10 @@ if __name__ == '__main__':
     p.add_argument('-f', '--func', default='run', type=str, help='run, fix or save.')
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
+    source_iron = ['seperate', 'background', 'high', 'combined'][version]
 
     exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index,
-                  out_subdir='v{}'.format(version))
+                  source_iron=source_iron)
     pds = FelxDataSet(exp)
 
     if args.func == 'run':

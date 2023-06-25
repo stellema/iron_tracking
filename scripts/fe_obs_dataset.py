@@ -639,4 +639,8 @@ def iron_source_profiles():
     for lon, x in zip([165, 190, 220, 250], xx):
         dx.append(df.sel(x=x).mean('x').assign_coords(lon=lon))
     dfs.dfe.ds_avg['euc_avg'] = xr.concat(dx, 'lon')
+
+    dfs.dfe.ds_avg['nicu_high'] = dfs.dfe.ds_avg['nicu'] * (1 + (21.28 / 100))
+    dfs.dfe.ds_avg['png_high'] = dfs.dfe.ds_avg['png'] * (1 + (15.03 / 100))
+    dfs.dfe.ds_avg['mc_high'] = dfs.dfe.ds_avg['mc'] * (1 + (-8.42 / 100))
     return dfs
