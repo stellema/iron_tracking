@@ -159,6 +159,87 @@ def group_var_by_source(pds, ds, pid_source_map, var='fe', depth_var='z'):
     return df
 
 
+def transfer_dataset_release_times(pds, ds):
+    """Ensure fe model dataset contains all particles released on the same day."""
+    # Release times of particles in this dataset.
+    t = ds['time'].ffill('obs').isel(obs=-1, drop=True)  # Last value (at the EUC).
+    attrs = ds.attrs
+
+    # Open previous file and check if any rtime values overlap (add to this dataset).
+    if pds.exp.file_index > 0:
+
+        ds_prev = xr.open_dataset(pds.exp.file_felx_all[pds.exp.file_index - 1])
+
+        # Release times of particles in dataset.
+        t_prev = ds_prev['time'].ffill('obs').isel(obs=-1, drop=True)  # Last value (at the EUC).
+
+        # Check if any release times overlap between files.
+        check = t.drop_duplicates('traj').isin(t_prev.drop_duplicates('traj'))
+
+        if any(check):
+            rtimes = np.unique(t[check])  # Release times that overlap.
+
+            # Particle IDs in previous file to be transferred.
+            pids = []
+            for i in rtimes:
+                pids.append(t_prev.where(t_prev == i, drop=True).traj)
+            pids = np.concatenate(pids)
+
+            # Subset particles to be transferred.
+            ds_prev = ds_prev.sel(traj=pids)
+            ds_prev = ds_prev.dropna('obs', 'all')
+
+            # Ensure 'obs' dimension is the same size for each dataset (needed for merging)
+            sizes = [ds.obs.size, ds_prev.obs.size]
+            size_diff = int(np.fabs(sizes[0] - sizes[1]))
+
+            # Pad ds
+            if sizes[1] > sizes[0]:
+                pad_tmp = xr.full_like(ds.isel(obs=slice(-size_diff - 1, -1)), np.nan)
+                pad_tmp['obs'] = pad_tmp['obs'] + size_diff + 1
+                ds = xr.concat([ds, pad_tmp], 'obs')
+
+            # Pad ds_prev
+            elif sizes[0] > sizes[1]:
+                pad_tmp = xr.full_like(ds_prev.isel(obs=slice(-size_diff - 1, -1)), np.nan)
+                pad_tmp['obs'] = pad_tmp['obs'] + size_diff + 1
+                ds = xr.concat([ds_prev, pad_tmp], 'obs')
+
+            # Add particles from previous dataset to the dataset.
+            # ds = xr.merge([ds_prev, ds])
+            ds = xr.concat([ds_prev, ds], 'traj')
+            ds.attrs = attrs
+            logger.info('{}: Add particles from previous file (p={}: {}).'
+                        .format(pds.exp.file_source_tmp.stem, ds_prev.traj.size, rtimes))
+            ds_prev.close()
+
+    # Open next file and check if any rtime values overlap (remove from this dataset).
+    if pds.exp.file_index < 7:
+        ds_next = xr.open_dataset(pds.exp.file_felx_all[pds.exp.file_index + 1])
+
+        # Release times of particles in dataset.
+        t_next = ds_next['time'].ffill('obs').isel(obs=-1, drop=True)  # Last value (at the EUC).
+
+        # Check if any release times overlap between files.
+        check = t.drop_duplicates('traj').isin(t_next.drop_duplicates('traj'))
+
+        if any(check):
+            rtimes = np.unique(t[check])  # Release times that overlap.
+
+            # Particle IDs in next file to be dropped from this dataset.
+            pids = []
+            for i in rtimes:
+                pids.append(t.where(t == i, drop=True).traj)
+            pids = np.concatenate(pids)
+
+            # Drop particles.
+            ds = ds.sel(traj=ds.traj[~ds.traj.isin(pids)])
+            logger.info('{}: Dropped particles in next file (p={}: {}).'
+                        .format(pds.exp.file_source_tmp.stem, pids.size, rtimes))
+            ds_next.close()
+    return ds
+
+
 @timeit(my_logger=logger)
 def create_source_file(pds):
     """Create netcdf file with particle source information.
@@ -207,8 +288,12 @@ def create_source_file(pds):
     logger.info('{}: Creating particle source file.'.format(file.stem))
 
     ds = xr.open_dataset(pds.exp.file_felx)
+
+    ds = transfer_dataset_release_times(pds, ds)
+
     if test:
-        ds = ds.isel(traj=slice(0, 700))
+        ds = ds.isel(traj=slice(0, 2000))
+
     ds['zone'] = ds.zone.isel(obs=0)
     ds = pds.add_variable_attrs(ds)
 
@@ -223,6 +308,7 @@ def create_source_file(pds):
 
     # Group variables by source.
     # EUC transport: (traj) -> (rtime, zone). Run first bc can't stack 2D.
+
     u_zone = group_euc_transport(pds, ds, pid_source_map)
 
     logger.info('{}: Iron weighted mean per source.'.format(file.stem))
@@ -255,6 +341,7 @@ def create_source_file(pds):
 
     # Save dataset.
     logger.info('{}: Saving...'.format(file.stem))
+    df = df.drop('obs')
 
     df = df.chunk()
     df = df.unify_chunks()
@@ -274,8 +361,7 @@ if __name__ == "__main__":
 
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
 
-    exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index,
-                  out_subdir='v{}'.format(version))
+    exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
     pds = FelxDataSet(exp)
 
     # Create source file for file index.
@@ -285,6 +371,7 @@ if __name__ == "__main__":
     # Create combined source file.
     if not pds.exp.file_source.exists():
         files_all = pds.exp.file_source_tmp_all
+
         if all([f.exists() for f in files_all]):
             logger.info('{}: Saving combined source file.'.format(pds.exp.file_source.stem))
             ds = xr.open_mfdataset(files_all, data_vars='minimal')

@@ -17,8 +17,7 @@ Notes:
 Example:
 
 Todo:
-    - Rename source files (e.g., fe_source_hist_165_v0_.nc => fe_source_hist_165_v0.nc)
-    - Delete data/fe_model/v0/tmp folders once compressed
+
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -57,7 +56,7 @@ loggers = {}
 # exp_abr = ['hist', 'rcp']
 ltr = [i + ')' for i in list(string.ascii_lowercase)]
 mon = list(calendar.month_abbr)[1:]  # Month abbreviations.
-
+release_lons = np.array([165, 190, 220, 250], dtype=int)
 
 # Sverdrup.
 SV = 1e6
@@ -130,11 +129,12 @@ class ExpData:
         test (bool, optional). Defaults to False.
         spinup_year_offset (int, optional): Years after start for spinup. Defaults to 4.
         spinup_num_years (int, optional): Number of years to spinup. Defaults to 10.
-        out_subdir (pathlib.Path, optional): Defaults to 'felx'.
+
         test_month_bnds (int, optional): Test months of OFAM3 fields. Defaults to 3.
 
         Generated
         scenario_name (str):
+        out_subdir (pathlib.Path): Defaults to 'v#'.
         year_bnds (list of int):
         time_bnds (list of datetime.datetime):
         test_time_bnds (list of datetime.datetime):
@@ -151,7 +151,7 @@ class ExpData:
 
     """
 
-    scenario: int
+    scenario: int = field(default=0)
     lon: int = field(default=165)
     name: str = field(default='fe')
     version: int = field(default=0)
@@ -159,10 +159,11 @@ class ExpData:
     test: bool = field(default=False)
     spinup_year_offset: int = field(default=4)
     spinup_num_years: int = field(default=10)
-    out_subdir: str = field(default='')
+    # out_subdir: str = field(default='')
     test_month_bnds: int = field(default=3)
     # Iron model params
     scav_eq: str = field(default='Galibraith')
+    source_iron: str = field(default='seperate')
     ntraj: int = field(default=100)
 
     def __post_init__(self):
@@ -188,18 +189,19 @@ class ExpData:
         self.file_index_orig = int(np.ceil((self.file_index - 1) / 2))
         self.out_dir = paths.data / 'fe_model'
 
-        self.out_subdir = self.out_dir / self.out_subdir
+        self.out_subdir = self.out_dir / 'v{}'.format(self.version)
 
         self.file_base = '{}_{}_v{}_{:02d}'.format(self.scenario_abbr, self.lon, self.version,
                                                    self.file_index)
         # Iron model finished files
         self.file_felx = self.out_subdir / '{}_{}.nc'.format(self.name, self.file_base)
+        self.file_felx_all = [self.file_felx.parent / '{}{:02d}.nc'
+                              .format(self.file_felx.stem[:-2], i) for i in range(8)]
+
         self.file_source = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base[:-3])
         self.file_source_tmp = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base)
         self.file_source_tmp_all = [self.out_subdir / '{}_source_{}{:02d}.nc'
                                     .format(self.name, self.file_base[:-2], i) for i in range(8)]
-        self.file_felx_all = [self.file_felx.parent / '{}{:02d}.nc'
-                              .format(self.file_felx.stem[:-2], i) for i in range(8)]
 
         self.file_source_map = paths.data / 'sources/id/source_particle_id_map_{}.npy'.format(self.file_base)
         # Iron model prereq and temporary files.
