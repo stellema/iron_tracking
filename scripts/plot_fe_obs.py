@@ -553,18 +553,20 @@ def plot_dfs_source_zprofile(dfs):
     dfe = dfs.dfe
     # dfe.ds_avg = dfe.ds_avg.isel(t=-1)
     names = ['png', 'nicu', 'mc', 'llwbcs', 'interior']
-    labels = ['NGCU', 'NICU', 'MC', 'LLWBCs', 'Interior']
+    labels = ['NGCU', 'NICU', 'MC', 'LLWBC Mean', 'Background']
 
     fig = plt.figure(figsize=(12, 7))
     ax = fig.add_subplot(121)
     colors = ['darkorange', 'deeppink', 'green', 'k', 'darkviolet', 'blue']
-    ax.set_title('a) Source dFe depth profiles', loc='left')
+    ax.set_title('a) EUC Sources Dissolved Iron Profiles', loc='left')
 
     for i, name in enumerate(names):
+        if name + '_high' in dfe.ds_avg:
+            ax.plot(dfe.ds_avg[name + 'high'], dfe.ds_avg.z, c=colors[i], lw=2, ls='--')
         ax.plot(dfe.ds_avg[name], dfe.ds_avg.z, c=colors[i], lw=2, label=labels[i])
 
     ax.set_ylim(600, 5)
-    ax.set_xlim(0, 2.25)
+    ax.set_xlim(0, 2.5)
     ax.legend()
     ax.set_xlabel('dFe [nmol/kg]')
     ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
@@ -572,7 +574,7 @@ def plot_dfs_source_zprofile(dfs):
     ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
 
     ax = fig.add_subplot(122)
-    ax.set_title('b) EUC dFe depth profiles', loc='left')
+    ax.set_title('b) EUC Dissolved Iron Profiles', loc='left')
     colors = ['r', 'm', 'blue', 'k']
     for i, lon in enumerate(dfe.ds_avg.lon.values):
         ax.plot(dfe.ds_avg['euc_avg'].sel(lon=lon), dfe.ds_avg.z, c=colors[i], lw=2,
@@ -593,20 +595,20 @@ def plot_dfs_source_zprofile(dfs):
     plt.show()
 
 
-logger = mlogger('iron_observations')
-dfs = FeObsDatasets()
-# dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
-# dfs.dfe = FeObsDataset(dfs.ds)
+if __name__ == '__main__':
+    logger = mlogger('iron_observations')
+    dfs = FeObsDatasets()
+    # dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
+    # dfs.dfe = FeObsDataset(dfs.ds)
 
-# setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
-# setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
+    # setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
+    # setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
 
-# # setattr(dfs, 'dfe_ml', FeObsDataset(dfs.Huang_iron_dataset()))
-# setattr(dfs, 'dfe_geo', FeObsDataset(dfs.GEOTRACES_iron_dataset_4D()))
-# setattr(dfs, 'dfe_tag', FeObsDataset(dfs.Tagliabue_iron_dataset_4D()))
+    # # setattr(dfs, 'dfe_ml', FeObsDataset(dfs.Huang_iron_dataset()))
+    # setattr(dfs, 'dfe_geo', FeObsDataset(dfs.GEOTRACES_iron_dataset_4D()))
+    # setattr(dfs, 'dfe_tag', FeObsDataset(dfs.Tagliabue_iron_dataset_4D()))
 
-
-# plot_iron_obs_Huang(dfs.dfe_ml.ds)
-# plot_iron_obs_maps(dfs)
-# plot_iron_obs_straits(dfs.dfe_geo, dfs.dfe_tag, dfs.dfe_ml)
-# plot_combined_iron_obs_datasets(dfs)
+    # plot_iron_obs_Huang(dfs.dfe_ml.ds)
+    # plot_iron_obs_maps(dfs)
+    # plot_iron_obs_straits(dfs.dfe_geo, dfs.dfe_tag, dfs.dfe_ml)
+    # plot_combined_iron_obs_datasets(dfs)

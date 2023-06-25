@@ -81,13 +81,14 @@ def plot_euc_obs_xz_profile():
     # Pad edges
     # Evenly spaced lat and lon (single level time and depth arrays).
     dx = 5
-    x = np.arange(140, ds.x[-1] + dx, dx, dtype=np.float32)
+    x = np.arange(175, ds.x[-1] + dx, dx, dtype=np.float32)
+    x = np.concatenate(([138, 148, 151, 160.5, 170], x))
 
     coords = dict(x=('x', x))
-    temp = xr.DataArray(np.full(x.size, np.nan), dims=list(coords.keys()), coords=coords)
-    temp = temp.to_dataset(name='u')
+    tmp = xr.DataArray(np.full(x.size, np.nan), dims=list(coords.keys()), coords=coords)
+    tmp = tmp.to_dataset(name='u')
 
-    ds = xr.merge([ds, temp])
+    ds = xr.merge([ds, tmp])
 
     cmap = plt.cm.seismic
     cmap.set_bad('grey')

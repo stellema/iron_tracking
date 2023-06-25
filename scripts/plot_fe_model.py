@@ -7,19 +7,46 @@ Example:
 
 Todo:
 
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import xarray as xr  # NOQA
+
+from cfg import paths, ExpData
+from tools import unique_name, mlogger, timeit
+from fe_exp import FelxDataSet
+
+scenario, lon, version, index = 0, 165, 0, 7
+exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
+pds = FelxDataSet(exp)
+
+ds = xr.open_dataset(pds.exp.file_felx)
+
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
 @created: Wed Jun  7 18:19:06 2023
 
 """
-# import matplotlib as mpl
+from cartopy.mpl.gridliner import LATITUDE_FORMATTER  # LONGITUDE_FORMATTER
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-# import xarray as xr  # NOQA
+from scipy import stats
+# import seaborn as sns
+import xarray as xr  # NOQA
 
-from cfg import paths
-from tools import unique_name
+from cfg import paths, ExpData, ltr, release_lons
+from tools import unique_name, mlogger, timeit
+from fe_exp import FelxDataSet
+from stats import format_pvalue_str, get_min_weighted_bins, weighted_bins_fd
 
+
+fsize = 10
+plt.rcParams.update({'font.size': fsize})
+plt.rc('font', size=fsize)
+plt.rc('axes', titlesize=fsize)
+plt.rcParams['figure.figsize'] = [10, 7]
+# plt.rcParams['figure.dpi'] = 300
 
 def test_plot_iron_paths(pds, ds, ntraj=5):
     """Plot particle map, depth, dFe, remin, scav and phyto."""
@@ -72,8 +99,8 @@ def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
     ds_f_mean = ds_f.fe.weighted(ds_f.u).mean().load().item()
 
     # Observations
-    df_h = dfs.Huang_iron_dataset().fe.sel(x=pds.exp.lon, method='nearest').sel(
-        y=slice(-2.6, 2.6)).mean('y')
+    # df_h = dfs.Huang_iron_dataset().fe.sel(x=pds.exp.lon, method='nearest').sel(
+    #     y=slice(-2.6, 2.6)).mean('y')
     df_avg = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, method='nearest')
     df_avg_mean = df_avg.mean().item()
 
@@ -86,7 +113,7 @@ def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
 
     # Iron at the EUC (inc. obs & weighted mean depth profile)
     ax[1].set_title('b) {} EUC dFe at {}'.format(pds.exp.scenario_name, pds.exp.lon_str), loc='left')
-    ax[1].plot(df_h.isel(t=-1), df_h.z, c='r', label='Huang et al. (2022)')
+    # ax[1].plot(df_h.isel(t=-1), df_h.z, c='r', label='Huang et al. (2022)')
     ax[1].plot(df_avg, df_avg.z, c='m', label='Obs. mean ({:.2f} nM)'.format(df_avg_mean))
     ax[1].plot(ds_f_z_mean, ds_f_z_mean.z, c='k', label='Model mean ({:.2f} nM)'.format(ds_f_mean))
     ax[1].scatter(ds_f.fe, ds_f.z, c='k', s=7, label='Model')  # dFe at EUC.
@@ -120,3 +147,108 @@ def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
     # plt.savefig(cfg.paths.figs / 'felx/dFe_scatter_source_EUC_{}.png'.format(pds.exp.file_base))
     # plt.show()
     return
+
+
+def transport_source_bar_graph(pds, var='u_sum_src'):
+    """Bar graph of source transport for each release longitude.
+
+    Horizontal bar graph (sources on y-axis) with or without RCP8.5.
+    4 (2x2) subplots for each release longitude.
+
+    Args:
+        pds ():
+        var (str, optional):
+
+    """
+    z_ids = [1, 2, 6, 7, 8, 3, 4, 5, 0]
+    # Open data.
+    dss = []
+
+    for i, lon in enumerate(pds.release_lons):
+        pds = FelxDataSet(ExpData(name='fe', scenario=0, lon=lon, version=pds.exp.version))
+        ds = pds.fe_model_sources(add_diff=False)
+        ds = ds.isel(zone=z_ids)  # Must select source order (for late use of ds)
+        dss.append(ds[var].mean('rtime'))
+
+    xlim_max = np.max([d.max('exp') for d in dss])
+    xlim_max += xlim_max * 0.2
+    ylabels, c = ds.names.values, ds.colors.values
+
+    width = 0.9  # Bar widths.
+    kwargs = dict(alpha=0.7)  # Historical bar transparency.
+    fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharey='row', sharex='all')
+
+    for i, ax in enumerate(axes.flatten()):
+        lon = pds.release_lons[i]
+        dx = dss[i]
+        ticks = np.arange(dx.zone.size)  # Source y-axis ticks.
+
+        ax.set_title('{} {} for EUC at {}°E'.format(ltr[i], dx.attrs['long_name'], lon), loc='left')
+
+        # Historical horizontal bar graph.
+        ax.barh(ticks, dx.isel(exp=0), width, color=c, **kwargs)
+
+        # RCP8.5: Hatched overlay.
+        # ax.barh(ticks, dx.isel(exp=1), width, fill=False, hatch='//', label='RCP8.5', **kwargs)
+        ax.barh(ticks, dx.isel(exp=1), width / 3, color='k', alpha=0.6, label='RCP8.5')
+
+        g = ax.barh(ticks, dx.max('exp'), width, fill=False, alpha=0)
+        diff = ((dx.isel(exp=1) - dx.isel(exp=0)) / dx.isel(exp=0)) * 100
+        diff = ['{:+0.1f}%'.format(i) for i in diff.values]
+        ax.bar_label(g, labels=diff, label_type='edge', padding=5)
+
+        # Remove bar white space at ends of axis (-0.5 & +0.5).
+        ax.set_ylim([ticks[x] + c * 0.5 for x, c in zip([0, -1], [-1, 1])])
+        ax.set_yticks(ticks)
+        ax.set_xlim(right=xlim_max)
+
+        # Add x-axis label on bottom row.
+        if i >= 2:
+            ax.set_xlabel('{} [{}]'.format(dx.attrs['standard_name'], dx.attrs['units']))
+
+        # Add y-axis ticklabels on first column.
+        if i in [0, 2]:
+            ax.set_yticklabels(ylabels)
+
+        # Add RCP legend at ends of rows.
+        ax.legend(loc='lower right')
+        ax.invert_yaxis()
+        # ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(integer=True))
+        ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.xaxis.set_tick_params(labelbottom=True)
+
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'source_bar_{}.png'.format(var), dpi=300)
+    plt.show()
+    return
+
+
+def weighted_mean(ds):
+    # Particle data
+    # ds_i = ds.isel(obs=0)  # at source
+    ds_f = ds.ffill('obs').isel(obs=-1, drop=True)  # at EUC
+    ds_f_z_mean = (ds_f.fe * ds_f.u).groupby(ds_f.z).sum() / (ds_f.u).groupby(ds_f.z).sum()
+    ds_f_mean = ds_f.fe.weighted(ds_f.u).mean().load().item()
+    return ds_f_mean, ds_f_z_mean
+
+
+if __name__ == '__main__':
+    scenario, lon, version, index = 0, 220, 0, 0
+    exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
+    pds = FelxDataSet(exp)
+
+    # Weighted mean. @todo
+    var='fe_avg'
+    dss = []
+    for i, lon in enumerate(pds.release_lons):
+        pds = FelxDataSet(ExpData(name='fe', scenario=0, lon=lon, version=pds.exp.version))
+        ds = pds.fe_model_sources(add_diff=False)
+        dss.append(ds[var].mean('rtime'))
+
+
+    # Weighted mean per source
+    transport_source_bar_graph(pds, var='fe_avg_src')
+    transport_source_bar_graph(pds, var='fe_src_avg_src')
+    transport_source_bar_graph(pds, var='u_sum_src')
+
+    # Weighted mean depth profile @todo
