@@ -67,7 +67,7 @@ def cost_function(pds, ds, fe_obs, dfs, params, rank=0):
     cost = cost.load().item()
 
     if rank == 0:
-        logger.info('{}: p={}: cost={} {}'.format(pds.exp.file_base, ds.traj.size, cost, params_dict))
+        logger.info('{}: p={}: cost={} {}'.format(pds.exp.id, ds.traj.size, cost, params_dict))
     fe_pred.close()
 
     return cost
@@ -142,9 +142,9 @@ def optimise_iron_model_params(lon, method):
         pds.update_params(param_dict)
 
         logger.info('{}: p={}, method={}, nit={}, nfev={}, success={}, message={}'
-                    .format(exp.file_base, ds.traj.size, method, res.nit, res.nfev, res.success, res.message))
-        logger.info('{}: Init {}'.format(exp.file_base, params_init))
-        logger.info('{}: Optimimal {}'.format(exp.file_base, param_dict))
+                    .format(exp.id, ds.traj.size, method, res.nit, res.nfev, res.success, res.message))
+        logger.info('{}: Init {}'.format(exp.id, params_init))
+        logger.info('{}: Optimimal {}'.format(exp.id, param_dict))
 
         # Calculate the predicted iron concentration using the optimized parameters.
         ds_opt = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, pds.param_names, params_optimized)

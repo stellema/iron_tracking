@@ -17,7 +17,7 @@ from tools import unique_name, mlogger, timeit
 from fe_exp import FelxDataSet
 
 scenario, lon, version, index = 0, 165, 0, 7
-exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
+exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index)
 pds = FelxDataSet(exp)
 
 ds = xr.open_dataset(pds.exp.file_felx)
@@ -84,7 +84,7 @@ def test_plot_iron_paths(pds, ds, ntraj=5):
     lgd = ax[-2].legend(ncol=16, loc='upper left', bbox_to_anchor=(0, -0.1))
     plt.tight_layout()
     fig.subplots_adjust(hspace=0.2, wspace=0.15)
-    plt.savefig(paths.figs / 'felx/dFe_paths_{}_{}.png'.format(pds.exp.file_base, ntraj),
+    plt.savefig(paths.figs / 'felx/dFe_paths_{}_{}.png'.format(pds.exp.id, ntraj),
                 bbox_extra_artists=(lgd,), bbox_inches='tight')
     plt.show()
 
@@ -132,7 +132,7 @@ def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
 
     # plt.subplots_adjust(bottom=-0.1)
     plt.tight_layout()
-    file = unique_name(paths.figs / 'felx/iron_z_profile_{}.png'.format(pds.exp.file_base))
+    file = unique_name(paths.figs / 'felx/iron_z_profile_{}.png'.format(pds.exp.id))
     plt.savefig(file, bbox_extra_artists=(lgd, title,), bbox_inches='tight')
     plt.show()
 
@@ -143,7 +143,7 @@ def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
     # ax.set_ylabel('EUC dFe [nM]')
     # ax.set_xlabel('Source dFe [nM]')
     # plt.tight_layout()
-    # plt.savefig(cfg.paths.figs / 'felx/dFe_scatter_source_EUC_{}.png'.format(pds.exp.file_base))
+    # plt.savefig(cfg.paths.figs / 'felx/dFe_scatter_source_EUC_{}.png'.format(pds.exp.id))
     # plt.show()
     return
 
@@ -165,7 +165,7 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
     dss = []
 
     for i, lon in enumerate(pds.release_lons):
-        pds = FelxDataSet(ExpData(name='fe', scenario=0, lon=lon, version=pds.exp.version))
+        pds = FelxDataSet(ExpData(scenario=0, lon=lon, version=pds.exp.version))
         ds = pds.fe_model_sources(add_diff=False)
         ds = ds.isel(zone=z_ids)  # Must select source order (for late use of ds)
         dss.append(ds[var].mean('rtime'))
@@ -225,14 +225,14 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
 
 if __name__ == '__main__':
     scenario, lon, version, index = 0, 220, 0, 0
-    exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
+    exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index)
     pds = FelxDataSet(exp)
 
     # Weighted mean. @todo
     var = 'fe_avg'
     dss = []
     for i, lon in enumerate(pds.release_lons):
-        pds = FelxDataSet(ExpData(name='fe', scenario=0, lon=lon, version=pds.exp.version))
+        pds = FelxDataSet(ExpData(scenario=0, lon=lon, version=pds.exp.version))
         ds = pds.fe_model_sources(add_diff=False)
         dss.append(ds[var].mean('rtime'))
 

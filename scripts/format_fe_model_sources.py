@@ -302,7 +302,7 @@ def create_source_file(pds):
 
     logger.info('{}: Dictionary of particle IDs at source.'.format(file.stem))
     pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes,
-                                                 file=pds.exp.file_source_map)
+                                                 file=pds.exp.file_source_map_alt)
 
     logger.info('{}: Sum EUC transport per source.'.format(file.stem))
 
@@ -362,7 +362,7 @@ if __name__ == "__main__":
 
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
 
-    exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
+    exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index)
     pds = FelxDataSet(exp)
 
     # Create source file for file index.

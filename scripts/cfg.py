@@ -142,7 +142,7 @@ class ExpData:
         spinup_bnds (list of datetime.datetime):
 
         out_dir (pathlib.Path):
-        file_base (str): e.g., '<exp>_<lon>_v<version>_<file_index>'
+        id (str): e.g., '<exp>_<lon>_v<version>_<file_index>'
         file_felx (pathlib.Path): data/<out_subdir>/<name>_<exp>_<lon>_v<version>_<file_index>.nc
         file_felx_bgc (pathlib.Path): data/felx/felx_bgc_<exp>_<lon>_v<version>_<file_index>.nc
         file_plx_inv (pathlib.Path): 'data/felx/felx_<exp>_<lon>_v<version>_<file_index>_inverse.nc
@@ -185,38 +185,40 @@ class ExpData:
         self.spinup_year = self.year_bnds[0] + self.spinup_year_offset
         self.spinup_bnds = [datetime(self.year_bnds[0] - self.spinup_num_years, 1, 1),
                             datetime(self.year_bnds[1] - self.spinup_num_years, 12, 31)]
-        # Data file names.
-        self.file_index_orig = int(np.ceil((self.file_index - 1) / 2))
-        self.out_dir = paths.data / 'fe_model'
 
+        self.file_index_orig = int(np.ceil((self.file_index - 1) / 2))
+
+        # Data file directories.
+        self.out_dir = paths.data / 'fe_model'
         self.out_subdir = self.out_dir / 'v{}'.format(self.version)
 
-        self.file_base = '{}_{}_v{}_{:02d}'.format(self.scenario_abbr, self.lon, self.version,
-                                                   self.file_index)
-        self.file_base_v0 = '{}_{}_v0_{:02d}'.format(self.scenario_abbr, self.lon, self.file_index)
+        # Data file names.
+        # File base
+        self.id = '{}_{}_v{}_{:02d}'.format(self.scenario_abbr, self.lon, self.version, self.file_index)
+        self.id_v0 = '{}_{}_v0_{:02d}'.format(self.scenario_abbr, self.lon, self.file_index)
 
         # Iron model finished files
-        self.file_felx = self.out_subdir / '{}_{}.nc'.format(self.name, self.file_base)
-        self.file_felx_all = [self.file_felx.parent / '{}{:02d}.nc'
-                              .format(self.file_felx.stem[:-2], i) for i in range(8)]
+        self.file_felx = self.out_subdir / 'fe_{}.nc'.format(self.id)
+        self.file_felx_all = [self.out_subdir / 'fe_{}{:02d}.nc'.format(self.id[:-2], i) for i in range(8)]
 
-        self.file_source = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base[:-3])
-        self.file_source_tmp = self.out_subdir / '{}_source_{}.nc'.format(self.name, self.file_base)
-        self.file_source_tmp_all = [self.out_subdir / '{}_source_{}{:02d}.nc'
-                                    .format(self.name, self.file_base[:-2], i) for i in range(8)]
+        # Source files.
+        self.file_source = self.out_subdir / 'fe_source_{}.nc'.format(self.id[:-3])
+        self.file_source_tmp = self.out_subdir / 'fe_source_{}.nc'.format(self.id)
+        self.file_source_tmp_all = [self.out_subdir / 'fe_source_{}{:02d}.nc'.format(self.id[:-2], i) for i in range(8)]
 
-        self.file_source_map = paths.data / 'sources/id/source_particle_id_map_{}.npy'.format(self.file_base)
+        # Particle to source map dict.
+        self.file_source_map = self.out_dir / 'particle_source_map/source_pid_{}.npy'.format(self.id_v0)
+        self.file_source_map_alt = self.out_dir / 'particle_source_map/source_pid_alt_{}.npy'.format(self.id_v0)  # source files
+
         # Iron model prereq and temporary files.
-        self.file_felx_tmp_dir = self.out_subdir / 'tmp_{}_{}/'.format(self.name, self.file_base_v0)
-        self.file_felx_bgc = self.out_dir / 'felx_bgc_{}.nc'.format(self.file_base_v0)
-        self.file_felx_bgc_tmp = self.out_dir / 'felx_bgc_{}_tmp.nc'.format(self.file_base_v0)
+        self.file_felx_tmp_dir = self.out_subdir / 'tmp_felx_bgc_{}/'.format(self.id_v0)
+        self.file_felx_bgc = self.out_dir / 'felx_bgc_{}.nc'.format(self.id_v0)
+        self.file_felx_bgc_tmp = self.out_dir / 'felx_bgc_{}_tmp.nc'.format(self.id_v0)
 
         # Plx files
-        self.file_plx = paths.data / 'plx/plx_{}_{}_v1_{:02d}.nc'.format(self.scenario_abbr,
-                                                                         self.lon, self.file_index)
+        self.file_plx = paths.data / 'plx/plx_{}_{}_v1_{:02d}.nc'.format(self.scenario_abbr, self.lon, self.file_index)
         self.file_plx_inv = paths.data / 'plx/{}_inverse.nc'.format(self.file_plx.stem)
-        self.file_plx_orig = paths.plx / 'plx/{}r{:02d}.nc'.format(self.file_plx.stem[:-3],
-                                                                   self.file_index_orig)
+        self.file_plx_orig = paths.plx / 'plx/{}r{:02d}.nc'.format(self.file_plx.stem[:-3], self.file_index_orig)
         self.file_plx_source = paths.plx / 'sources/{}.nc'.format(self.file_plx.stem[:-3])
 
 

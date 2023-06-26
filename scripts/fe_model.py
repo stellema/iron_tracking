@@ -219,7 +219,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     gc.collect()
 
     # Run simulation for each particle.
-    logger.info('{}: rank={}: particles={}: Updating iron.'.format(pds.exp.file_base, rank, ds.traj.size))
+    logger.info('{}: rank={}: particles={}: Updating iron.'.format(pds.exp.id, rank, ds.traj.size))
 
     for p in particles:
         # Assign initial iron.
@@ -405,7 +405,7 @@ def fix_particles_v0_err(pds):
     gc.collect()
 
     logger.info('{}: rank={}: particles={}/{} (total={}): Updating iron.'
-                .format(pds.exp.file_base, rank, ds.traj.size, particle_ids.size, dx.traj.size))
+                .format(pds.exp.id, rank, ds.traj.size, particle_ids.size, dx.traj.size))
 
     # Run simulation for each particle.
     particles = range(ds.traj.size)
@@ -467,8 +467,7 @@ if __name__ == '__main__':
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
     source_iron = ['seperate', 'background', 'high', 'combined'][version]
 
-    exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index,
-                  source_iron=source_iron)
+    exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, source_iron=source_iron)
     pds = FelxDataSet(exp)
 
     if args.func == 'run':
@@ -494,6 +493,6 @@ if __name__ == '__main__':
         fe_obs = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
         fe_pred = ds.fe.ffill('obs').isel(obs=-1, drop=True)
         cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
-        logger.info('{}: p={}: cost={}:'.format(pds.exp.file_base, ds.traj.size, cost))
+        logger.info('{}: p={}: cost={}:'.format(pds.exp.id, ds.traj.size, cost))
 
         test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))

@@ -485,7 +485,7 @@ class FelxDataSet(object):
 
     def init_felx_optimise_dataset(self):
         """Initialise empty felx dataset subset to 1 year and close to equator."""
-        file = paths.data / 'felx/{}_tmp_optimise.nc'.format(self.exp.file_base)
+        file = paths.data / 'felx/{}_tmp_optimise.nc'.format(self.exp.id)
         if file.exists():
             ds = xr.open_dataset(file)
 
@@ -506,7 +506,7 @@ class FelxDataSet(object):
         tmp_dir = self.exp.file_felx_tmp_dir
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
-        tmp_files = [tmp_dir / 'tmp_{}_{:02d}.nc'.format(self.exp.file_base, i) for i in range(size)]
+        tmp_files = [tmp_dir / 'tmp_{}_{:02d}.nc'.format(self.exp.id, i) for i in range(size)]
         return tmp_files
 
     def add_variable_attrs(self, ds):
@@ -609,37 +609,6 @@ class FelxDataSet(object):
 
         return df
 
-    def source_particle_ID_dict(self, ds):
-        """Create dictionary of particle IDs from each source.
-
-        Args:
-            ds (xarray.Dataset): Fe model particle dataset.
-
-        Returns:
-            source_traj (dict of lists): Dictionary of particle IDs.
-                dict[zone] = list(traj)
-
-        """
-        # Dictionary filename (to save/open).
-        file = paths.data / 'sources/id/source_particle_id_map_{}.npy'.format(self.exp.file_base)
-
-        # Return saved dictionary if available.
-        if file.exists():
-            return np.load(file, allow_pickle=True).item()
-
-        # Source region IDs (0-10).
-        zone_indexes = range(len(zones._all))
-        source_traj = dict()
-
-        # Particle IDs that reach each source.
-        for z in zone_indexes:
-            traj = ds.traj.where(ds.zone == z, drop=True)
-            traj = traj.values.astype(dtype=int).tolist()  # Convert to list.
-            source_traj[z] = traj
-        if not test:
-            np.save(file, source_traj)  # Save dictionary as numpy file.
-        return source_traj
-
     def map_var_to_particle_ids(self, ds, var='zone', var_array=range(len(zones._all)), file=None):
         """Create dictionary of particle IDs from each source.
 
@@ -679,11 +648,12 @@ class FelxDataSet(object):
             np.save(file, pid_map)  # Save dictionary as numpy file.
         return pid_map
 
-    def fe_model_sources(self, add_diff=False):
+    def fe_model_sources(self, lon=None, add_diff=False):
         """Open fe model source dataset."""
+        if lon is None:
+            lon = self.exp.lon
         # Open and concat data for exah scenario.
-        exps = [ExpData(name='fe', scenario=i, lon=self.exp.lon, version=self.exp.version,
-                        out_subdir=self.exp.out_subdir) for i in range(2)]
+        exps = [ExpData(scenario=i, lon=lon, version=self.exp.version) for i in range(2)]
         ds = [xr.open_dataset(exp.file_source) for exp in exps]
         ds = concat_exp_dimension(ds, add_diff=add_diff)
 
