@@ -2,21 +2,21 @@
 #PBS -P e14
 #PBS -q normalsr
 #PBS -l walltime=48:00:00
-#PBS -l mem=500GB
-#PBS -l ncpus=56
+#PBS -l mem=341GB
+#PBS -l ncpus=44
 #PBS -l storage=gdata/hh5+gdata/e14
 #PBS -l wd
 #PBS -m ae
 #PBS -M astellemas@gmail.com
-#PBS -v EXP,LON,R
+#PBS -v V,EXP,LON,R
 
 ###############################################################################
 # Run iron model
-# To submit: qsub -v EXP=0,LON=220,R=0 fe_model.sh
+# To submit: qsub -v V=1,EXP=0,LON=220,R=0 fe_model.sh
 ###############################################################################
 
 ECHO=/bin/echo
-$ECHO "version=0, scenario=$EXP, longitude=$LON, index=$R."
+$ECHO "version=$V, scenario=$EXP, longitude=$LON, index=$R."
 module use /g/data3/hh5/public/modules
 module load conda/analysis3-23.01
-mpiexec -n $PBS_NCPUS python3 /g/data/e14/as3189/stellema/felx/scripts/fe_model.py -s $EXP -x $LON -v 0 -r $R -f 'run'
+mpiexec -n $PBS_NCPUS python3 /g/data/e14/as3189/stellema/felx/scripts/fe_model.py -s $EXP -x $LON -v $V -r $R -f 'run'
