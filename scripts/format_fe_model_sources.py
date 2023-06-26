@@ -288,6 +288,9 @@ def create_source_file(pds):
 
     ds = xr.open_dataset(pds.exp.file_felx)
 
+    # !!! Save original pds.exp.file_source_map for fe_model
+    _ = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes, file=pds.exp.file_source_map)
+
     ds = transfer_dataset_release_times(pds, ds)
 
     if test:
