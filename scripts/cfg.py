@@ -193,6 +193,8 @@ class ExpData:
 
         self.file_base = '{}_{}_v{}_{:02d}'.format(self.scenario_abbr, self.lon, self.version,
                                                    self.file_index)
+        self.file_base_v0 = '{}_{}_v0_{:02d}'.format(self.scenario_abbr, self.lon, self.file_index)
+
         # Iron model finished files
         self.file_felx = self.out_subdir / '{}_{}.nc'.format(self.name, self.file_base)
         self.file_felx_all = [self.file_felx.parent / '{}{:02d}.nc'
@@ -205,9 +207,9 @@ class ExpData:
 
         self.file_source_map = paths.data / 'sources/id/source_particle_id_map_{}.npy'.format(self.file_base)
         # Iron model prereq and temporary files.
-        self.file_felx_tmp_dir = self.out_subdir / 'tmp_{}_{}/'.format(self.name, self.file_base)
-        self.file_felx_bgc = self.out_dir / 'felx_bgc_{}.nc'.format(self.file_base)
-        self.file_felx_bgc_tmp = self.out_dir / 'felx_bgc_{}_tmp.nc'.format(self.file_base)
+        self.file_felx_tmp_dir = self.out_subdir / 'tmp_{}_{}/'.format(self.name, self.file_base_v0)
+        self.file_felx_bgc = self.out_dir / 'felx_bgc_{}.nc'.format(self.file_base_v0)
+        self.file_felx_bgc_tmp = self.out_dir / 'felx_bgc_{}_tmp.nc'.format(self.file_base_v0)
 
         # Plx files
         self.file_plx = paths.data / 'plx/plx_{}_{}_v1_{:02d}.nc'.format(self.scenario_abbr,

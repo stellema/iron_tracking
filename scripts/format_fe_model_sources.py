@@ -203,15 +203,14 @@ def transfer_dataset_release_times(pds, ds):
             elif sizes[0] > sizes[1]:
                 pad_tmp = xr.full_like(ds_prev.isel(obs=slice(-size_diff - 1, -1)), np.nan)
                 pad_tmp['obs'] = pad_tmp['obs'] + size_diff + 1
-                ds = xr.concat([ds_prev, pad_tmp], 'obs')
+                ds_prev = xr.concat([ds_prev, pad_tmp], 'obs')
 
             # Add particles from previous dataset to the dataset.
-            # ds = xr.merge([ds_prev, ds])
             ds = xr.concat([ds_prev, ds], 'traj')
             ds.attrs = attrs
             logger.info('{}: Add particles from previous file (p={}: {}).'
                         .format(pds.exp.file_source_tmp.stem, ds_prev.traj.size, rtimes))
-            ds_prev.close()
+        ds_prev.close()
 
     # Open next file and check if any rtime values overlap (remove from this dataset).
     if pds.exp.file_index < 7:
@@ -236,7 +235,7 @@ def transfer_dataset_release_times(pds, ds):
             ds = ds.sel(traj=ds.traj[~ds.traj.isin(pids)])
             logger.info('{}: Dropped particles in next file (p={}: {}).'
                         .format(pds.exp.file_source_tmp.stem, pids.size, rtimes))
-            ds_next.close()
+        ds_next.close()
     return ds
 
 
@@ -299,16 +298,15 @@ def create_source_file(pds):
 
     logger.info('{}: Particle information at source.'.format(file.stem))
     ds = pds.get_final_particle_obs(ds)
+    ds = ds.drop('obs')
 
     logger.info('{}: Dictionary of particle IDs at source.'.format(file.stem))
-    pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes,
-                                                 file=None)
+    pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes, file=None)
 
     logger.info('{}: Sum EUC transport per source.'.format(file.stem))
 
     # Group variables by source.
     # EUC transport: (traj) -> (rtime, zone). Run first bc can't stack 2D.
-
     u_zone = group_euc_transport(pds, ds, pid_source_map)
 
     logger.info('{}: Iron weighted mean per source.'.format(file.stem))
@@ -356,7 +354,7 @@ if __name__ == "__main__":
     p.add_argument('-x', '--lon', default=250, type=int, help='Release longitude [165, 190, 220, 250].')
     p.add_argument('-s', '--scenario', default=0, type=int, help='Scenario index.')
     p.add_argument('-v', '--version', default=0, type=int, help='Version index.')
-    p.add_argument('-r', '--index', default=7, type=int, help='File repeat index [0-7].')
+    p.add_argument('-r', '--index', default=5, type=int, help='File repeat index [0-7].')
     args = p.parse_args()
 
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
