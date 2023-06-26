@@ -289,14 +289,17 @@ def create_source_file(pds):
     ds = xr.open_dataset(pds.exp.file_felx)
 
     # !!! Save original pds.exp.file_source_map for fe_model
-    _ = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes, file=pds.exp.file_source_map)
+    if 'obs' in ds.zone.dims:  # !!!
+        ds['zone'] = ds.zone.isel(obs=0)  # !!!
+    _ = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes, file=pds.exp.file_source_map)  # !!!
 
     ds = transfer_dataset_release_times(pds, ds)
 
     if test:
         ds = ds.isel(traj=slice(0, 2000))
 
-    ds['zone'] = ds.zone.isel(obs=0)
+    if 'obs' in ds.zone.dims:
+        ds['zone'] = ds.zone.isel(obs=0)
     ds = pds.add_variable_attrs(ds)
 
     logger.info('{}: Particle information at source.'.format(file.stem))
