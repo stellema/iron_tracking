@@ -619,3 +619,27 @@ def convert_plx_times(dt, obs, attrs, attrs_new):
     time[mask] = num2date(dt[mask], units=attrs['units'], calendar=attrs['calendar'])
     time[mask] = date2num(time[mask], units=attrs_new['units'], calendar=attrs_new['calendar'])
     return time
+
+
+def llwbc_transport_projections():
+    """Get the Eulerian transport projections of the LLWBCs (for fe_high forcing).
+
+    Notes:
+        - Depth integrated to 775m
+        - Requires transport_LLWBCs_hist.nc and transport_LLWBCs_rcp.nc (see plx repo)
+
+    Results:
+        Solomon Strait (ssx)  = 21.28% (Solomon Strait and St George's Channel)
+        Vitiaz Strait (vs)    = 15.03%
+        Mindanao CUrrent (mc) = -8.42%
+
+    """
+    ds = [xr.open_dataset(paths.data / 'transport_LLWBCs_{}.nc'.format(i)) for i in ['hist', 'rcp']]
+
+    ds[0] = ds[0].sel(time=slice('2000-01-01', '2012-12-31'))
+    ds[1] = ds[1].sel(time=slice('2089-01-01', '2101-12-31'))
+
+    ds = [dx.sel(lev=slice(0, 776)).sum('lev') for dx in ds]
+    ds = [dx.groupby('time.month').mean('time').mean('month') for dx in ds]
+    ds = concat_exp_dimension(ds, add_diff=True)
+    print((ds.isel(exp=2) / ds.isel(exp=0)) * 100)
