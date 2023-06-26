@@ -301,7 +301,8 @@ def create_source_file(pds):
     ds = ds.drop('obs')
 
     logger.info('{}: Dictionary of particle IDs at source.'.format(file.stem))
-    pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes, file=None)
+    pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes,
+                                                 file=pds.exp.file_source_map)
 
     logger.info('{}: Sum EUC transport per source.'.format(file.stem))
 
@@ -339,7 +340,9 @@ def create_source_file(pds):
 
     # Save dataset.
     logger.info('{}: Saving...'.format(file.stem))
-    df = df.drop('obs')
+
+    if 'obs' in df:
+        df = df.drop('obs')
 
     df = df.chunk()
     df = df.unify_chunks()

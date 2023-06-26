@@ -298,7 +298,8 @@ def run_iron_model(pds):
     if pds.exp.source_iron != 'seperate':
         if rank == 0:
             logger.debug('{}: Dropping background sources p={}.'.format(exp.file_felx.stem, ds.traj.size))
-        pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes)
+        pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes,
+                                                     file=pds.exp.file_source_map)
         pids = np.concatenate([pid_source_map[i] for i in [1, 2, 3, 4, 6]])
         ds = ds.sel(traj=pids)
         if rank == 0:

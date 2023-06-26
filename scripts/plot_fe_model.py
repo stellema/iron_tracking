@@ -38,8 +38,7 @@ import xarray as xr  # NOQA
 from cfg import paths, ExpData, ltr, release_lons
 from tools import unique_name, mlogger, timeit
 from fe_exp import FelxDataSet
-from stats import format_pvalue_str, get_min_weighted_bins, weighted_bins_fd
-
+# from stats import format_pvalue_str, get_min_weighted_bins, weighted_bins_fd
 
 fsize = 10
 plt.rcParams.update({'font.size': fsize})
@@ -161,6 +160,7 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
 
     """
     z_ids = [1, 2, 6, 7, 8, 3, 4, 5, 0]
+
     # Open data.
     dss = []
 
@@ -223,28 +223,18 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
     return
 
 
-def weighted_mean(ds):
-    # Particle data
-    # ds_i = ds.isel(obs=0)  # at source
-    ds_f = ds.ffill('obs').isel(obs=-1, drop=True)  # at EUC
-    ds_f_z_mean = (ds_f.fe * ds_f.u).groupby(ds_f.z).sum() / (ds_f.u).groupby(ds_f.z).sum()
-    ds_f_mean = ds_f.fe.weighted(ds_f.u).mean().load().item()
-    return ds_f_mean, ds_f_z_mean
-
-
 if __name__ == '__main__':
     scenario, lon, version, index = 0, 220, 0, 0
     exp = ExpData(name='fe', scenario=scenario, lon=lon, version=version, file_index=index)
     pds = FelxDataSet(exp)
 
     # Weighted mean. @todo
-    var='fe_avg'
+    var = 'fe_avg'
     dss = []
     for i, lon in enumerate(pds.release_lons):
         pds = FelxDataSet(ExpData(name='fe', scenario=0, lon=lon, version=pds.exp.version))
         ds = pds.fe_model_sources(add_diff=False)
         dss.append(ds[var].mean('rtime'))
-
 
     # Weighted mean per source
     transport_source_bar_graph(pds, var='fe_avg_src')
