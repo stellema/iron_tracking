@@ -412,6 +412,8 @@ class FelxDataSet(object):
         logger.info('{}: Drop trailing NaNs (pre={}).'.format(file.stem, ds.obs.size))
         ds = ds.where(~np.isnan(ds.z).load(), drop=True)
         ds['u'] = ds.u.isel(obs=0, drop=True)
+        if 'obs' in ds.zone.dims:
+            ds['zone'] = ds.zone.isel(obs=0)  # Not run in v0
         logger.info('{}: Dropped trailing NaNs (post={}).'.format(file.stem, ds.obs.size))
 
         # Add metadata
@@ -632,13 +634,15 @@ class FelxDataSet(object):
             if file.exists():
                 return np.load(file, allow_pickle=True).item()
 
+        # Dict[var[i]]: [Particle IDs where var <= to var[i] and > var[i-1]].
         pid_map = dict()
-        # Particle IDs that reach each source.
 
+        # First value in var_array.
         traj = ds.traj.where((ds[var] <= var_array[0]), drop=True)
         traj = traj.values.astype(dtype=int).tolist()  # Convert to list.
         pid_map[var_array[0]] = traj
 
+        # Remaining values in var_array.
         for i in range(1, len(var_array)):
             traj = ds.traj.where((ds[var] > var_array[i - 1]) & (ds[var] <= var_array[i]), drop=True)
             traj = traj.values.astype(dtype=int).tolist()  # Convert to list.
@@ -659,4 +663,15 @@ class FelxDataSet(object):
 
         ds['names'] = ('zone', zones.names)
         ds['colors'] = ('zone', zones.colors)
+        return ds
+
+    def fe_model_sources_all(self, add_diff=False):
+        """Open fe model source dataset."""
+        ds = [self.fe_model_sources(lon=i, add_diff=add_diff) for i in self.release_lons]
+
+        drop_vars = [v for v in ds[0].data_vars if 'traj' in ds[0][v].dims]
+        ds = [ds[i].drop(drop_vars).drop('traj') for i, x in enumerate(self.release_lons)]
+        # ds = [ds[i].drop('traj') for i, x in enumerate(self.release_lons)]
+        ds = [ds[i].expand_dims(dict(x=[x])) for i, x in enumerate(self.release_lons)]
+        ds = xr.concat(ds, 'x')
         return ds
