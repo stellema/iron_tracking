@@ -504,8 +504,7 @@ class FelxDataSet(object):
 
     def felx_tmp_filenames(self, size):
         """Get tmp filenames for felx tmp subsets."""
-        # tmp_dir = paths.data / 'felx/tmp_{}'.format(self.exp.file_felx.stem)
-        tmp_dir = self.exp.file_felx_tmp_dir
+        tmp_dir = self.exp.out_subdir / 'tmp_{}'.format(self.exp.file_felx.stem)
         if not tmp_dir.is_dir():
             os.makedirs(tmp_dir, exist_ok=True)
         tmp_files = [tmp_dir / 'tmp_{}_{:02d}.nc'.format(self.exp.id, i) for i in range(size)]
@@ -672,6 +671,9 @@ class FelxDataSet(object):
         drop_vars = [v for v in ds[0].data_vars if 'traj' in ds[0][v].dims]
         ds = [ds[i].drop(drop_vars).drop('traj') for i, x in enumerate(self.release_lons)]
         # ds = [ds[i].drop('traj') for i, x in enumerate(self.release_lons)]
-        ds = [ds[i].expand_dims(dict(x=[x])) for i, x in enumerate(self.release_lons)]
+        ds = [ds[i].expand_dims(dict(x=[x]), axis=1) for i, x in enumerate(self.release_lons)]
         ds = xr.concat(ds, 'x')
+
+        for v in ['names', 'colors']:
+            ds[v] = ds[v].isel(x=0, drop=True)
         return ds

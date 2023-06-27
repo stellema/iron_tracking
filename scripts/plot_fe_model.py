@@ -38,6 +38,7 @@ import xarray as xr  # NOQA
 from cfg import paths, ExpData, ltr, release_lons
 from tools import unique_name, mlogger, timeit
 from fe_exp import FelxDataSet
+from fe_obs_dataset import iron_source_profiles
 # from stats import format_pvalue_str, get_min_weighted_bins, weighted_bins_fd
 
 fsize = 10
@@ -89,7 +90,7 @@ def test_plot_iron_paths(pds, ds, ntraj=5):
     plt.show()
 
 
-def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
+def test_plot_EUC_iron_depth_profile(pds, ds, ds_fe):
     """Plot particle depth vs dFe (at source and EUC) and scatter start vs final dFe."""
     # Particle data
     ds_i = ds.isel(obs=0)  # at source
@@ -98,9 +99,7 @@ def test_plot_EUC_iron_depth_profile(pds, ds, dfs):
     ds_f_mean = ds_f.fe.weighted(ds_f.u).mean().load().item()
 
     # Observations
-    # df_h = dfs.Huang_iron_dataset().fe.sel(x=pds.exp.lon, method='nearest').sel(
-    #     y=slice(-2.6, 2.6)).mean('y')
-    df_avg = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, method='nearest')
+    df_avg = ds_fe.euc_avg.sel(lon=pds.exp.lon, method='nearest')
     df_avg_mean = df_avg.mean().item()
 
     # Plot particle depth vs dFe (at initial/source and final/EUC).
@@ -162,15 +161,10 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
     z_ids = [1, 2, 6, 7, 8, 3, 4, 5, 0]
 
     # Open data.
-    dss = []
+    ds = pds.fe_model_sources_all(add_diff=False)
+    ds = ds.isel(zone=z_ids)  # Must select source order (for late use of ds)
 
-    for i, lon in enumerate(pds.release_lons):
-        pds = FelxDataSet(ExpData(scenario=0, lon=lon, version=pds.exp.version))
-        ds = pds.fe_model_sources(add_diff=False)
-        ds = ds.isel(zone=z_ids)  # Must select source order (for late use of ds)
-        dss.append(ds[var].mean('rtime'))
-
-    xlim_max = np.max([d.max('exp') for d in dss])
+    xlim_max = ds[var].mean('rtime').max()
     xlim_max += xlim_max * 0.2
     ylabels, c = ds.names.values, ds.colors.values
 
@@ -180,7 +174,7 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
 
     for i, ax in enumerate(axes.flatten()):
         lon = pds.release_lons[i]
-        dx = dss[i]
+        dx = ds[var].sel(x=lon).mean('rtime')
         ticks = np.arange(dx.zone.size)  # Source y-axis ticks.
 
         ax.set_title('{} {} for EUC at {}°E'.format(ltr[i], dx.attrs['long_name'], lon), loc='left')
@@ -218,9 +212,38 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
         ax.xaxis.set_tick_params(labelbottom=True)
 
     plt.tight_layout()
-    plt.savefig(paths.figs / 'source_bar_{}.png'.format(var), dpi=300)
+    plt.savefig(paths.figs / 'fe_model/source_bar_{}.png'.format(var), dpi=300)
     plt.show()
     return
+
+
+def plot_var_scatter(ds, var):
+    """Scatter plot of variable mean for each release longitude."""
+    ds_fe = iron_source_profiles()
+    dx = ds[var].mean('rtime')
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+
+    # Add observations.
+    if var in ['fe_avg']:
+        ds_fe = ds_fe.sel(z=slice(25, 350), x=slice(160, 260)).dropna('x', 'all')
+        ax.plot(ds_fe.x, ds_fe.EUC.mean('z'), 'x', c='g', label='Obs.')
+        ax.plot(ds_fe.lon, ds_fe.euc_avg.mean('z'), 'o', c='g', label='Obs. Mean')
+
+    for source_iron in ['LLWBC-obs']:
+        ax.plot(dx.x, dx.isel(exp=0), '-o', c='k', label='Historical ({})'.format(source_iron))
+        ax.plot(dx.x, dx.isel(exp=1), '--o', c='r', label='RCP8.5 ({})'.format(source_iron))
+
+    ax.set_title('{}'.format(dx.attrs['long_name']), loc='left')
+    ax.set_ylabel('{} [{}]'.format(dx.attrs['standard_name'], dx.attrs['units']))
+    ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
+    ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.set_xticks(dx.x)
+    ax.legend()
+    # fig.legend(loc='upper right', bbox_to_anchor=(0.97, 0.93))  # (x, y, width, height)
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'fe_model/lon_scatter_{}.png'.format(var), dpi=300)
+    plt.show()
 
 
 if __name__ == '__main__':
@@ -228,13 +251,13 @@ if __name__ == '__main__':
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index)
     pds = FelxDataSet(exp)
 
-    # Weighted mean. @todo
+    # # Weighted mean.
+
+    ds = pds.fe_model_sources_all(add_diff=False)
     var = 'fe_avg'
-    dss = []
-    for i, lon in enumerate(pds.release_lons):
-        pds = FelxDataSet(ExpData(scenario=0, lon=lon, version=pds.exp.version))
-        ds = pds.fe_model_sources(add_diff=False)
-        dss.append(ds[var].mean('rtime'))
+    plot_var_scatter(ds, var)
+    var = 'fe_src_avg'
+    plot_var_scatter(ds, var)
 
     # Weighted mean per source
     transport_source_bar_graph(pds, var='fe_avg_src')

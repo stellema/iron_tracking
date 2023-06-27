@@ -50,13 +50,13 @@ except ModuleNotFoundError:
 logger = mlogger('optimise_iron_model_params')
 
 
-def cost_function(pds, ds, fe_obs, dfs, params, rank=0):
+def cost_function(pds, ds, fe_obs, ds_fe, params, rank=0):
     """Cost function for iron model optmisation (uses weighted least absolute deviations)."""
     params_dict = dict([(k, v) for k, v in zip(pds.param_names, params)])
     pds.update_params(params_dict)
 
     # Particle dataset (all vars & obs).
-    fe_pred = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, pds.param_names, params)
+    fe_pred = update_particles_MPI(pds, ds, ds_fe, pds.param_names, params)
 
     # Final particle Fe.
     fe_pred = fe_pred.fe.ffill('obs').isel(obs=-1, drop=True)
@@ -113,11 +113,11 @@ def optimise_iron_model_params(lon, method):
         ds = comm.bcast(ds, root=0)
 
     # Source iron profile.
-    dfs = iron_source_profiles()
+    ds_fe = iron_source_profiles()
 
     # Fe observations at particle depths.
     z = ds.z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
-    fe_obs = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
+    fe_obs = ds_fe.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
 
     # Paramaters to optimise (e.g., a, b, c = params).
     # Copy inside update_iron: ', '.join([i for i in params])
@@ -132,7 +132,7 @@ def optimise_iron_model_params(lon, method):
                       gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
-    res = minimize(lambda params: cost_function(pds, ds, fe_obs, dfs, params, rank),
+    res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, rank),
                    params_init, method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
@@ -147,10 +147,10 @@ def optimise_iron_model_params(lon, method):
         logger.info('{}: Optimimal {}'.format(exp.id, param_dict))
 
         # Calculate the predicted iron concentration using the optimized parameters.
-        ds_opt = update_particles_MPI(pds, ds, dfs.dfe.ds_avg, pds.param_names, params_optimized)
+        ds_opt = update_particles_MPI(pds, ds, ds_fe, pds.param_names, params_optimized)
 
         # Plot the observed and predicted iron concentrations.
-        test_plot_EUC_iron_depth_profile(pds, ds_opt, dfs)
+        test_plot_EUC_iron_depth_profile(pds, ds_opt, ds_fe)
     return res
 
 
@@ -158,14 +158,14 @@ def optimise_iron_model_params(lon, method):
 def optimise_multi_lon_dataset():
     """Save dataset for multi-lon paramater optimisation."""
     # Source iron profile.
-    dfs = iron_source_profiles()
+    ds_fe = iron_source_profiles()
     file_ds = cfg.paths.data / 'fe_model/felx_optimise_hist_multi.nc'
     file_obs = cfg.paths.data / 'fe_model/fe_obs_optimise_hist_multi.nc'
 
     if file_ds.exists() and file_obs.exists():
         ds = xr.open_dataset(file_ds)
         fe_obs = xr.open_dataset(file_obs)
-        return dfs, ds, fe_obs
+        return ds_fe, ds, fe_obs
 
     lons = [165, 190, 220, 250]
     n = len(lons)
@@ -186,7 +186,7 @@ def optimise_multi_lon_dataset():
 
         # Fe observations at particle depths.
         z = ds_list[i].z.ffill('obs').isel(obs=-1)  # Particle depth in EUC.
-        fe_obs_list[i] = dfs.dfe.ds_avg.euc_avg.sel(lon=lons[i], z=z, method='nearest', drop=True)
+        fe_obs_list[i] = ds_fe.euc_avg.sel(lon=lons[i], z=z, method='nearest', drop=True)
 
     # Merge datasets.
     logger.info('Merging datasets')
@@ -204,7 +204,7 @@ def optimise_multi_lon_dataset():
     save_dataset(ds, file_ds)
     save_dataset(fe_obs, file_obs)
     logger.info('Datasets saved')
-    return dfs, ds, fe_obs
+    return ds_fe, ds, fe_obs
 
 
 @timeit(my_logger=logger)
@@ -231,7 +231,7 @@ def optimise_iron_model_params_multi_lon(lon, method):
     else:
         rank = 0
 
-    dfs, ds, fe_obs = optimise_multi_lon_dataset()
+    ds_fe, ds, fe_obs = optimise_multi_lon_dataset()
     fe_obs = fe_obs['euc_avg']
 
     if cfg.test:
@@ -255,7 +255,7 @@ def optimise_iron_model_params_multi_lon(lon, method):
 
     if rank == 0:
         logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
-    res = minimize(lambda params: cost_function(pds, ds, fe_obs, dfs, params, rank),
+    res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, rank),
                    params_init, method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 

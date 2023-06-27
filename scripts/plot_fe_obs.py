@@ -549,8 +549,8 @@ def plot_combined_iron_obs_datasets(dfs):
 
 def plot_dfs_source_zprofile(dfs):
     """Plot source and EUC dFe depth profiles."""
-    dfs = iron_source_profiles()
-    dfe = dfs.dfe
+    ds_fe = iron_source_profiles()
+    # dfe = dfs.dfe
     # dfe.ds_avg = dfe.ds_avg.isel(t=-1)
     names = ['png', 'nicu', 'mc', 'llwbcs', 'interior']
     labels = ['NGCU', 'NICU', 'MC', 'LLWBC Mean', 'Background']
@@ -561,9 +561,9 @@ def plot_dfs_source_zprofile(dfs):
     ax.set_title('a) EUC Sources Dissolved Iron Profiles', loc='left')
 
     for i, name in enumerate(names):
-        if name + '_high' in dfe.ds_avg:
-            ax.plot(dfe.ds_avg[name + 'high'], dfe.ds_avg.z, c=colors[i], lw=2, ls='--')
-        ax.plot(dfe.ds_avg[name], dfe.ds_avg.z, c=colors[i], lw=2, label=labels[i])
+        if name + '_high' in ds_fe:
+            ax.plot(ds_fe[name + 'high'], ds_fe.z, c=colors[i], lw=2, ls='--')
+        ax.plot(ds_fe[name], ds_fe.z, c=colors[i], lw=2, label=labels[i])
 
     ax.set_ylim(600, 5)
     ax.set_xlim(0, 2.5)
@@ -576,9 +576,8 @@ def plot_dfs_source_zprofile(dfs):
     ax = fig.add_subplot(122)
     ax.set_title('b) EUC Dissolved Iron Profiles', loc='left')
     colors = ['r', 'm', 'blue', 'k']
-    for i, lon in enumerate(dfe.ds_avg.lon.values):
-        ax.plot(dfe.ds_avg['euc_avg'].sel(lon=lon), dfe.ds_avg.z, c=colors[i], lw=2,
-                label='{}°E'.format(lon))
+    for i, lon in enumerate(ds_fe.lon.values):
+        ax.plot(ds_fe['euc_avg'].sel(lon=lon), ds_fe.z, c=colors[i], lw=2, label='{}°E'.format(lon))
         # ax.plot(dfe.ds_avg['EUC'].sel(x=lon, method='nearest'), dfe.ds_avg.z, c=colors[i], lw=2,
         #         label='{}°E'.format(lon))
 

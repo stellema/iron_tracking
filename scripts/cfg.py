@@ -211,7 +211,6 @@ class ExpData:
         self.file_source_map_alt = self.out_dir / 'particle_source_map/source_pid_alt_{}.npy'.format(self.id_v0)  # source files
 
         # Iron model prereq and temporary files.
-        self.file_felx_tmp_dir = self.out_subdir / 'tmp_felx_bgc_{}/'.format(self.id_v0)
         self.file_felx_bgc = self.out_dir / 'felx_bgc_{}.nc'.format(self.id_v0)
         self.file_felx_bgc_tmp = self.out_dir / 'felx_bgc_{}_tmp.nc'.format(self.id_v0)
 

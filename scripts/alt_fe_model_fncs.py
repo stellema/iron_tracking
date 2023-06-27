@@ -326,7 +326,7 @@ def fix_particles_v0_err(pds):
     # Source Iron fields (observations).
     if rank == 0:
         logger.info('{}: Get iron source profiles from observations.'.format(pds.exp.file_felx.stem))
-    ds_fe = iron_source_profiles().dfe.ds_avg
+    ds_fe = iron_source_profiles()
 
     # Free up memory.
     del light

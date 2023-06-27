@@ -10,9 +10,7 @@ Notes:
     - Only works for pandas
 
 Todo:
-    - Replace/repeat dFe surface depths
-    - Replace/repeat dFe lower
-    - Remove coastal obs
+    - Save iron_source_profiles dataset
 
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
@@ -625,6 +623,12 @@ class FeObsDataset(object):
 
 def iron_source_profiles():
     """Create fe obs combined dataset."""
+    file = paths.data / 'iron_source_profiles.nc'
+
+    if file.exists():
+        ds_fe = xr.open_dataset(file, chunks=None)
+        return ds_fe
+
     dfs = FeObsDatasets()
     setattr(dfs, 'ds', dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True))
     setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
@@ -632,15 +636,18 @@ def iron_source_profiles():
     dfs.dfe.ds = dfs.dfe.ds.mean('t')
     dfs.dfe.ds_avg = dfs.dfe.ds_avg.mean('t')
 
+    # EUC observation average at release longitudes.
     xx = [slice(162, 167), slice(182, 192), slice(205, 230), slice(210, 271)]
-    # Observations
+
     df = dfs.dfe.ds.fe.sel(y=slice(-2.6, 2.6)).mean('y')
     dx = []
     for lon, x in zip([165, 190, 220, 250], xx):
         dx.append(df.sel(x=x).mean('x').assign_coords(lon=lon))
     dfs.dfe.ds_avg['euc_avg'] = xr.concat(dx, 'lon')
 
-    dfs.dfe.ds_avg['nicu_high'] = dfs.dfe.ds_avg['nicu'] * (1 + (21.28 / 100))
-    dfs.dfe.ds_avg['png_high'] = dfs.dfe.ds_avg['png'] * (1 + (15.03 / 100))
-    dfs.dfe.ds_avg['mc_high'] = dfs.dfe.ds_avg['mc'] * (1 + (-8.42 / 100))
-    return dfs
+    # Projections.
+    for name, proj in zip(['nicu', 'png', 'mc'], [21.28, 15.03, -8.42]):
+        dfs.dfe.ds_avg[name + '_proj'] = dfs.dfe.ds_avg[name] * (1 + (proj / 100))
+
+    ds_fe = save_dataset(dfs.dfe.ds_avg, file, msg='./fe_obs_dataset.py')
+    return ds_fe

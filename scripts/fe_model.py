@@ -87,19 +87,19 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
     zone = int(dx.zone.load().item())
 
     # Option 1: Select region data variable based on source ID.
-    if method == 'seperate':
+    if method == 'LLWBC-obs':
         var = ['interior', 'png', 'nicu', 'mc', 'mc', 'interior', 'nicu', 'interior', 'interior'][zone]
         da_fe = ds_fe[var]
 
-    elif method == 'high':
-        var = ['interior', 'png_high', 'nicu_high', 'mc_high', 'mc_high', 'interior', 'nicu_high',
+    elif method == 'LLWBC-proj':
+        var = ['interior', 'png_high', 'nicu_proj', 'mc_proj', 'mc_proj', 'interior', 'nicu_proj',
                'interior', 'interior'][zone]
         da_fe = ds_fe[var]
 
-    elif method == 'background':
+    elif method == 'LLWBC-low':
         da_fe = ds_fe['interior']
 
-    elif method == 'combined':
+    elif method == 'LLWBC-mean':
         var = 'llwbcs' if zone in [1, 2, 3, 4, 6] else 'interior'
         da_fe = ds_fe[var]
 
@@ -257,6 +257,8 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
             ds[var] = ds[var].astype(dtype=np.float64)
 
         # Save output as temp dataset.
+        ds.attrs['history'] += str(np.datetime64('now', 's')).replace('T', ' ')
+        ds.attrs['history'] += ' Iron model ({})'.format(pds.exp.source_iron)
         ds.to_netcdf(tmp_files[rank], compute=True)
         logger.info('{}: rank={}: Saved dataset.'.format(pds.exp.file_felx.stem, rank))
         ds.close()
@@ -283,8 +285,8 @@ def run_iron_model(pds):
     if rank == 0:
         logger.info('{}: Running update_particles_MPI...'.format(pds.exp.file_felx.stem))
 
-    # Source Iron fields (observations or OFAM3 Fe).
-    dfs = iron_source_profiles()
+    # Source Iron fields (observations).
+    ds_fe = iron_source_profiles()
 
     # Particle dataset
     pds.add_iron_model_params()
@@ -316,7 +318,7 @@ def run_iron_model(pds):
         # ds = ds.isel(traj=slice(50))
 
     # Run iron model for particles.
-    ds = update_particles_MPI(pds, ds, dfs.dfe.ds_avg)
+    ds = update_particles_MPI(pds, ds, ds_fe)
     return ds
 
 
@@ -330,7 +332,7 @@ if __name__ == '__main__':
     p.add_argument('-f', '--func', default='run', type=str, help='run, fix or save.')
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
-    source_iron = ['seperate', 'background', 'high', 'combined'][version]
+    source_iron = ['LLWBC-obs', 'LLWBC-low', 'LLWBC-proj', 'LLWBC-mean'][version]
 
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, source_iron=source_iron)
     pds = FelxDataSet(exp)
@@ -348,14 +350,14 @@ if __name__ == '__main__':
         else:
             ds = pds.save_felx_dataset()
 
-        dfs = iron_source_profiles()
+        ds_fe = iron_source_profiles()
 
         # Plot output
-        test_plot_EUC_iron_depth_profile(pds, ds, dfs)
+        test_plot_EUC_iron_depth_profile(pds, ds, ds_fe)
 
         # Log Cost
         z = ds.z.ffill('obs').isel(obs=-1)
-        fe_obs = dfs.dfe.ds_avg.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
+        fe_obs = ds_fe.euc_avg.sel(lon=pds.exp.lon, z=z, method='nearest', drop=True)
         fe_pred = ds.fe.ffill('obs').isel(obs=-1, drop=True)
         cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
         logger.info('{}: p={}: cost={}:'.format(pds.exp.id, ds.traj.size, cost))
