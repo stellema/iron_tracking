@@ -48,7 +48,7 @@ from datasets import save_dataset
 from tools import mlogger, timeit
 from fe_exp import FelxDataSet
 from fe_obs_dataset import iron_source_profiles
-from plot_fe_model import test_plot_EUC_iron_depth_profile, test_plot_iron_paths
+#from plot_fe_model import test_plot_EUC_iron_depth_profile, test_plot_iron_paths
 
 try:
     from mpi4py import MPI
@@ -92,7 +92,7 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
         da_fe = ds_fe[var]
 
     elif method == 'LLWBC-proj':
-        var = ['interior', 'png_high', 'nicu_proj', 'mc_proj', 'mc_proj', 'interior', 'nicu_proj',
+        var = ['interior', 'png_proj', 'nicu_proj', 'mc_proj', 'mc_proj', 'interior', 'nicu_proj',
                'interior', 'interior'][zone]
         da_fe = ds_fe[var]
 
@@ -283,7 +283,7 @@ def run_iron_model(pds):
     """
     rank = MPI.COMM_WORLD.Get_rank() if MPI is not None else 0
     if rank == 0:
-        logger.info('{}: Running update_particles_MPI...'.format(pds.exp.file_felx.stem))
+        logger.info('{}: Running update_particles_MPI ({})'.format(pds.exp.file_felx.stem, pds.exp.source_iron))
 
     # Source Iron fields (observations).
     ds_fe = iron_source_profiles()
@@ -298,11 +298,10 @@ def run_iron_model(pds):
     if rank == 0:
         logger.debug('{}: rank={}: Dataset initializion complete.'.format(pds.exp.file_felx.stem, rank))
 
-    if pds.exp.source_iron != 'seperate':
+    if pds.exp.source_iron != 'LLWBC-obs':
         if rank == 0:
             logger.debug('{}: Dropping background sources p={}.'.format(pds.exp.file_felx.stem, ds.traj.size))
-        pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes,
-                                                     file=pds.exp.file_source_map)
+        pid_source_map = np.load(pds.exp.file_source_map, allow_pickle=True).item()
         pids = np.concatenate([pid_source_map[i] for i in [1, 2, 3, 4, 6]])
         ds = ds.sel(traj=pids)
         if rank == 0:
@@ -353,7 +352,7 @@ if __name__ == '__main__':
         ds_fe = iron_source_profiles()
 
         # Plot output
-        test_plot_EUC_iron_depth_profile(pds, ds, ds_fe)
+        # test_plot_EUC_iron_depth_profile(pds, ds, ds_fe)
 
         # Log Cost
         z = ds.z.ffill('obs').isel(obs=-1)
@@ -362,4 +361,4 @@ if __name__ == '__main__':
         cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
         logger.info('{}: p={}: cost={}:'.format(pds.exp.id, ds.traj.size, cost))
 
-        test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
+        # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))

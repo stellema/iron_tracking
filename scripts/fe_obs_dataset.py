@@ -626,7 +626,7 @@ def iron_source_profiles():
     file = paths.data / 'iron_source_profiles.nc'
 
     if file.exists():
-        ds_fe = xr.open_dataset(file, chunks=None)
+        ds_fe = xr.open_dataset(file)
         return ds_fe
 
     dfs = FeObsDatasets()
