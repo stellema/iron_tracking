@@ -585,6 +585,9 @@ class FelxDataSet(object):
         df['z_at_src'] = ds['z'].isel(obs=0, drop=True)  # First value (at the source).
         df['z_at_src'].attrs['long_name'] = 'Source Depth'
 
+        df['depth'] = df['z'].copy()
+        df['depth_at_src'] = df['z_at_src'].copy()
+
         # Physical variables.
         df['u'] = ds['u'].isel(obs=0, drop=True) if 'obs' in ds['u'].dims else ds['u']
         df['age'] = ds['age'].max('obs', skipna=True, keep_attrs=True)  # Maximum value.
