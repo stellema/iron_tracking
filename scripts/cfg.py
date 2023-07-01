@@ -57,6 +57,7 @@ loggers = {}
 ltr = [i + ')' for i in list(string.ascii_lowercase)]
 mon = list(calendar.month_abbr)[1:]  # Month abbreviations.
 release_lons = np.array([165, 190, 220, 250], dtype=int)
+scenario_name = ['Historical', 'RCP8.5']
 
 # Sverdrup.
 SV = 1e6

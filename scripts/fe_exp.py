@@ -539,6 +539,7 @@ class FelxDataSet(object):
                  'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm',
                         'standard_name': 'Kd490', 'units': 'm^-1', 'source': 'SeaWiFS-GMIS'},
                  'fe': {'long_name': 'Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},
+                 'fe_flux': {'long_name': 'Dissolved Iron Flux', 'standard_name': 'dFe flux', 'units': 'umol m^-2 s^-1 Fe'},
                  'fe_scav': {'long_name': 'Scavenged Dissolved Iron', 'standard_name': 'dFe',
                              'units': 'umol/m^3 Fe'},
                  'fe_reg': {'long_name': 'remineralised Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},

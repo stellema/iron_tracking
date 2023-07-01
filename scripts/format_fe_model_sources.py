@@ -21,7 +21,7 @@ import numpy as np
 import warnings
 import xarray as xr
 
-from cfg import ExpData, test
+from cfg import ExpData, test, DXDY
 from datasets import save_dataset, get_ofam3_coords
 from tools import mlogger, timeit
 from fe_exp import FelxDataSet
@@ -56,7 +56,7 @@ def group_particles_by_variable(ds, var='time'):
     return ds
 
 
-def group_euc_transport(pds, ds, pid_source_map):
+def group_var_sum_by_source(pds, ds, pid_source_map, var='u'):
     """Calculate EUC transport per release time & source.
 
     Args:
@@ -68,27 +68,46 @@ def group_euc_transport(pds, ds, pid_source_map):
 
     """
     # Group particle transport by time.
-    df = ds.drop([v for v in ds.data_vars if v not in ['u', 'time']])
+    df = ds.drop([v for v in ds.data_vars if v not in ['z', var, 'time']])
     df = group_particles_by_variable(df, 'time')
-    df.coords['zone'] = np.arange(len(pds.zones._all))
-
     # Rename stacked time coordinate (avoid duplicate 'time' variable).
     df = df.rename({'time': 'rtime'})
 
+    mesh = get_ofam3_coords()
+    df.coords['zone'] = pds.zone_indexes
+    df.coords['z'] = pds.release_depths
+    df.coords['z_at_src'] = mesh.st_ocean.values
+
     # Initialise source-grouped transport variable.
-    df['u_src'] = (['rtime', 'zone'], np.empty((df.rtime.size, df.zone.size)))
-    df['u_src'].attrs = df.u.attrs
+    for v, dims in zip([var + '_sum_src', var + '_sum_depth', var + '_sum_src_depth'],
+                       [['rtime', 'zone'], ['rtime', 'zone', 'z'], ['rtime', 'zone', 'z_at_src']]):
+        df[v] = (dims, np.full(tuple([df[v].size for v in dims]), np.nan))
+        df[v].attrs = ds[var].attrs
+
+    df[var + '_sum'] = df[var].sum('traj', keep_attrs=True)  # Add total transport per release.
 
     for z in df.zone.values:
-        df_zone = df.sel(traj=df.traj[df.traj.isin(pid_source_map[z])])
+        dx = df.sel(traj=df.traj[df.traj.isin(pid_source_map[z])])
 
         # Sum particle transport.
-        df['u_src'][dict(zone=z)] = df_zone.u.sum('traj', keep_attrs=True)
+        df[var + '_sum_src'][dict(zone=z)] = dx[var].sum('traj', keep_attrs=True)
 
-    return df['u_src']
+        for v, depth_var in zip([var + '_sum_depth', var + '_sum_src_depth'], ['z', 'z_at_src']):
+            pid_depth_map = pds.map_var_to_particle_ids(ds, var=depth_var, var_array=df[depth_var].values)
+
+            for depth_i, depth in enumerate(df[depth_var].values):
+                # Subset to particles at the same source and depth.
+                dxx = dx.sel(traj=dx.traj[dx.traj.isin(pid_depth_map[depth])])
+
+                if dxx.traj.size > 0:
+                    # Weighted mean grouped by source and EUC release depth.
+                    loc = {'zone': z, depth_var: depth_i}
+                    df[v][loc] = dxx[var].sum('traj', keep_attrs=True)
+
+    return df
 
 
-def group_var_by_source(pds, ds, pid_source_map, var='fe', depth_var='z'):
+def group_var_avg_by_source(pds, ds, pid_source_map, var='fe', depth_var='z'):
     """Calculate EUC iron weighted mean per release time, source and depth.
 
     Args:
@@ -288,10 +307,10 @@ def create_source_file(pds):
 
     ds = xr.open_dataset(pds.exp.file_felx)
 
-    # !!! Save original pds.exp.file_source_map for fe_model
-    if 'obs' in ds.zone.dims:  # !!!
-        ds['zone'] = ds.zone.isel(obs=0)  # !!!
-    _ = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes, file=pds.exp.file_source_map)  # !!!
+    # # !!! Save original pds.exp.file_source_map for fe_model
+    # if 'obs' in ds.zone.dims:  # !!!
+    #     ds['zone'] = ds.zone.isel(obs=0)  # !!!
+    # _ = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes, file=pds.exp.file_source_map)  # !!!
 
     ds = transfer_dataset_release_times(pds, ds)
 
@@ -310,33 +329,39 @@ def create_source_file(pds):
     pid_source_map = pds.map_var_to_particle_ids(ds, var='zone', var_array=pds.zone_indexes,
                                                  file=pds.exp.file_source_map_alt)
 
-    logger.info('{}: Sum EUC transport per source.'.format(file.stem))
+    ds['fe_flux'] = ds.fe * (ds.u / DXDY)
+    ds = pds.add_variable_attrs(ds)
 
+    logger.info('{}: Variable sum per source.'.format(file.stem))
     # Group variables by source.
     # EUC transport: (traj) -> (rtime, zone). Run first bc can't stack 2D.
-    u_zone = group_euc_transport(pds, ds, pid_source_map)
+    sum_ds_list = []
+    sum_ds_list.append(group_var_sum_by_source(pds, ds, pid_source_map, var='u'))
+    sum_ds_list.append(group_var_sum_by_source(pds, ds, pid_source_map, var='fe_flux'))
 
-    logger.info('{}: Iron weighted mean per source.'.format(file.stem))
+    logger.info('{}: Variable weighted mean per source.'.format(file.stem))
     varz = ['fe', 'fe_src', 'fe_phy', 'fe_reg', 'fe_scav', 'temp', 'phy'][::-1]
 
-    varz_ds_list = []
+    avg_ds_list = []
     for var in varz:
         depth_var = 'z_at_src' if var == 'fe_src' else 'z'
-        varz_ds_list.append(group_var_by_source(pds, ds, pid_source_map, var=var, depth_var=depth_var))
+        avg_ds_list.append(group_var_avg_by_source(pds, ds, pid_source_map, var=var, depth_var=depth_var))
 
     logger.info('{}: Group by source.'.format(file.stem))
     # Group variables by source: (traj) -> (zone, traj).
     df = group_particles_by_variable(ds, var='zone')
 
     # Merge transport grouped by release time with source grouped variables.
-    df.coords['zone'] = u_zone.zone.copy()  # Match 'zone' coord.
-    df.coords['z'] = varz_ds_list[0].z.copy()
-    df.coords['z_at_src'] = varz_ds_list[0].z_at_src.copy()
+    # Add coordinates.
+    df.coords['zone'] = avg_ds_list[0].zone.copy()
+    df.coords['z'] = avg_ds_list[0].z.copy()
+    df.coords['z_at_src'] = avg_ds_list[0].z_at_src.copy()
 
-    df['u_sum_src'] = u_zone
-    df['u_sum'] = df['u_sum_src'].sum('zone', keep_attrs=True)  # Add total transport per release.
+    for var, dz in zip(['u', 'fe_flux'], sum_ds_list):
+        for v in ['_sum', '_sum_src', '_sum_depth', '_sum_src_depth']:
+            df[var + v] = dz[var + v]
 
-    for var, dz in zip(varz, varz_ds_list):
+    for var, dz in zip(varz, avg_ds_list):
         for v in ['_avg', '_avg_src', '_avg_depth', '_avg_src_depth']:
             df[var + v] = dz[var + v]
 
