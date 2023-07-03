@@ -18,12 +18,15 @@ import logging
 import numpy as np
 from pathlib import Path
 import sys
-
+try:
+    from mpi4py import MPI
+except ModuleNotFoundError:
+    MPI = None
 
 import cfg
 
 
-def mlogger(filename, level=logging.NOTSET):
+def mlogger(filename, level=logging.DEBUG):
     """Initialise logger that writes to a stream and file.
 
     Args:
@@ -76,8 +79,19 @@ def mlogger(filename, level=logging.NOTSET):
     f_handler.setLevel(level)
 
     # Create formatters and add it to handlers.
-    c_format = logging.Formatter('%(message)s')
-    f_format = logging.Formatter('%(asctime)s:%(message)s', "%Y-%m-%d %H:%M:%S")
+    if MPI is None:
+        c_format = logging.Formatter('{message}', style='{')
+        f_format = logging.Formatter('{asctime}:{message}', '%Y-%m-%d %H:%M:%S', style='{')
+    else:
+        rank = MPI.COMM_WORLD.Get_rank()
+        fmt = '{asctime}:{message}' + ':rank={: 2d}:'.format(rank)
+        c_format = logging.Formatter(fmt, "%Y-%m-%d %H:%M:%S", style='{')
+        f_format = c_format
+
+        if rank > 0:
+            # levels below 10 ignored (show debug)
+            # change to 20 for other ranks (shows info not debug)
+            level = logging.INFO
 
     if len(logger.handlers) != 0:
         logger.handlers.clear()
@@ -88,7 +102,7 @@ def mlogger(filename, level=logging.NOTSET):
     # Add handlers to the logger.
     logger.addHandler(c_handler)
     logger.addHandler(f_handler)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(level)
     logger.addFilter(NoWarnFilter())
 
     # logger.propagate = False
