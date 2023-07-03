@@ -52,10 +52,12 @@ from fe_obs_dataset import iron_source_profiles
 
 try:
     from mpi4py import MPI
+
 except ModuleNotFoundError:
     MPI = None
 
-logger = mlogger('fe_model')
+
+logger = mlogger('fe_model', level=10)
 
 
 def SourceIron(pds, ds, p, ds_fe, method='seperate'):
@@ -98,6 +100,10 @@ def SourceIron(pds, ds, p, ds_fe, method='seperate'):
 
     elif method == 'LLWBC-low':
         da_fe = ds_fe['interior']
+
+    elif method == 'depth-mean':
+        var = ['interior', 'png', 'nicu', 'mc', 'mc', 'interior', 'nicu', 'interior', 'interior'][zone]
+        da_fe = ds_fe[var + '_mean']
 
     elif method == 'LLWBC-mean':
         var = 'llwbcs' if zone in [1, 2, 3, 4, 6] else 'interior'
@@ -176,10 +182,10 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
+        logger.debug('{}: p={}: Subsetting dataset.'.format(pds.exp.file_felx.stem, ds.traj.size))
 
         # Distribute particles among processes
         if rank == 0:
-            logger.debug('{}: p={}: Subsetting dataset.'.format(pds.exp.file_felx.stem, ds.traj.size))
             particle_subsets = pds.particle_subsets(ds, size)
         else:
             particle_subsets = None
@@ -200,8 +206,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     constants = [pds.params[i] for i in constant_names]
 
     # Pre calculate data_variables that require function calls.
-    if rank == 0:
-        logger.debug('{}: Calculating J_max and J_I.'.format(pds.exp.file_felx.stem))
+    logger.debug('{}: Calculating J_max and J_I.'.format(pds.exp.file_felx.stem))
 
     ds['J_max'] = pds.a * np.power(pds.b, (pds.c * ds.temp))
     light = pds.PAR * pds.I_0 * np.exp(-ds.z * np.power(10, ds.kd))
@@ -219,7 +224,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     gc.collect()
 
     # Run simulation for each particle.
-    logger.info('{}: rank={}: particles={}: Updating iron.'.format(pds.exp.id, rank, ds.traj.size))
+    logger.info('{}: particles={}: Updating iron.'.format(pds.exp.id, ds.traj.size))
 
     for p in particles:
         # Assign initial iron.
@@ -241,7 +246,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
             gc.collect()
 
     if MPI is not None:
-        logger.debug('{}: rank={}: Saving dataset...'.format(pds.exp.file_felx.stem, rank))
+        logger.info('{}: Saving dataset...'.format(pds.exp.file_felx.stem))
 
         # Save proc dataset as tmp file.
         tmp_files = pds.felx_tmp_filenames(size)
@@ -260,14 +265,9 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
         ds.attrs['history'] += str(np.datetime64('now', 's')).replace('T', ' ')
         ds.attrs['history'] += ' Iron model ({})'.format(pds.exp.source_iron)
         ds.to_netcdf(tmp_files[rank], compute=True)
-        logger.info('{}: rank={}: Saved dataset.'.format(pds.exp.file_felx.stem, rank))
+        logger.info('{}: Saved dataset.'.format(pds.exp.file_felx.stem))
         ds.close()
 
-        # Synchronize all processes.
-        # comm.Barrier()
-        # ds = xr.open_mfdataset(tmp_files)
-        # if tmp_files[rank].exists():  # Delete previous tmp_file before saving
-        #     os.remove(tmp_files[rank])
     return ds
 
 
@@ -281,9 +281,7 @@ def run_iron_model(pds):
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
-    rank = MPI.COMM_WORLD.Get_rank() if MPI is not None else 0
-    if rank == 0:
-        logger.info('{}: Running update_particles_MPI ({})'.format(pds.exp.file_felx.stem, pds.exp.source_iron))
+    logger.debug('{}: Running update_particles_MPI ({})'.format(pds.exp.file_felx.stem, pds.exp.source_iron))
 
     # Source Iron fields (observations).
     ds_fe = iron_source_profiles()
@@ -291,30 +289,17 @@ def run_iron_model(pds):
     # Particle dataset
     pds.add_iron_model_params()
 
-    if rank == 0:
-        logger.debug('{}: rank={}: Initializing dataset...'.format(pds.exp.file_felx.stem, rank))
+    logger.debug('{}: Initializing dataset...'.format(pds.exp.file_felx.stem))
     ds = pds.init_felx_dataset()
 
-    if rank == 0:
-        logger.debug('{}: rank={}: Dataset initializion complete.'.format(pds.exp.file_felx.stem, rank))
+    logger.debug('{}: Dataset initializion complete.'.format(pds.exp.file_felx.stem))
 
-    if pds.exp.source_iron != 'LLWBC-obs':
-        if rank == 0:
-            logger.debug('{}: Dropping background sources p={}.'.format(pds.exp.file_felx.stem, ds.traj.size))
+    if pds.exp.source_iron not in ['LLWBC-obs', 'depth-mean']:
+        logger.debug('{}: Dropping background sources p={}.'.format(pds.exp.file_felx.stem, ds.traj.size))
         pid_source_map = np.load(pds.exp.file_source_map, allow_pickle=True).item()
         pids = np.concatenate([pid_source_map[i] for i in [1, 2, 3, 4, 6]])
         ds = ds.sel(traj=pids)
-        if rank == 0:
-            logger.debug('{}: Dropped background sources p={}.'.format(pds.exp.file_felx.stem, ds.traj.size))
-
-    # Subset number of particles.
-    if test:
-        ndays = 2
-        ds = ds.isel(traj=slice(750 * ndays))
-        target = np.datetime64('2012-12-31T12') - np.timedelta64(ndays * 6 - 1, 'D')
-        traj = ds.traj.where(ds.time.ffill('obs').isel(obs=-1, drop=True) >= target, drop=True)
-        ds = ds.sel(traj=traj)
-        # ds = ds.isel(traj=slice(50))
+        logger.debug('{}: Dropped background sources p={}.'.format(pds.exp.file_felx.stem, ds.traj.size))
 
     # Run iron model for particles.
     ds = update_particles_MPI(pds, ds, ds_fe)
@@ -331,7 +316,7 @@ if __name__ == '__main__':
     p.add_argument('-f', '--func', default='run', type=str, help='run, fix or save.')
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
-    source_iron = ['LLWBC-obs', 'LLWBC-low', 'LLWBC-proj', 'LLWBC-mean'][version]
+    source_iron = ['LLWBC-obs', 'LLWBC-low', 'LLWBC-proj', 'depth-mean', 'LLWBC-mean'][version]
 
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, source_iron=source_iron)
     pds = FelxDataSet(exp)
@@ -343,16 +328,16 @@ if __name__ == '__main__':
     #     fix_particles_v0_err(pds)
 
     elif args.func == 'save':
-        felx_file_tmp = pds.exp.file_felx.parent / 'tmp_err/{}'.format(pds.exp.file_felx.name)
-        if felx_file_tmp.exists():
-            ds = pds.save_fixed_felx_dataset()
+        if pds.exp.version in [0, 3]:
+            felx_file_tmp = pds.exp.out_subdir / 'tmp_err/{}'.format(pds.exp.file_felx.name)
+            if felx_file_tmp.exists():
+                ds = pds.save_felx_dataset_particle_subset(v0_error_fix=True)
+            else:
+                ds = pds.save_felx_dataset()
         else:
-            ds = pds.save_felx_dataset()
+            ds = pds.save_felx_dataset_particle_subset()
 
         ds_fe = iron_source_profiles()
-
-        # Plot output
-        # test_plot_EUC_iron_depth_profile(pds, ds, ds_fe)
 
         # Log Cost
         z = ds.z.ffill('obs').isel(obs=-1)
@@ -361,4 +346,6 @@ if __name__ == '__main__':
         cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean().load().item()
         logger.info('{}: p={}: cost={}:'.format(pds.exp.id, ds.traj.size, cost))
 
+        # Plot output
+        # test_plot_EUC_iron_depth_profile(pds, ds, ds_fe)
         # test_plot_iron_paths(pds, ds, ntraj=min(ds.traj.size, 35))
