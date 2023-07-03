@@ -90,6 +90,34 @@ class FelxDataSet(object):
             setattr(self, key, value)
             self.params[key] = value
 
+    def empty_DataArray(self, ds, name=None, fill_value=np.nan, dtype=np.float32):
+        """Add empty DataArray."""
+        return xr.DataArray(fill_value, dims=('traj', 'obs'), coords=ds.coords, name=name)
+
+    def set_dataset_vars(ds, variables, arrays):
+        """Set arrays as DataArrays in dataset."""
+        for var, arr in zip(variables, arrays):
+            ds[var] = (['traj', 'obs'], arr)
+        return ds
+
+    def check_file_complete(self, file):
+        """Check file exists and can be opened without error."""
+        file_complete = False
+        if file.exists():
+            try:
+                if file.suffix == '.nc':
+                    df = xr.open_dataset(str(file), chunks='auto')
+                    df.close()
+                elif file.suffix == '.npy':
+                    df = np.load(file, allow_pickle=True)
+                file_complete = True
+
+            except Exception as err:
+                file_complete = False
+                logger.info('{}: File check failed. {}: {}.'
+                            .format(file.stem, type(err), err))
+        return file_complete
+
     def particles_after_start_time(self, ds):
         """Select particles that have reached a source at the start of the spinup period.
 
@@ -108,15 +136,11 @@ class FelxDataSet(object):
         pids = ds.traj.where(mask_at_euc, drop=True)
         return pids
 
-    def empty_DataArray(self, ds, name=None, fill_value=np.nan, dtype=np.float32):
-        """Add empty DataArray."""
-        return xr.DataArray(fill_value, dims=('traj', 'obs'), coords=ds.coords, name=name)
-
     def override_spinup_particle_times(self, time):
         """Change the year of particle time during spinup to spinup year.
 
         Example:
-            ds['time'] = ds.override_spinup_particle_times(ds.time)
+            ds['time'] = pds.override_spinup_particle_times(ds.time)
 
         """
         spinup_year = self.exp.spinup_year
@@ -144,32 +168,6 @@ class FelxDataSet(object):
         # N.B. xr.where condition order important as modified times only valid for spinup & ~NaT.
         time_new = xr.where(mask, time_spinup, time)
         return time_new
-
-    def revert_spinup_particle_times(self):
-        """Change the year of particle time during spinup to spinup year.
-
-        Notes:
-            * Requires original particle times to be saved to dataset.
-            * At the source at least during the spinup period.
-
-        """
-        # # Self checks.
-        # mask = (self.ds_time_orig >= np.datetime64(self.exp.time_bnds[0]))
-        # fill = np.datetime64('2023')
-        # assert self.ds_time_orig.shape == self.ds.time.shape
-        # assert all(self.ds_time_orig.where(mask, fill) == self.ds.time.where(mask, fill))
-
-        return self.ds_time_orig
-
-    def subset_min_time(self, time='2012-01-01'):
-        """Change particle obs times during spin up to spinup year."""
-        return self.ds.where(self.ds.time >= np.datetime64(time))
-
-    def set_dataset_vars(ds, variables, arrays):
-        """Set arrays as DataArrays in dataset."""
-        for var, arr in zip(variables, arrays):
-            ds[var] = (['traj', 'obs'], arr)
-        return ds
 
     @timeit(my_logger=logger)
     def save_plx_file_particle_subset(self):
@@ -268,6 +266,21 @@ class FelxDataSet(object):
         ds = save_dataset(ds, str(self.exp.file_plx_inv), msg='Inverse particle obs dimension.')
         logger.info('{}: Saved inverse plx file.'.format(self.exp.file_plx_inv.stem))
 
+    def particle_subsets(self, ds, size):
+        """Particle subsets for BGC tmp files."""
+        # Divide particles into subsets with roughly the same number of total obs per subset.
+        # Count number of obs per particle & group into N subsets.
+        n_obs = ds.z.where(np.isnan(ds.z), 1).sum(dim='obs')
+        n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / size)).astype(dtype=int)
+        # Number of particles per subset.
+        n_traj = [n_obs_grp.where(n_obs_grp == i, drop=True).traj.size for i in range(size)]
+        # Particle index [first, last+1] in each subset.
+        n_traj = np.array([0, *n_traj])
+        traj_bnds = [[np.cumsum(n_traj)[i], np.cumsum(n_traj)[i + 1]] for i in range(size)]
+        if traj_bnds[-1][-1] != ds.traj.size:
+            traj_bnds[-1][-1] = ds.traj.size
+        return traj_bnds
+
     def init_felx_bgc_tmp_dataset(self):
         """Create felx_bgc file (empty BGC data variables)."""
         ds = xr.open_dataset(self.exp.file_plx_inv, decode_times=True, decode_cf=True)
@@ -284,24 +297,6 @@ class FelxDataSet(object):
 
         ds = save_dataset(ds, str(self.exp.file_felx_bgc_tmp), msg='')
         return ds
-
-    def check_file_complete(self, file):
-        """Check file exists and can be opened without error."""
-        file_complete = False
-        if file.exists():
-            try:
-                if file.suffix == '.nc':
-                    df = xr.open_dataset(str(file), chunks='auto')
-                    df.close()
-                elif file.suffix == '.npy':
-                    df = np.load(file, allow_pickle=True)
-                file_complete = True
-
-            except Exception as err:
-                file_complete = False
-                logger.info('{}: File check failed. {}: {}.'
-                            .format(file.stem, type(err), err))
-        return file_complete
 
     def check_bgc_prereq_files(self):
         """Check needed files saved and can be opened without error."""
@@ -329,21 +324,6 @@ class FelxDataSet(object):
         tmp_files = [tmp_dir / '{}_{:03d}{}'.format(var, i, suffix) for i in range(self.n_subsets)]
         return tmp_files
 
-    def particle_subsets(self, ds, size):
-        """Particle subsets for BGC tmp files."""
-        # Divide particles into subsets with roughly the same number of total obs per subset.
-        # Count number of obs per particle & group into N subsets.
-        n_obs = ds.z.where(np.isnan(ds.z), 1).sum(dim='obs')
-        n_obs_grp = (n_obs.cumsum() / (n_obs.sum() / size)).astype(dtype=int)
-        # Number of particles per subset.
-        n_traj = [n_obs_grp.where(n_obs_grp == i, drop=True).traj.size for i in range(size)]
-        # Particle index [first, last+1] in each subset.
-        n_traj = np.array([0, *n_traj])
-        traj_bnds = [[np.cumsum(n_traj)[i], np.cumsum(n_traj)[i + 1]] for i in range(size)]
-        if traj_bnds[-1][-1] != ds.traj.size:
-            traj_bnds[-1][-1] = ds.traj.size
-        return traj_bnds
-
     def check_bgc_tmp_files_complete(self):
         """Check all variable tmp file subsets complete."""
         complete = True
@@ -357,28 +337,41 @@ class FelxDataSet(object):
         print(f_list)
         return complete
 
-    def test_set_bgc_dataset_vars_from_tmps(self, ds, n_tmps=20):
-        """Set arrays as DataArrays in dataset (N.B. renames saved vairables)."""
-        ntraj = self.bgc_tmp_traj_subsets(ds)[n_tmps][-1]
-        ds = ds.isel(traj=slice(ntraj))
-        for var in self.bgc_variables:
-            tmp_files = self.bgc_var_tmp_filenames(var)
-            da = xr.open_mfdataset(tmp_files[:n_tmps])
-            ds[var] = da[var].interpolate_na('obs', method='slinear', limit=10)
-        return ds
+    def felx_tmp_filenames(self, size):
+        """Get tmp filenames for felx tmp subsets."""
+        tmp_dir = self.exp.out_subdir / 'tmp_{}'.format(self.exp.file_felx.stem)
+        if not tmp_dir.is_dir():
+            os.makedirs(tmp_dir, exist_ok=True)
+        tmp_files = [tmp_dir / 'tmp_{}_{:02d}.nc'.format(self.exp.id, i) for i in range(size)]
+        return tmp_files
 
     def init_felx_dataset(self):
         """Get finished felx BGC dataset and format."""
-        ds = xr.open_dataset(self.exp.file_felx_bgc)  # chunks='auto'
-        # ds = ds.unify_chunks()
+        ds = xr.open_dataset(self.exp.file_felx_bgc)
 
         # Apply new EUC definition (u > 0.1 m/s)
         traj = ds.u.where((ds.u / DXDY) > 0.1, drop=True).traj
         ds = ds.sel(traj=traj)
 
         for var in self.variables:
-            # ds[var] = self.empty_DataArray(ds)  # slower.
             ds[var] = xr.DataArray(None, dims=('traj', 'obs'), coords=ds.coords)
+        return ds
+
+    def init_felx_optimise_dataset(self):
+        """Initialise empty felx dataset subset to 1 year and close to equator."""
+        file = paths.data / 'felx/{}_tmp_optimise.nc'.format(self.exp.id)
+        if file.exists():
+            ds = xr.open_dataset(file)
+
+        else:
+            ds = self.init_felx_dataset()
+            # Subset particles to one year and close to the equator.
+            target = np.datetime64('{}-01-01T12'.format(self.exp.year_bnds[-1]))
+            ds_f = xr.open_dataset(self.exp.file_plx).isel(obs=0, drop=True)
+            traj = ds_f.where((ds_f.time >= target) & ((ds.u / DXDY) > 0.1)
+                              & (ds_f.lat >= -0.25) & (ds_f.lat <= 0.25), drop=True).traj
+            ds = ds.sel(traj=traj)
+            ds_f.close()
         return ds
 
     def save_felx_dataset(self, size=80):
@@ -441,37 +434,45 @@ class FelxDataSet(object):
         pids = ds.where(ds.fe < 0, drop=True).traj
         return pids
 
-    def save_fixed_felx_dataset(self, size=80):
+    def save_felx_dataset_particle_subset(self, size=80, v0_error_fix=False):
         """Save & format finished felx tmp datasets."""
         file = self.exp.file_felx
 
         # Merge temp subsets of fe model output.
         tmp_files = self.felx_tmp_filenames(size)
+        ds_new = xr.open_mfdataset([f for f in tmp_files if f.exists()])
 
-        ds_fix = xr.open_mfdataset([f for f in tmp_files if f.exists()])
+        if v0_error_fix:
+            felx_file_v0 = self.exp.out_subdir / 'tmp_err/fe_{}.nc'.format(self.exp.id)
+        else:
+            felx_file_v0 = self.exp.out_subdir / 'fe_{}.nc'.format(self.exp.id_v0)
 
-        felx_file_old = self.exp.file_felx.parent / 'tmp_err/{}'.format(self.exp.file_felx.name)
-        ds = xr.open_dataset(felx_file_old)  # Open error complete felx dataset.
+        ds = xr.open_dataset(felx_file_v0)  # Open v0 complete felx dataset.
 
-        ds_fix = ds_fix.isel(obs=slice(ds.obs.size))  # Other file dropped trailing NaNs
+        ds_new = ds_new.isel(obs=slice(ds.obs.size))  # Other file dropped trailing NaNs
 
-        error_particle_ids = self.get_particle_IDs_of_fe_errors(ds)  # Particles to re-run
-        ok_particle_ids = ds.traj[~ds.traj.isin(error_particle_ids)]
+        if v0_error_fix:
+            pids_new = self.get_particle_IDs_of_fe_errors(ds)  # Particles to re-run
+        else:
+            pids_new = ds_new.traj.values  # Particles to merge
 
-        assert all(ds_fix.traj == error_particle_ids)
+        pids_old = ds.traj[~ds.traj.isin(pids_new)]
+
+        if v0_error_fix:
+            assert all(ds_new.traj == pids_new)
 
         # Add fe model output from temp files
-        logger.info('{}: Add fe variables.'.format(file.stem))
+        logger.debug('{}: Add fe variables.'.format(file.stem))
         for var in self.variables:
-            logger.info('{}: Add {}.'.format(file.stem, var))
-            ds[var] = xr.merge([ds[var].sel(traj=ok_particle_ids), ds_fix[var]])[var]
+            logger.debug('{}: Add {}.'.format(file.stem, var))
+            ds[var] = xr.merge([ds[var].sel(traj=pids_old), ds_new[var]])[var]
 
         # Add metadata
         ds = self.add_variable_attrs(ds)
 
         # Save dataset.
         logger.info('{}: Saving...'.format(file.stem))
-        ds = append_dataset_history(ds, msg='Fixed negative iron values.')
+        ds = append_dataset_history(ds, msg='Saved merged iron model output.')
 
         comp = dict(zlib=True, complevel=5, contiguous=False)
         for var in ds:
@@ -482,33 +483,8 @@ class FelxDataSet(object):
         ds.to_netcdf(file)
         logger.info('{}: Saved.'.format(file.stem))
 
-        ds_fix.close()
+        ds_new.close()
         return ds
-
-    def init_felx_optimise_dataset(self):
-        """Initialise empty felx dataset subset to 1 year and close to equator."""
-        file = paths.data / 'felx/{}_tmp_optimise.nc'.format(self.exp.id)
-        if file.exists():
-            ds = xr.open_dataset(file)
-
-        else:
-            ds = self.init_felx_dataset()
-            # Subset particles to one year and close to the equator.
-            target = np.datetime64('{}-01-01T12'.format(self.exp.year_bnds[-1]))
-            ds_f = xr.open_dataset(self.exp.file_plx).isel(obs=0, drop=True)
-            traj = ds_f.where((ds_f.time >= target) & ((ds.u / DXDY) > 0.1)
-                              & (ds_f.lat >= -0.25) & (ds_f.lat <= 0.25), drop=True).traj
-            ds = ds.sel(traj=traj)
-            ds_f.close()
-        return ds
-
-    def felx_tmp_filenames(self, size):
-        """Get tmp filenames for felx tmp subsets."""
-        tmp_dir = self.exp.out_subdir / 'tmp_{}'.format(self.exp.file_felx.stem)
-        if not tmp_dir.is_dir():
-            os.makedirs(tmp_dir, exist_ok=True)
-        tmp_files = [tmp_dir / 'tmp_{}_{:02d}.nc'.format(self.exp.id, i) for i in range(size)]
-        return tmp_files
 
     def add_variable_attrs(self, ds):
         """Add attributes metadata to dataset variables."""
@@ -669,8 +645,7 @@ class FelxDataSet(object):
         ds = [xr.open_dataset(exp.file_source, decode_timedelta=False) for exp in exps]
         ds = concat_exp_dimension(ds, add_diff=add_diff)
         ds = self.add_variable_attrs(ds)
-        # ds['age'] = ds['age'].astype(dtype=np.float32).where(pd.notnull(ds.age))  # !!! Bug?
-        ds['age'] = ds.age * 1e-14
+
         ds['names'] = ('zone', zones.names)
         ds['colors'] = ('zone', zones.colors)
         return ds
