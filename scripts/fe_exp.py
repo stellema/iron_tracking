@@ -434,32 +434,24 @@ class FelxDataSet(object):
         pids = ds.where(ds.fe < 0, drop=True).traj
         return pids
 
-    def save_felx_dataset_particle_subset(self, size=80, v0_error_fix=False):
+    def save_felx_dataset_fixed(self, size=80):
         """Save & format finished felx tmp datasets."""
         file = self.exp.file_felx
 
         # Merge temp subsets of fe model output.
         tmp_files = self.felx_tmp_filenames(size)
-        ds_new = xr.open_mfdataset([f for f in tmp_files if f.exists()])
+        tmp_files = [f for f in tmp_files if f.exists()]
+        ds_new = xr.open_mfdataset(tmp_files)
 
-        if v0_error_fix:
-            felx_file_v0 = self.exp.out_subdir / 'tmp_err/fe_{}.nc'.format(self.exp.id)
-        else:
-            felx_file_v0 = self.exp.out_subdir / 'fe_{}.nc'.format(self.exp.id_v0)
+        felx_file_v0 = self.exp.out_subdir / 'tmp_err/fe_{}.nc'.format(self.exp.id)
 
         ds = xr.open_dataset(felx_file_v0)  # Open v0 complete felx dataset.
 
         ds_new = ds_new.isel(obs=slice(ds.obs.size))  # Other file dropped trailing NaNs
-
-        if v0_error_fix:
-            pids_new = self.get_particle_IDs_of_fe_errors(ds)  # Particles to re-run
-        else:
-            pids_new = ds_new.traj.values  # Particles to merge
-
+        pids_new = self.get_particle_IDs_of_fe_errors(ds)  # Particles to re-run
         pids_old = ds.traj[~ds.traj.isin(pids_new)]
 
-        if v0_error_fix:
-            assert all(ds_new.traj == pids_new)
+        assert all(ds_new.traj == pids_new)
 
         # Add fe model output from temp files
         logger.debug('{}: Add fe variables.'.format(file.stem))
@@ -484,6 +476,49 @@ class FelxDataSet(object):
         logger.info('{}: Saved.'.format(file.stem))
 
         ds_new.close()
+        return ds
+
+    def save_felx_dataset_particle_subset(self, size=80, v0_error_fix=False):
+        """Save & format finished felx tmp datasets."""
+        file = self.exp.file_felx
+
+        # Merge temp subsets of fe model output.
+        tmp_files = self.felx_tmp_filenames(size)
+        tmp_files = [f for f in tmp_files if f.exists()]
+        ds_new_list = [xr.open_dataset(f) for f in tmp_files]
+
+        felx_file_v0 = self.exp.out_dir / 'v0/fe_{}.nc'.format(self.exp.id_v0)
+        ds = xr.open_dataset(felx_file_v0)  # Open v0 complete felx dataset.
+
+        # Add fe model output from temp files
+        logger.debug('{}: Add fe variables.'.format(file.stem))
+        for ds_new in ds_new_list:
+            ds_new = ds_new.reindex(traj=sorted(ds_new.traj))
+            ds_new = ds_new.isel(obs=slice(ds.obs.size)) # Other file dropped trailing NaNs
+
+            pids_new = ds_new.traj.values  # Particles to merge
+            pids_old = ds.traj[~ds.traj.isin(pids_new)]
+
+            for var in self.variables:
+                logger.debug('{}: Add {}.'.format(file.stem, var))
+                ds[var] = xr.merge([ds[var].sel(traj=pids_old), ds_new[var]])[var]
+
+        # Add metadata
+        ds = self.add_variable_attrs(ds)
+
+        # Save dataset.
+        logger.info('{}: Saving...'.format(file.stem))
+        ds = append_dataset_history(ds, msg='Saved merged iron model output.')
+
+        comp = dict(zlib=True, complevel=5, contiguous=False)
+        for var in ds:
+            ds[var].encoding.update(comp)
+
+        ds = ds.chunk()
+        ds = ds.unify_chunks()
+        ds.to_netcdf(file)
+        logger.info('{}: Saved.'.format(file.stem))
+
         return ds
 
     def add_variable_attrs(self, ds):
