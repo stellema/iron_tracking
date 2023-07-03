@@ -305,7 +305,7 @@ def create_source_file(pds):
     file = exp.file_source_tmp
     logger.info('{}: Creating particle source file.'.format(file.stem))
 
-    ds = xr.open_dataset(pds.exp.file_felx)
+    ds = xr.open_dataset(pds.exp.file_felx, decode_timedelta=False)
 
     # # !!! Save original pds.exp.file_source_map for fe_model
     # if 'obs' in ds.zone.dims:  # !!!
@@ -367,7 +367,6 @@ def create_source_file(pds):
 
     # Convert age: seconds to days.
     df['age'] *= 1 / (60 * 60 * 24)
-    df.age.attrs['units'] = 'days'
 
     # Save dataset.
     logger.info('{}: Saving...'.format(file.stem))
