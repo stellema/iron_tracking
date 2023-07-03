@@ -521,7 +521,7 @@ class FelxDataSet(object):
                          'units': 'degrees_east', 'axis': 'X'},
                  'z': {'long_name': 'depth', 'standard_name': 'depth', 'units': 'm', 'axis': 'Z',
                        'positive': 'down'},
-                 'age': {'long_name': 'Transit time', 'standard_name': 'age', 'units': 's'},
+                 'age': {'long_name': 'Transit time', 'standard_name': 'age'},
                  'distance': {'long_name': 'Distance', 'standard_name': 'distance', 'units': 'm'},
                  'u': {'long_name': 'Transport', 'standard_name': 'transport', 'units': 'Sv'},
                  'zone': {'long_name': 'Source location ID', 'standard_name': 'zone'},
@@ -542,7 +542,7 @@ class FelxDataSet(object):
                  'fe_flux': {'long_name': 'Dissolved Iron Flux', 'standard_name': 'dFe flux', 'units': 'umol m^-2 s^-1 Fe'},
                  'fe_scav': {'long_name': 'Scavenged Dissolved Iron', 'standard_name': 'dFe',
                              'units': 'umol/m^3 Fe'},
-                 'fe_reg': {'long_name': 'remineralised Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},
+                 'fe_reg': {'long_name': 'Remineralised Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},
                  'fe_phy': {'long_name': 'Phytoplankton Dissolved Iron Uptake', 'standard_name': 'dFe',
                             'units': 'umol/m^3 Fe'}
 
@@ -551,6 +551,11 @@ class FelxDataSet(object):
         for k, v in attrs.items():
             if k in ds.data_vars:
                 ds[k].attrs = v
+
+        for k in ds.data_vars:
+            if 'long_name' in ds[k].attrs:
+                ds[k].attrs['long_name'] = ds[k].attrs['long_name'].title()
+
         return ds
 
     def weighted_mean(self, ds, var='fe', dim='traj', groupby_depth=False):
@@ -661,23 +666,34 @@ class FelxDataSet(object):
             lon = self.exp.lon
         # Open and concat data for exah scenario.
         exps = [ExpData(scenario=i, lon=lon, version=self.exp.version) for i in range(2)]
-        ds = [xr.open_dataset(exp.file_source) for exp in exps]
+        ds = [xr.open_dataset(exp.file_source, decode_timedelta=False) for exp in exps]
         ds = concat_exp_dimension(ds, add_diff=add_diff)
-
+        ds = self.add_variable_attrs(ds)
+        # ds['age'] = ds['age'].astype(dtype=np.float32).where(pd.notnull(ds.age))  # !!! Bug?
+        ds['age'] = ds.age * 1e-14
         ds['names'] = ('zone', zones.names)
         ds['colors'] = ('zone', zones.colors)
         return ds
 
     def fe_model_sources_all(self, add_diff=False):
         """Open fe model source dataset."""
-        ds = [self.fe_model_sources(lon=i, add_diff=add_diff) for i in self.release_lons]
+        ds = [self.fe_model_sources(lon=i, add_diff=False) for i in self.release_lons]
 
-        drop_vars = [v for v in ds[0].data_vars if 'traj' in ds[0][v].dims]
-        ds = [ds[i].drop(drop_vars).drop('traj') for i, x in enumerate(self.release_lons)]
-        # ds = [ds[i].drop('traj') for i, x in enumerate(self.release_lons)]
+        # drop_vars = [v for v in ds[0].data_vars if 'traj' in ds[0][v].dims]
+        # ds = [ds[i].drop(drop_vars).drop('traj') for i, x in enumerate(self.release_lons)]
+        # # ds = [ds[i].drop('traj') for i, x in enumerate(self.release_lons)]
         ds = [ds[i].expand_dims(dict(x=[x]), axis=1) for i, x in enumerate(self.release_lons)]
         ds = xr.concat(ds, 'x')
 
-        for v in ['names', 'colors']:
-            ds[v] = ds[v].isel(x=0, drop=True)
+        ds = ds.drop(['names', 'colors'])
+        for k in ds.data_vars:
+            if 'long_name' in ds[k].attrs:
+                ds[k].attrs['long_name'] = ds[k].attrs['long_name'].replace('Dissolved Iron', 'dFe')
+
+        if add_diff:
+            ds = xr.concat([ds, (ds.isel(exp=1, drop=True) - ds.isel(exp=0, drop=True)
+                                 ).expand_dims(dict(exp=[2]))], 'exp')
+
+        ds['names'] = ('zone', zones.names)
+        ds['colors'] = ('zone', zones.colors)
         return ds
