@@ -81,10 +81,10 @@ def mlogger(filename, level=logging.DEBUG):
     # Create formatters and add it to handlers.
     if MPI is None:
         c_format = logging.Formatter('{message}', style='{')
-        f_format = logging.Formatter('{asctime}:{message}', '%Y-%m-%d %H:%M:%S', style='{')
+        f_format = logging.Formatter('{asctime}: {message}', '%Y-%m-%d %H:%M:%S', style='{')
     else:
         rank = MPI.COMM_WORLD.Get_rank()
-        fmt = '{asctime}:{message}' + ':rank={: 2d}:'.format(rank)
+        fmt = '{asctime}:' + ': rank={: 2d}: '.format(rank) + '{message}'
         c_format = logging.Formatter(fmt, "%Y-%m-%d %H:%M:%S", style='{')
         f_format = c_format
 
