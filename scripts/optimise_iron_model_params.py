@@ -2,24 +2,19 @@
 """Functions to optmimise iron model parameters.
 
 Notes:
-
-Example:
-
-Todo:
-
-Multi-lon:
-cost=0.29325631260871887: c_scav=2.5 k_inorg=0.001 k_org=0.001 mu_D=0.005 mu_D_180=0.03 (diff PAR & I_0)
-cost=0.2939159870147705: c_scav=2.5 k_inorg=0.001 k_org=0.0009568104638292959 mu_D=0.00, mu_D_180=0.03
-cost=0.29445257782936096: c_scav=2.5 k_inorg=0.001 k_org=1.4780934529146143e-05 mu_D=0.005 mu_D_180=0.03
-cost=0.29581040143966675: c_scav=2.499546896146215 k_inorg=0.001 k_org=0.00099 mu_D=0.01 mu_D_180=0.01
-cost=0.2875936031341553: c_scav=2.5 k_inorg=0.001 k_org=0.0001171 I_0=280 PAR=0.3391 mu_D=0.0175
-                         mu_D_180=0.0121317 gamma_2=0.0059699 mu_P=0.014364 a=0.48645 b=0.8 c=1.1398
-Single lon:
-hist_190: p=2782: cost=0.2835429012775421: c_scav=2.0 k_inorg=0.0006257817077636716
-                    k_org=0.00010003890991210938 mu_D=0.02000781250464934 mu_D_180=0.0100625
-hist_220: p=3211: cost=0.21084801852703094: c_scav=2.5 k_inorg=0.001 k_org=2.6156331054350042e-05
-                    mu_D=0.03999999999999993 mu_D_180=0.03
-hist_250: p=3294: cost=0.30697357654571: c_scav=1.5 k_inorg=0.001 k_org=0.001 mu_D=0.005 mu_D_180=0.03
+    Multi-lon:
+    cost=0.29325631260871887: c_scav=2.5 k_inorg=0.001 k_org=0.001 mu_D=0.005 mu_D_180=0.03 (diff PAR & I_0)
+    cost=0.2939159870147705: c_scav=2.5 k_inorg=0.001 k_org=0.0009568104638292959 mu_D=0.00, mu_D_180=0.03
+    cost=0.29445257782936096: c_scav=2.5 k_inorg=0.001 k_org=1.4780934529146143e-05 mu_D=0.005 mu_D_180=0.03
+    cost=0.29581040143966675: c_scav=2.499546896146215 k_inorg=0.001 k_org=0.00099 mu_D=0.01 mu_D_180=0.01
+    cost=0.2875936031341553: c_scav=2.5 k_inorg=0.001 k_org=0.0001171 I_0=280 PAR=0.3391 mu_D=0.0175
+                             mu_D_180=0.0121317 gamma_2=0.0059699 mu_P=0.014364 a=0.48645 b=0.8 c=1.1398
+    Single lon:
+    hist_190: p=2782: cost=0.2835429012775421: c_scav=2.0 k_inorg=0.0006257817077636716
+                        k_org=0.00010003890991210938 mu_D=0.02000781250464934 mu_D_180=0.0100625
+    hist_220: p=3211: cost=0.21084801852703094: c_scav=2.5 k_inorg=0.001 k_org=2.6156331054350042e-05
+                        mu_D=0.03999999999999993 mu_D_180=0.03
+    hist_250: p=3294: cost=0.30697357654571: c_scav=1.5 k_inorg=0.001 k_org=0.001 mu_D=0.005 mu_D_180=0.03
 
 
 @author: Annette Stellema
@@ -29,10 +24,11 @@ hist_250: p=3294: cost=0.30697357654571: c_scav=1.5 k_inorg=0.001 k_org=0.001 mu
 """
 from argparse import ArgumentParser
 import numpy as np
+import os
 from scipy.optimize import minimize
-import xarray as xr  # NOQA
+import xarray as xr
 
-import cfg  # NOQA
+import cfg
 from cfg import ExpData
 from datasets import save_dataset
 from fe_exp import FelxDataSet
@@ -55,8 +51,18 @@ def cost_function(pds, ds, fe_obs, ds_fe, params, rank=0):
     params_dict = dict([(k, v) for k, v in zip(pds.param_names, params)])
     pds.update_params(params_dict)
 
-    # Particle dataset (all vars & obs).
+    # Particle dataset (only fe vars).
     fe_pred = update_particles_MPI(pds, ds, ds_fe, pds.param_names, params)
+
+    if MPI is not None:
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+
+        # Synchronize all processes.
+        comm.Barrier()
+        tmp_files = pds.felx_tmp_filenames(size)
+        fe_pred = xr.open_mfdataset(tmp_files)
 
     # Final particle Fe.
     fe_pred = fe_pred.fe.ffill('obs').isel(obs=-1, drop=True)
@@ -70,6 +76,9 @@ def cost_function(pds, ds, fe_obs, ds_fe, params, rank=0):
         logger.info('{}: p={}: cost={} {}'.format(pds.exp.id, ds.traj.size, cost, params_dict))
     fe_pred.close()
 
+    if MPI is not None:
+        if tmp_files[rank].exists():  # Delete previous tmp_file before saving
+            os.remove(tmp_files[rank])
     return cost
 
 
@@ -279,7 +288,7 @@ if __name__ == '__main__':
     lon = args.lon
     method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][0]
     logger = mlogger('optimise_iron_model_params_{}'.format(lon))
-    # optimise_multi_lon_dataset()
+
     if lon in [165, 190, 220, 250]:
         res = optimise_iron_model_params(lon, method=method)
     else:
