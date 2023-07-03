@@ -35,7 +35,7 @@ from scipy import stats
 # import seaborn as sns
 import xarray as xr  # NOQA
 
-from cfg import paths, ExpData, ltr, release_lons
+from cfg import paths, ExpData, ltr, release_lons, scenario_name, scenario_abbr, zones
 from tools import unique_name, mlogger, timeit
 from fe_exp import FelxDataSet
 from fe_obs_dataset import iron_source_profiles
@@ -147,7 +147,7 @@ def test_plot_EUC_iron_depth_profile(pds, ds, ds_fe):
     return
 
 
-def transport_source_bar_graph(pds, var='u_sum_src'):
+def source_bar_graph(pds, ds, var='u_sum_src'):
     """Bar graph of source transport for each release longitude.
 
     Horizontal bar graph (sources on y-axis) with or without RCP8.5.
@@ -160,8 +160,6 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
     """
     z_ids = [1, 2, 6, 7, 8, 3, 4, 5, 0]
 
-    # Open data.
-    ds = pds.fe_model_sources_all(add_diff=False)
     ds = ds.isel(zone=z_ids)  # Must select source order (for late use of ds)
 
     xlim_max = ds[var].mean('rtime').max()
@@ -220,7 +218,6 @@ def transport_source_bar_graph(pds, var='u_sum_src'):
 def plot_var_scatter(ds, var):
     """Scatter plot of variable mean for each release longitude."""
     ds_fe = iron_source_profiles()
-    dx = ds[var].mean('rtime')
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 5))
 
@@ -230,11 +227,20 @@ def plot_var_scatter(ds, var):
         ax.plot(ds_fe.x, ds_fe.EUC.mean('z'), 'x', c='g', label='Obs.')
         ax.plot(ds_fe.lon, ds_fe.euc_avg.mean('z'), 'o', c='g', label='Obs. Mean')
 
-    for source_iron in ['LLWBC-obs']:
-        ax.plot(dx.x, dx.isel(exp=0), '-o', c='k', label='Historical ({})'.format(source_iron))
-        ax.plot(dx.x, dx.isel(exp=1), '--o', c='r', label='RCP8.5 ({})'.format(source_iron))
+        for j, v in enumerate(['fe_avg', 'fe_src_avg']):
+            dx = ds[v].mean('rtime')
+            for source_iron in ['LLWBC-obs']:
+                for s in [0, 1]:
+                    ax.plot(dx.x, dx.isel(exp=s), ['-o', '--*'][s], c=['k', 'darkviolet'][j],
+                            label='{} {}'.format(['EUC', 'Source'][j], scenario_name[s], source_iron))
+    else:
+        dx = ds[var].mean('rtime')
+        for source_iron in ['LLWBC-obs']:
+            for s in [0, 1]:
+                ax.plot(dx.x, dx.isel(exp=s), ['-o', '--*'][s], c='k',
+                        label='{} ({})'.format(scenario_name[s], source_iron))
 
-    ax.set_title('{}'.format(dx.attrs['long_name']), loc='left')
+    ax.set_title('{}'.format(ds[var].attrs['long_name']), loc='left')
     ax.set_ylabel('{} [{}]'.format(dx.attrs['standard_name'], dx.attrs['units']))
     ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
     ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
@@ -243,25 +249,211 @@ def plot_var_scatter(ds, var):
     # fig.legend(loc='upper right', bbox_to_anchor=(0.97, 0.93))  # (x, y, width, height)
     plt.tight_layout()
     plt.savefig(paths.figs / 'fe_model/lon_scatter_{}.png'.format(var), dpi=300)
+
+
+def plot_var_depth_profile(ds):
+    ds = ds.mean('rtime')
+    var = 'fe_avg_depth'
+    var_src = 'fe_avg_src_depth'
+    ds_fe = iron_source_profiles().sel(z=slice(25, 350))
+
+    fig, axes = plt.subplots(2, 4, figsize=(12, 12), sharey='row', sharex='all')
+    for i in range(4):
+
+        dx = ds.isel(x=i)
+        axes[0, i].plot(ds_fe.euc_avg.isel(lon=i), ds_fe.z, c='g', label='Obs. Mean')
+        for j in range(2):
+            ax = axes[0, i]
+            ax.set_title('{} EUC iron at {}°E'.format(ltr[i], dx.x.item()), loc='left')
+            ax.plot(dx[var].isel(exp=j), dx.z, c='k', ls=['-', '--'][j], label=scenario_name[j])  # Mean
+
+            ax = axes[1, i]
+            ax.set_title('{} EUC source iron at {}°E'.format(ltr[4 + i], dx.x.item()), loc='left')
+            for z in [1, 2, 3]:
+                dx_src = dx.isel(exp=j).sel(zone=z)
+                label = dx_src.names.item() if j == 0 else None
+                ax.plot(dx_src[var_src], dx.z, c=dx_src.colors.item(), ls=['-', '--'][j], label=label)
+
+            axes[j, i].set_xlabel('{} [{}]'.format(dx[var].attrs['standard_name'], dx[var].attrs['units']))
+            axes[j, i].set_ylim(*[dx[dx[var].dims[-1]][a] for a in [-1, 0]])
+            axes[j, i].yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%dm'))
+
+    # x-axis (dFe) and y-axis (depth)
+    axes[0, 3].legend(ncol=1, loc='upper left', bbox_to_anchor=(1, 1))
+    axes[1, 3].legend(ncol=1, loc='upper left', bbox_to_anchor=(1, 1))
+    ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'fe_model/depth_profile_{}.png'.format(var), dpi=300)
     plt.show()
 
 
+def plot_iron_at_source_scatter(ds):
+    ds = ds.sel(zone=[1, 2, 6, 7, 8, 3, 4, 5, 0])
+    ds = ds.mean('rtime')
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharey='row', sharex='all')
+    for i, ax in enumerate(axes.flatten()):
+        ax.set_title('{} Iron at source (EUC at {}°E)'.format(ltr[i], release_lons[i]), loc='left')
+        for s, marker in enumerate(['o', '*']):
+            ax.scatter(range(9), ds.fe_src_avg_src.isel(x=i, exp=s), marker=marker, c=ds.colors.values,
+                       label=scenario_name[s])
+        ax.set_ylabel('{} [{}]'.format(ds['fe_avg'].attrs['standard_name'], ds['fe_avg'].attrs['units']))
+        ax.set_xticks(range(9), ds.names.values, rotation='vertical')
+        ax.legend()
+
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'fe_model/iron_src_avg.png', dpi=300)
+    plt.show()
+
+
+def plot_var_scatter_and_depth(ds, var):
+    """Scatter plot of variable mean for each release longitude."""
+    ds = ds.mean('rtime')
+
+    ds_fe = iron_source_profiles()
+    ds_fe = ds_fe.sel(z=slice(25, 350))
+    ds_fe = ds_fe.sel(x=slice(160, 260)).dropna('x', 'all')
+
+    fig, axes = plt.subplot_mosaic("AAA.;BCDE", figsize=(12, 10), height_ratios=[2.5, 4],
+                                   gridspec_kw={"wspace": 0.1})
+
+    var = 'fe_avg'
+    ax = axes['A']
+    # Add observations.
+    ax.plot(ds_fe.x, ds_fe.EUC.mean('z'), 'x', c='g', label='Obs.')
+    ax.plot(ds_fe.lon, ds_fe.euc_avg.mean('z'), 'o', c='g', label='Obs. Mean')
+
+    for j, v in enumerate(['fe_avg', 'fe_src_avg']):
+        dx = ds[v]
+        for source_iron in ['LLWBC-obs']:
+            for s in [0, 1]:
+                ax.plot(dx.x, dx.isel(exp=s), ['-o', '--*'][s], c=['k', 'darkviolet'][j],
+                        label='{} dFe {}'.format(['EUC', 'Source'][j], scenario_name[s], source_iron))
+
+    ax.set_title('{} {}'.format(ltr[0], ds[var].attrs['long_name']), loc='left')
+    ax.set_ylabel('{} [{}]'.format(dx.attrs['standard_name'], dx.attrs['units']))
+    ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
+    ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.set_xticks(dx.x)
+    ax.legend(ncol=1, loc='upper left', bbox_to_anchor=(1, 1))
+
+    var = 'fe_avg_depth'
+    var_src = 'fe_avg_src_depth'
+
+    for i, a in enumerate(['B', 'C', 'D', 'E']):
+        ax = axes[a]
+        dx = ds.isel(x=i)
+        lon = dx.x.item()
+        obs = ds_fe.EUC.sel(x=slice(lon-5, lon+5))
+        if obs.x.size > 0:
+            for j in obs.x:
+                ax.scatter(obs.sel(x=j), ds_fe.z, marker='x', c='g', label='Obs.')
+        ax.plot(ds_fe.euc_avg.isel(lon=i), ds_fe.z, c='g', label='Obs. Mean')
+
+        for j in range(2):
+            ax.set_title('{} EUC iron at {}°E'.format(ltr[i + 1], dx.x.item()), loc='left')
+            ax.plot(dx[var].isel(exp=j), dx.z, c='k', ls=['-', '--'][j], label=scenario_name[j])  # Mean
+
+        # x-axis (dFe) and y-axis (depth)
+        ax.set_xlabel('{} [{}]'.format(dx[var].attrs['standard_name'], dx[var].attrs['units']))
+        ax.set_ylim(*[dx[dx[var].dims[-1]][a] for a in [-1, 0]])
+        ax.set_xlim(0, 1.5)
+        ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%dm'))
+        if a != 'B':
+            ax.set_yticklabels([])
+        ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+
+    # plt.tight_layout()
+    plt.savefig(paths.figs / 'fe_model/scatter_depth_profile_{}.png'.format(var), dpi=300, bbox_inches='tight')
+    plt.show()
+
+
+def plot_fe_multvar_scatter(ds):
+    """Plot all fe variables (time mean).
+
+    Args:
+        ds (xarray.dataset): pds.fe_model_sources_all(add_diff=True)
+
+    """
+    dvars = ['fe_avg', 'fe_src_avg', 'fe_scav_avg', 'fe_phy_avg', 'fe_reg_avg']
+    colors = ['k', 'darkviolet', 'r', 'g', 'blue']
+    titles = ['Historical and RCP8.5', 'Projected Change']
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6), squeeze=True)
+
+    for i, scenario in enumerate([0, 2]):
+        for j, v in enumerate(dvars):
+            dx = ds[v].mean('rtime')
+            dx = dx * -1 if v in ['fe_scav_avg', 'fe_phy_avg'] else dx
+
+            ax[i].plot(dx.x, dx.isel(exp=scenario), 'o-', c=colors[j],
+                       label='{}'.format(dx.attrs['long_name']))
+            if scenario == 0:
+                ax[i].plot(dx.x, dx.isel(exp=1), 'o--', c=colors[j])
+
+        ax[i].set_title('{} {}'.format(ltr[i], titles[i]), loc='left')
+
+        ax[i].xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
+        ax[i].yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax[i].set_xticks(dx.x)
+        ax[i].axhline(0, c='grey', lw=1)
+
+    ax[0].set_ylabel('{} [{}]'.format(dx.attrs['standard_name'], dx.attrs['units']))
+    ax[1].legend(ncol=1, loc='upper left', bbox_to_anchor=(1, 1))
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'fe_model/fe_multi_var_scatter.png', dpi=350, bbox_inches='tight')
+
+
 if __name__ == '__main__':
-    scenario, lon, version, index = 0, 220, 0, 0
-    exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index)
+    exp = ExpData(scenario=1, lon=220, version=2, file_index=7)
     pds = FelxDataSet(exp)
+    df = xr.open_dataset(exp.file_felx)
+    # dx = pds.fe_model_sources(add_diff=False)
+    ds = pds.fe_model_sources_all(add_diff=True)
 
     # # Weighted mean.
+    # plot_var_scatter_and_depth(ds, var='fe_avg')
+    # plot_fe_multvar_scatter(ds)
+    # plot_iron_at_source_scatter(ds)
+    # plot_var_scatter(ds, var='fe_avg')
+    # plot_var_scatter(ds, var='fe_src_avg')
+    # plot_var_scatter(ds, var='fe_scav_avg')
+    # plot_var_scatter(ds, var='fe_phy_avg')
+    # plot_var_scatter(ds, var='fe_reg_avg')
 
-    ds = pds.fe_model_sources_all(add_diff=False)
-    var = 'fe_avg'
-    plot_var_scatter(ds, var)
-    var = 'fe_src_avg'
-    plot_var_scatter(ds, var)
+    # # # Weighted mean per source
+    # source_bar_graph(pds, ds, var='fe_flux_sum_src')
+    # source_bar_graph(pds, ds, var='fe_avg_src')
+    # source_bar_graph(pds, ds, var='fe_src_avg_src')
+    # source_bar_graph(pds, ds, var='u_sum_src')
+    # source_bar_graph(pds, ds, var='fe_scav_avg_src')
+    # source_bar_graph(pds, ds, var='fe_reg_avg_src')
+    # source_bar_graph(pds, ds, var='fe_phy_avg_src')
 
-    # Weighted mean per source
-    transport_source_bar_graph(pds, var='fe_avg_src')
-    transport_source_bar_graph(pds, var='fe_src_avg_src')
-    transport_source_bar_graph(pds, var='u_sum_src')
+    # # Weighted mean depth profile @todo
+    # plot_var_depth_profile(ds)
+    # plot_iron_at_source_scatter(ds)
 
-    # Weighted mean depth profile @todo
+    # ds = ds.sel(zone=[1, 2, 6, 7, 8, 3, 4, 5, 0])
+    # var = 'age'
+    # xmax = 1000 if var == 'age' else 600
+    # colors = ['k', 'r']
+
+    # fig, ax = plt.subplots(7, 4, figsize=(10, 14), sharey='row')
+    # for i, x in enumerate(release_lons):
+    #     for j, z in enumerate(ds.zone[:-2].values):
+    #         for s, scenario in enumerate([0, 1]):
+    #             dx = ds[var].sel(exp=scenario, x=x, zone=z).dropna('traj', 'all')
+
+    #             ax[j, i].hist(dx, color=colors[s], alpha=0.5, bins='fd')
+    #         ax[j, 0].set_title('{}{}'.format(ltr[j], zones.names[z]), loc='left')
+    #         ax[j, i].set_xlim(0, xmax)
+    #     ax[0, i].text(0.25, 1.2, "EUC at {}°E".format(x), weight='bold',
+    #                   transform=ax[0, i].transAxes)
+
+
+    # fig.subplots_adjust(wspace=0.1, hspace=0.4, top=0.8)
+    # plt.savefig(paths.figs / 'fe_model/{}_hist.png'.format(var), bbox_inches='tight', dpi=350)
