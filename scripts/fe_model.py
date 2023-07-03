@@ -281,7 +281,7 @@ def run_iron_model(pds):
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
-    logger.debug('{}: Running update_particles_MPI ({})'.format(pds.exp.file_felx.stem, pds.exp.source_iron))
+    logger.debug('{}: Running update_particles_MPI ({})'.format(pds.exp.id, pds.exp.source_iron))
 
     # Source Iron fields (observations).
     ds_fe = iron_source_profiles()
@@ -289,17 +289,16 @@ def run_iron_model(pds):
     # Particle dataset
     pds.add_iron_model_params()
 
-    logger.debug('{}: Initializing dataset...'.format(pds.exp.file_felx.stem))
+    logger.debug('{}: Initializing dataset.'.format(pds.exp.id))
     ds = pds.init_felx_dataset()
-
-    logger.debug('{}: Dataset initializion complete.'.format(pds.exp.file_felx.stem))
+    logger.debug('{}: Dataset initializion complete.'.format(pds.exp.id))
 
     if pds.exp.source_iron not in ['LLWBC-obs', 'depth-mean']:
-        logger.debug('{}: Dropping background sources p={}.'.format(pds.exp.file_felx.stem, ds.traj.size))
+        logger.debug('{}: Dropping background sources p={}.'.format(pds.exp.id, ds.traj.size))
         pid_source_map = np.load(pds.exp.file_source_map, allow_pickle=True).item()
         pids = np.concatenate([pid_source_map[i] for i in [1, 2, 3, 4, 6]])
         ds = ds.sel(traj=pids)
-        logger.debug('{}: Dropped background sources p={}.'.format(pds.exp.file_felx.stem, ds.traj.size))
+        logger.debug('{}: Dropped background sources p={}.'.format(pds.exp.id, ds.traj.size))
 
     # Run iron model for particles.
     ds = update_particles_MPI(pds, ds, ds_fe)
@@ -331,7 +330,7 @@ if __name__ == '__main__':
         if pds.exp.version in [0, 3]:
             felx_file_tmp = pds.exp.out_subdir / 'tmp_err/{}'.format(pds.exp.file_felx.name)
             if felx_file_tmp.exists():
-                ds = pds.save_felx_dataset_particle_subset(v0_error_fix=True)
+                ds = pds.save_felx_dataset_fixed()
             else:
                 ds = pds.save_felx_dataset()
         else:
