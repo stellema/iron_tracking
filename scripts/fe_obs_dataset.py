@@ -25,7 +25,7 @@ import xarray as xr
 
 from cfg import paths
 from tools import mlogger
-from datasets import add_coord_attrs, save_dataset
+from datasets import add_coord_attrs, save_dataset, ofam_cell_depth
 
 logger = mlogger('iron_observations')
 
@@ -622,7 +622,20 @@ class FeObsDataset(object):
 
 
 def iron_source_profiles():
-    """Create fe obs combined dataset."""
+    """Create fe obs combined dataset.
+
+    Depth mean (100-500m):
+        nicu_mean = 0.9644
+        png_mean = 1.312
+        mc_mean = 1.075
+        interior_mean = 0.2793
+
+    Depth weighted mean (0-775m & interior 0-400m):
+        nicu_mean = 0.88177096
+        png_mean = 1.21962313
+        mc_mean = 0.75471471
+        interior_mean = 0.23865357
+    """
     file = paths.data / 'iron_source_profiles.nc'
 
     if file.exists():
@@ -634,7 +647,7 @@ def iron_source_profiles():
     setattr(dfs, 'dfe', FeObsDataset(dfs.ds))
 
     dfs.dfe.ds = dfs.dfe.ds.mean('t')
-    dfs.dfe.ds_avg = dfs.dfe.ds_avg.mean('t')
+    ds_fe = dfs.dfe.ds_avg.mean('t')
 
     # EUC observation average at release longitudes.
     xx = [slice(162, 167), slice(182, 192), slice(205, 230), slice(210, 271)]
@@ -643,11 +656,28 @@ def iron_source_profiles():
     dx = []
     for lon, x in zip([165, 190, 220, 250], xx):
         dx.append(df.sel(x=x).mean('x').assign_coords(lon=lon))
-    dfs.dfe.ds_avg['euc_avg'] = xr.concat(dx, 'lon')
+    ds_fe['euc_avg'] = xr.concat(dx, 'lon')
 
     # Projections.
     for name, proj in zip(['nicu', 'png', 'mc'], [21.28, 15.03, -8.42]):
-        dfs.dfe.ds_avg[name + '_proj'] = dfs.dfe.ds_avg[name] * (1 + (proj / 100))
+        ds_fe[name + '_proj'] = ds_fe[name] * (1 + (proj / 100))
 
-    ds_fe = save_dataset(dfs.dfe.ds_avg, file, msg='./fe_obs_dataset.py')
+    # for name in ['nicu', 'png', 'mc', 'interior']:
+    #     ds_fe[name + '_mean'] = ds_fe[name].sel(z=slice(100, 520)).mean('z')
+
+    # Depth weighted mean.
+    df = xr.open_dataset(paths.data / 'transport_LLWBCs_hist.nc')
+    df = df.sel(time=slice('2000-01-01', '2012-12-31'))
+    dz = ofam_cell_depth()
+    df = df / dz
+    df = df.rename({'lev': 'z'})
+    df = df.groupby('time.month').mean('time').mean('month')
+    levs = slice(0, 800)
+
+    ds_fe['mc_mean'] = (((df.mc * ds_fe.mc.values[:-1]).sel(z=levs)).sum() / df.mc.sel(z=levs).sum())
+    ds_fe['nicu_mean'] = (((df.ssx * ds_fe.nicu.values[:-1]).sel(z=levs)).sum() / df.ssx.sel(z=levs).sum())
+    ds_fe['png_mean'] = (((df.vs * ds_fe.png.values[:-1]).sel(z=levs)).sum() / df.vs.sel(z=levs).sum())
+    ds_fe['interior_mean'] = ds_fe['interior'].sel(z=slice(0, 401)).mean('z')
+
+    ds_fe = save_dataset(ds_fe, file, msg='./fe_obs_dataset.py')
     return ds_fe
