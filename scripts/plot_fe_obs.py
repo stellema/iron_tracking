@@ -561,8 +561,8 @@ def plot_dfs_source_zprofile(dfs):
     ax.set_title('a) EUC Sources Dissolved Iron Profiles', loc='left')
 
     for i, name in enumerate(names):
-        if name + '_high' in ds_fe:
-            ax.plot(ds_fe[name + 'high'], ds_fe.z, c=colors[i], lw=2, ls='--')
+        if name + '_proj' in ds_fe:
+            ax.plot(ds_fe[name + '_proj'], ds_fe.z, c=colors[i], lw=2, ls='--')
         ax.plot(ds_fe[name], ds_fe.z, c=colors[i], lw=2, label=labels[i])
 
     ax.set_ylim(600, 5)
@@ -590,7 +590,7 @@ def plot_dfs_source_zprofile(dfs):
     ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
 
     plt.tight_layout()
-    plt.savefig(paths.figs / 'obs/iron_profiles.png', bbox_inches='tight')
+    plt.savefig(paths.figs / 'obs/iron_profiles.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 

@@ -17,6 +17,8 @@ Notes:
 Example:
 
 Todo:
+    - resave + transfer iron_source_profiles.nc
+    - issue in age (maybe decoding - find and resave making sure to use decode_timedelta=False)
 
 
 @author: Annette Stellema
@@ -57,8 +59,8 @@ loggers = {}
 ltr = [i + ')' for i in list(string.ascii_lowercase)]
 mon = list(calendar.month_abbr)[1:]  # Month abbreviations.
 release_lons = np.array([165, 190, 220, 250], dtype=int)
-scenario_name = ['Historical', 'RCP8.5']
-
+scenario_name = ['Historical', 'RCP8.5', 'Projected Change']
+scenario_abbr = ['hist', 'rcp', 'change']
 # Sverdrup.
 SV = 1e6
 

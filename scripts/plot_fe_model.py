@@ -406,11 +406,39 @@ def plot_fe_multvar_scatter(ds):
     plt.tight_layout()
     plt.savefig(paths.figs / 'fe_model/fe_multi_var_scatter.png', dpi=350, bbox_inches='tight')
 
+    # Multi-Source.
+    scenario = 2
+    fig, ax = plt.subplots(2, 3, figsize=(14, 9), sharex=True, sharey=True)
+    ax = ax.flatten()
+    for i, z in enumerate([1, 2, 6, 3, 7, 8]):
+        ax[i].set_title('{} {}'.format(ltr[i], ds.names.sel(zone=z).item()), loc='left')
+        for j, v in enumerate(dvars):
+            dx = ds[v + '_src'].sel(zone=z).mean('rtime')
+            dx = dx * -1 if v in ['fe_scav_avg', 'fe_phy_avg'] else dx
+
+            ax[i].plot(dx.x, dx.isel(exp=scenario), 'o-', c=colors[j],
+                       label='{}'.format(dx.attrs['long_name']))
+            if scenario == 0:
+                ax[i].plot(dx.x, dx.isel(exp=1), 'o--', c=colors[j])
+
+        ax[i].xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
+        ax[i].yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax[i].set_xticks(dx.x)
+        ax[i].axhline(0, c='grey', lw=1)
+        if i % 3 == 0:
+            ax[0].set_ylabel('{} [{}]'.format(dx.attrs['standard_name'], dx.attrs['units']))
+
+    handles, labels = ax[0].get_legend_handles_labels()
+    fig.legend(handles, labels, ncol=5, loc='upper center', bbox_to_anchor=(0.5, 1.02))
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'fe_model/fe_multi_var_scatter_sources{}.png'
+                .format('_proj' if scenario == 2 else ''), dpi=350, bbox_inches='tight')
+
 
 if __name__ == '__main__':
-    exp = ExpData(scenario=1, lon=220, version=2, file_index=7)
+    exp = ExpData(scenario=1, lon=220, version=0, file_index=7)
     pds = FelxDataSet(exp)
-    df = xr.open_dataset(exp.file_felx)
+    # df = xr.open_dataset(exp.file_felx)
     # dx = pds.fe_model_sources(add_diff=False)
     ds = pds.fe_model_sources_all(add_diff=True)
 
@@ -419,6 +447,7 @@ if __name__ == '__main__':
     # plot_fe_multvar_scatter(ds)
     # plot_iron_at_source_scatter(ds)
     # plot_var_scatter(ds, var='fe_avg')
+    # plot_var_scatter(ds, var='fe_flux_sum')
     # plot_var_scatter(ds, var='fe_src_avg')
     # plot_var_scatter(ds, var='fe_scav_avg')
     # plot_var_scatter(ds, var='fe_phy_avg')

@@ -75,6 +75,18 @@ def plot_euc_obs_xz_profile():
     ds = xr.open_dataset(cfg.paths.obs / 'pac_mean_johnson_2002.cdf')
     ds = ds.rename(dict(ZDEP1_50='z', YLAT11_101='y', XLON='x', UM='u'))
     # ds.u.sel(y=0).plot(figsize=(14, 5), yincrease=0, cmap=plt.cm.seismic)
+
+    # Transport values
+    dv = ds.copy()
+    dv['dy'] = dv.y.diff('y') * cfg.LAT_DEG  # Latitude spacing all 0.2 degrees
+    dv['dz'] = dv.z.diff('z')  # Depth spacing all 10m
+    dv = dv.sel(z=slice(25, 360), y=slice(-2.6, 2.67))
+
+    dv['uuo'] = dv.u.where(dv.u > 0.1) * dv.dy * dv.dz
+    dv['uuo'] = dv.uuo.sum(['y', 'z'])
+    print(dv.uuo.sel(x=[165, 190, 220, 250]) / 1e6)
+
+    # Plot
     ds = ds.sel(x=slice(140, 280))
     xe = ds.XLONedges[1:]
 
