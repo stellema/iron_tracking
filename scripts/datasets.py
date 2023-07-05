@@ -621,6 +621,17 @@ def convert_plx_times(dt, obs, attrs, attrs_new):
     return time
 
 
+def ofam_cell_depth():
+    """Retur cell depth of OFAM3 vertical coordinate."""
+    dz = get_ofam3_coords()
+    st_ocean = dz['st_ocean']  # Copy st_ocean coords
+    dz = dz.st_edges_ocean.diff(dim='st_edges_ocean')
+    dz = dz.rename({'st_edges_ocean': 'st_ocean'})
+    dz.coords['st_ocean'] = st_ocean
+    dz = dz.rename({'st_ocean': 'lev'})
+    return dz
+
+
 def llwbc_transport_projections():
     """Get the Eulerian transport projections of the LLWBCs (for fe_high forcing).
 
@@ -643,3 +654,34 @@ def llwbc_transport_projections():
     ds = [dx.groupby('time.month').mean('time').mean('month') for dx in ds]
     ds = concat_exp_dimension(ds, add_diff=True)
     print((ds.isel(exp=2) / ds.isel(exp=0)) * 100)
+
+
+    # Get lon-integrated velocity from transport (divide by depth width)
+    dz = ofam_cell_depth()
+    ds = [xr.open_dataset(paths.data / 'transport_LLWBCs_{}.nc'.format(i)) for i in ['hist', 'rcp']]
+
+    ds[0] = ds[0].sel(time=slice('2000-01-01', '2012-12-31'))
+    ds[1] = ds[1].sel(time=slice('2089-01-01', '2101-12-31'))
+    ds = [ds[i] / dz for i in [0, 1]]
+    ds = [dx.groupby('time.month').mean('time').mean('month') for dx in ds]
+    ds = concat_exp_dimension(ds, add_diff=True)
+    ds['mc'] *= -1
+
+    for i, v in enumerate(['mc', 'vs', 'ssx']):
+        for s in [0, 1]:
+            plt.plot(ds[v].isel(exp=s), ds.lev, c=['k', 'r', 'b'][i], ls=['-', '--'][s], label=v)
+    plt.legend()
+    plt.axhline(50)
+    plt.axhline(100)
+    plt.axhline(400)
+    plt.ylim(800, 0)
+
+    ds = xr.open_mfdataset([paths.ofam / 'clim/ocean_{}_1981-2012_climo.nc'.format(v) for v in ['u', 'v']])
+    ds = rename_ofam3_coords(ds)
+    ds = ds.sel(depth=slice(0, 750), lon=slice(120, 280)).mean('time')
+
+    kwargs = dict(yincrease=0, vmax=0.05, vmin=-0.05, cmap=plt.cm.seismic)
+
+    ds.v.sel(lat=-6, method='nearest').plot(**kwargs)
+    ds.v.sel(lat=8, method='nearest').plot(**kwargs)
+    ds.u.sel(lon=120, method='nearest').plot(**kwargs)
