@@ -29,7 +29,7 @@ logger = mlogger('files_felx')
 class FelxDataSet(object):
     """Iron model functions and parameters."""
 
-    def __init__(self, exp):
+    def __init__(self, exp=ExpData()):
         """Initialise & format felx particle dataset."""
         self.exp = exp
         self.zones = zones
@@ -58,8 +58,8 @@ class FelxDataSet(object):
         # Detritus paramaters.
         params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
         # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
-        params['mu_D'] = 0.005  # 0.02 b**cT
-        params['mu_D_180'] = 0.03  # 0.01 b**cT
+        params['mu_D'] = 0.02  # 0.02 b**cT
+        params['mu_D_180'] = 0.01  # 0.01 b**cT
 
         # Phytoplankton paramaters.
         params['I_0'] = 280  # Surface incident solar radiation [W/m^2] (not actually constant)
@@ -77,7 +77,7 @@ class FelxDataSet(object):
         params['g'] = 2.1  # Maximum grazing rate [day^-1]
         params['epsilon'] = 1.1  # Prey capture rate [(mmol N m^-3)^-1 day^-1]
         params['mu_Z'] = 0.06  # Quadratic mortality [(mmol N m^-3)^-1 day^-1]
-        params['gamma_2'] = 0.0059699  # (*b^cT) Excretion [day^-1]
+        params['gamma_2'] = 0.01  # (*b^cT) Excretion [day^-1]
 
         for name, value in params.items():
             setattr(self, name, value)
@@ -521,7 +521,7 @@ class FelxDataSet(object):
 
         return ds
 
-    def add_variable_attrs(self, ds):
+    def add_variable_attrs(self, ds, post=False):
         """Add attributes metadata to dataset variables."""
         attrs = {'trajectory': {'long_name': 'Unique identifier for each particle',
                                 'cf_role': 'trajectory_id'},
@@ -556,16 +556,34 @@ class FelxDataSet(object):
                  'fe_reg': {'long_name': 'Remineralised Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},
                  'fe_phy': {'long_name': 'Phytoplankton Dissolved Iron Uptake', 'standard_name': 'dFe',
                             'units': 'umol/m^3 Fe'}
-
                  }
 
         for k, v in attrs.items():
             if k in ds.data_vars:
                 ds[k].attrs = v
 
-        for k in ds.data_vars:
-            if 'long_name' in ds[k].attrs:
-                ds[k].attrs['long_name'] = ds[k].attrs['long_name'].title()
+        if post:
+            # Update attributes and units for post-analysis
+            if 'age' in ds.data_vars:
+                ds['age'].attrs['units'] = 'days'  # Tries to be decoded if saved.
+
+            for v in ds.data_vars:
+                if 'units' in ds[v].attrs:
+                    if 'fe' in str(v) and 'fe_flux' not in str(v):
+                        # Replace umol/m^3 with nM
+                        ds[v].attrs['units'] = 'nM'
+
+                    if 'mmol' in str(ds[v].attrs['units']):
+                        ds[v].attrs['units'] = 'μM N'
+
+                if 'long_name' in ds[v].attrs:
+                    # Replace 'Dissolved Iron' with 'dFe'
+                    ds[v].attrs['long_name'] = ds[v].attrs['long_name'].title()
+                    ds[v].attrs['long_name'] = ds[v].attrs['long_name'].replace('Dissolved Iron', 'dFe')
+
+                if 'standard_name' in ds[v].attrs:
+                    if ds[v].attrs['standard_name'] != 'dFe':
+                        ds[v].attrs['standard_name'] = ds[v].attrs['standard_name'].title()
 
         return ds
 
@@ -671,27 +689,35 @@ class FelxDataSet(object):
             np.save(file, pid_map)  # Save dictionary as numpy file.
         return pid_map
 
-    def fe_model_sources(self, lon=None, add_diff=False):
-        """Open fe model source dataset."""
+    def fe_model_sources(self, lon=None, version=None, add_diff=False):
+        """Open fe model source dataset for a longitude (historical & RCP8.5)."""
         if lon is None:
             lon = self.exp.lon
-        # Open and concat data for exah scenario.
-        exps = [ExpData(scenario=i, lon=lon, version=self.exp.version) for i in range(2)]
+        if version == None:
+            version = self.exp.version
+        # Open and concat data for each scenario.
+        version = [version] * 2
+        if version[0] == 2:
+            version[0] = 0  # Use version 0 for historical comparison
+        exps = [ExpData(scenario=i, lon=lon, version=version[i]) for i in range(2)]
         ds = [xr.open_dataset(exp.file_source, decode_timedelta=False) for exp in exps]
         ds = concat_exp_dimension(ds, add_diff=add_diff)
-        ds = self.add_variable_attrs(ds)
 
         ds['names'] = ('zone', zones.names)
         ds['colors'] = ('zone', zones.colors)
+
+        # Update attributes for plots
+        ds = self.add_variable_attrs(ds, post=True)
+        for v in ds.data_vars:
+            if 'fe_flux' in str(v):
+                # Replace umol/m^2 s with nM Sv.
+                ds[v] *= DXDY  # Convert from mass flux to volume flux.
+                ds[v].attrs['units'] = 'nM Sv'
         return ds
 
-    def fe_model_sources_all(self, add_diff=False):
-        """Open fe model source dataset."""
-        ds = [self.fe_model_sources(lon=i, add_diff=False) for i in self.release_lons]
-
-        # drop_vars = [v for v in ds[0].data_vars if 'traj' in ds[0][v].dims]
-        # ds = [ds[i].drop(drop_vars).drop('traj') for i, x in enumerate(self.release_lons)]
-        # # ds = [ds[i].drop('traj') for i, x in enumerate(self.release_lons)]
+    def fe_model_sources_all(self, version=None, add_diff=False):
+        """Open fe model source dataset for all longitudes."""
+        ds = [self.fe_model_sources(lon=i, version=version, add_diff=False) for i in self.release_lons]
         ds = [ds[i].expand_dims(dict(x=[x]), axis=1) for i, x in enumerate(self.release_lons)]
         ds = xr.concat(ds, 'x')
 
@@ -707,3 +733,26 @@ class FelxDataSet(object):
         ds['names'] = ('zone', zones.names)
         ds['colors'] = ('zone', zones.colors)
         return ds
+
+    # def fe_model_sources_versions(self, add_diff=False):
+    #     """Open fe model source dataset for all longitudes."""
+    #     ds = pds.fe_model_sources_all(add_diff=True)
+    #     ds2 = FelxDataSet(ExpData(version=2)).fe_model_sources_all(add_diff=True)
+    #     ds3 = FelxDataSet(ExpData(version=3)).fe_model_sources_all(add_diff=True)
+    #     ds_all = xr.concat([d.expand_dims(v=i) for i, d in zip([0, 2, 3], [ds, ds2, ds3])], 'v')
+
+    #     ds = [self.fe_model_sources(lon=i, add_diff=False) for i in self.release_lons]
+    #     ds = [ds[i].expand_dims(dict(x=[x]), axis=1) for i, x in enumerate(self.release_lons)]
+    #     ds = xr.concat(ds, 'x')
+
+    #     ds = ds.drop(['names', 'colors'])
+    #     for k in ds.data_vars:
+    #         if 'long_name' in ds[k].attrs:
+    #             ds[k].attrs['long_name'] = ds[k].attrs['long_name'].replace('Dissolved Iron', 'dFe')
+
+    #     if add_diff:
+    #         ds = xr.concat([ds, (ds.isel(exp=1, drop=True) - ds.isel(exp=0, drop=True)
+    #                              ).expand_dims(dict(exp=[2]))], 'exp')
+
+    #     ds['names'] = ('zone', zones.names)
+    #     ds['colors'] = ('zone', zones.colors)

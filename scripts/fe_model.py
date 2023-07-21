@@ -143,7 +143,7 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_sc
     # J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
 
     # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
-    J = J_max * min(J_I / J_max, N / (N + k_N), fe / (fe + (0.02 * k_fe)), 0)  # [day^-1]
+    J = J_max * min(J_I / J_max, N / (N + k_N), fe / (fe + k_fe))  # [day^-1]
 
     # Iron Phytoplankton Uptake
     fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
@@ -326,9 +326,9 @@ if __name__ == '__main__':
     # elif args.func == 'fix':
     #     fix_particles_v0_err(pds)
 
-    elif args.func == 'save':
+    elif args.func == 'save' and not pds.file_felx.exists():
         if pds.exp.version in [0, 3]:
-            felx_file_tmp = pds.exp.out_subdir / 'tmp_err/{}'.format(pds.exp.file_felx.name)
+            felx_file_tmp = pds.exp.out_subdir / 'tmp_err/{}'.format(exp.file_felx.name)
             if felx_file_tmp.exists():
                 ds = pds.save_felx_dataset_fixed()
             else:

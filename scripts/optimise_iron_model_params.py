@@ -282,7 +282,7 @@ def optimise_iron_model_params_multi_lon(lon, method):
 
 if __name__ == '__main__':
     p = ArgumentParser(description="""Optimise iron model paramaters.""")
-    p.add_argument('-x', '--lon', default=220, type=int,
+    p.add_argument('-x', '--lon', default=0, type=int,
                    help='Release longitude [165, 190, 220, 250].')
     args = p.parse_args()
     lon = args.lon
