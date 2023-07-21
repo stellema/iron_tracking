@@ -15,11 +15,12 @@ Todo:
 """
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import xarray as xr  # NOQA
 
 import cfg
-from cfg import paths
+from cfg import paths, ltr, scenario_name
 from datasets import ofam_clim, BGCFields
 from fe_exp import FelxDataSet
 from tools import mlogger, unique_name
@@ -134,8 +135,11 @@ def plot_euc_obs_xz_profile():
 
 
 def plot_OFAM3_fields():
+    """Plot Johnson et al 2002 EUC obs climatology as a function of depth and longitude."""
     # OFAM3.
     ds = ofam_clim().mean('time')
+    pds = FelxDataSet()
+    ds = pds.add_variable_attrs(ds)
 
     # KD490
     fig, ax = plt.subplots(1, 1, figsize=(10, 7))
@@ -143,40 +147,113 @@ def plot_OFAM3_fields():
     ax.set_title('Diffuse Attenuation Coefficient Climatology at 490 nm [m^-1]')
 
 
-def plot_ofam_clim():
+def plot_OFAM3_bgc_clim_at_equator():
+    """Plot OFAM BGC variable climatology as a function of depth and longitude."""
+    # Open dataset.
     var_list = ['phy', 'zoo', 'det', 'fe', 'no3', 'temp']
     ds = ofam_clim().mean('time')
+    pds = FelxDataSet()
+    ds = pds.add_variable_attrs(ds, post=True)
+    ds = ds.drop('kd')
 
-    # Equator
-    dx = ds.sel(lat=0, method='nearest').sel(depth=slice(0, 700))
-    # dx.det.plot(yincrease=False, cmap=plt.cm.rainbow)
+    # Subset at Equator.
+    dx = ds.sel(lat=0, method='nearest').sel(depth=slice(0, 700), lon=slice(120, 282))
+    dx[dict(exp=2)] = dx.isel(exp=1) - dx.isel(exp=0)  # Re-calculate projected change for mean.
 
-    # Define the figure and axis objects
+    # Plot 1: All BGC variables for historical climatology.
     fig, axs = plt.subplots(nrows=3, ncols=2, figsize=(10, 10), sharey=True)
     axs = axs.flatten()
     for i, var in enumerate(var_list):
         ax = axs[i]
-        im = ax.pcolormesh(dx.lon, dx.depth, dx[var], cmap=plt.cm.rainbow)
+        im = ax.pcolormesh(dx.lon, dx.depth, dx[var].isel(exp=0), cmap=plt.cm.rainbow)
 
-        # Add a color bar to the subplot
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.ax.set_ylabel(dx[var].attrs['units'], rotation=270)
-        ax.set_xlabel('Longitude [°E]')
-        ax.set_xlabel('Depth [m]')
-        ax.set_title(var)
+        ax.set_title('{} Equatorial {}'.format(ltr[i], dx[var].attrs['long_name']), loc='left')
+        fig.colorbar(im, ax=ax, label=dx[var].attrs['units'])
+        ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%d°E"))
+        if i % 2 == 0:
+            ax.set_ylabel('Depth [m]')
 
     ax.invert_yaxis()
     plt.tight_layout()
-    plt.savefig(paths.figs / 'clim/OFAM_hist_clim.png', bbox_inches='tight')
+    plt.savefig(paths.figs / 'clim/OFAM_hist_clim_equator.png', bbox_inches='tight', dpi=300)
+    plt.show()
+
+    # Plot 2: Plot historical, RCP8.5 and projected change for a variable.
+    for i, var in enumerate(var_list):
+        fig = plt.figure(figsize=(12, 10))
+        axs = [fig.add_subplot(2, 2, 1), fig.add_subplot(2, 2, 2), fig.add_subplot(2, 1, 2)]
+        for i, scenario in enumerate([0, 1, 2]):
+            ax = axs[i]
+            if scenario < 2:
+                # Use same colorbar limits for historical and RCP.
+                lim = [dx[var].isel(exp=0).max().load().item(),
+                       dx[var].isel(exp=0).min().load().item()]
+                kwargs = dict(cmap=plt.cm.rainbow, vmax=lim[0], vmin=lim[1])
+            elif scenario == 2:
+                # Use red and blue cmap for difference and make colorbar symmetric.
+                lim = np.fabs([dx[var].isel(exp=2).max(), dx[var].isel(exp=2).min()]).max()
+                kwargs = dict(cmap=plt.cm.seismic, vmax=lim, vmin=-lim)
+
+            im = ax.pcolormesh(dx.lon, dx.depth, dx[var].isel(exp=scenario), **kwargs)
+            ax.set_title('{} {} Equatorial {}'.format(ltr[i], scenario_name[scenario],
+                                                      dx[var].attrs['long_name']), loc='left')
+            fig.colorbar(im, ax=ax, label=dx[var].attrs['units'])
+            ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%d°E"))
+            if i % 2 == 0:
+                ax.set_ylabel('Depth [m]')
+            ax.set_ylim(400, 0)
+
+        plt.tight_layout()
+        plt.savefig(paths.figs / 'clim/OFAM_clim_{}_equator.png'.format(var), bbox_inches='tight',
+                    dpi=300)
+        plt.show()
+
+    # Plot 3: All BGC variables historical & RCP climatologies.
+    var_list = ['phy', 'zoo', 'det', 'no3', 'fe']
+
+    fig, axs = plt.subplots(nrows=5, ncols=2, figsize=(12, 10), sharey=True, sharex=True)
+
+    # Plot a variable hist and RCP clim on each row.
+    for i, var in enumerate(var_list):
+
+        # Use same colorbar limits for historical and RCP.
+        lim = [dx[var].isel(exp=0).max().load().item(), dx[var].isel(exp=0).min().load().item()]
+        kwargs = dict(cmap=plt.cm.rainbow, vmax=lim[0], vmin=0)
+
+        for j, s in enumerate([0, 1]):
+            ax = axs[i, j]
+            im = ax.pcolormesh(dx.lon, dx.depth, dx[var].isel(exp=s), **kwargs)
+
+            # Format x and y axis.
+            ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%d°E"))
+            # ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+            # ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+
+            # Add title.
+            ax.set_title('{} {} Equatorial {}'.format(ltr[j + i * 2], scenario_name[s],
+                                                      dx[var].attrs['long_name']), loc='left')
+
+        # Add colour bar to RHS axis (shared hist & RCP).
+        divider = make_axes_locatable(ax)
+
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        fig.colorbar(im, cax=cax, label=dx[var].attrs['units'])
+
+        axs[i, 0].set_ylabel('Depth [m]')
+
+    ax.set_ylim(350, 0)
+    plt.tight_layout()
+    plt.savefig(paths.figs / 'clim/OFAM_clim_equator.png', bbox_inches='tight', dpi=300)
     plt.show()
 
 
-def plot_ofam_clim_limits():
+def plot_ofam_clim_phyto_uptake_limits():
+    """Plot phytoplankton uptake variables using OFAM BGC climatologies."""
     exp = cfg.ExpData(scenario=0)
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    ds = ofam_clim().mean('time')
+    ds = ofam_clim().isel(exp=0).mean('time')
 
     # Equator
     dx = ds.sel(lat=0, method='nearest').sel(depth=slice(0, 400))
@@ -258,7 +335,7 @@ def plot_phyto_param_constants():
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    ds = ofam_clim().mean('time')
+    ds = ofam_clim().isel(exp=0).mean('time')
     dx = ds.sel(lat=0, lon=exp.lon, method='nearest').sel(depth=slice(0, 180))
 
     constant_names = ['a', 'b', 'c', 'k_N', 'k_fe', 'PAR', 'I_0', 'alpha']
@@ -307,7 +384,7 @@ def plot_remin_param_constants():
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    ds = ofam_clim().mean('time')
+    ds = ofam_clim().isel(exp=0).mean('time')
     dx = ds.sel(lat=0, lon=exp.lon, method='nearest').sel(depth=slice(0, 350))
 
     constant_names = ['b', 'c', 'mu_P', 'gamma_2', 'mu_D', 'mu_D_180']
@@ -355,7 +432,7 @@ def plot_scav_param_constants():
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    # ds = ofam_clim().mean('time')
+    # ds = ofam_clim().isel(exp=0).mean('time')
     # dx = ds.sel(lat=0, lon=exp.lon, method='nearest').sel(depth=slice(0, 350))
 
     constant_names = ['c_scav', 'k_inorg', 'k_org']

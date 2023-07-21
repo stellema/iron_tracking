@@ -128,6 +128,16 @@ def weighted_bins_fd(ds, weights):
 
 
 def get_min_weighted_bins(ds, weights):
+    """Apply the fd method to get the number of bins then pick the smallest of hist & rcp.
+
+    Args:
+        ds (list of xarray.DataArray): Variable DataArrays (historical and RCP).
+        weights (list of xarray.DataArray): Weights DataArrays (historical and RCP).
+
+    Returns:
+        bins (TYPE): DESCRIPTION.
+
+    """
     # Find number of bins based on combined hist/proj data range.
     h0, _, r0 = weighted_bins_fd(ds[0], weights[0])
     h1, _, r1 = weighted_bins_fd(ds[1], weights[1])
@@ -166,50 +176,49 @@ def get_source_transit_mode(ds, var, exp, zone, where='mode'):
 # Brunner-Munzel (n <50 samples?)and the Fligner–Policello test
 
 # Kolmogorov–Smirnov test
-if __name__ == "__main__":
-    from fncs import source_dataset
-    from tools import idx
-    import matplotlib.pyplot as plt
+# if __name__ == "__main__":
+#     from tools import idx
+#     import matplotlib.pyplot as plt
 
-    z = 1
-    var = 'age'
-    lon = 190
-    ds = source_dataset(lon, sum_interior=True)
-    dx = [ds.sel(zone=z).isel(exp=i).dropna('traj') for i in range(2)]
-    dv = [dx[i][var].sortby(dx[i][var]) for i in range(2)]
-    weights = [d.u / 1948 for d in dx]
-    bins = get_min_weighted_bins(dv, weights)
+#     z = 1
+#     var = 'age'
+#     lon = 190
+#     ds = source_dataset(lon, sum_interior=True)
+#     dx = [ds.sel(zone=z).isel(exp=i).dropna('traj') for i in range(2)]
+#     dv = [dx[i][var].sortby(dx[i][var]) for i in range(2)]
+#     weights = [d.u / 1948 for d in dx]
+#     bins = get_min_weighted_bins(dv, weights)
 
-    xx, yy = [], []
+#     xx, yy = [], []
 
-    for exp in range(2):
-        n = dx[exp].names.item()
-        fig, ax = plt.subplots(figsize=(7, 9))
-        ax = sns.histplot(x=dv[exp], weights=weights[exp], bins=bins, ax=ax,
-                          kde=True, kde_kws=dict(bw_adjust=0.5))
-        ax.set_xlim(0, 2000)
-        # hist = ax.get_lines()[-1]
-        # xx.append(hist.get_xdata())
-        # yy.append(hist.get_ydata())
-        yy.append(np.array([h.get_height() for h in ax.patches]))
-        plt.clf()
-
-
-    stats.mannwhitneyu(*dv, use_continuity=False)
-
-    stats.brunnermunzel(*dv)
-    stats.ttest_ind(*dv, equal_var=False)
-    stats.ks_2samp(*dv)
-    stats.ks_2samp(*dv, alternative='less')
-    stats.epps_singleton_2samp(*dv)
-    wtd.ttest_ind(*dv, weights=tuple(weights), usevar='unequal')
-
-    stats.ttest_ind(*yy)
-    stats.ttest_ind(*yy, equal_var=False)
-    stats.mannwhitneyu(*yy)
-    stats.wilcoxon(*yy)
-    stats.wilcoxon(*yy, zero_method='pratt')
-    stats.wilcoxon(*yy, zero_method='zsplit')
+#     for exp in range(2):
+#         n = dx[exp].names.item()
+#         fig, ax = plt.subplots(figsize=(7, 9))
+#         ax = sns.histplot(x=dv[exp], weights=weights[exp], bins=bins, ax=ax,
+#                           kde=True, kde_kws=dict(bw_adjust=0.5))
+#         ax.set_xlim(0, 2000)
+#         # hist = ax.get_lines()[-1]
+#         # xx.append(hist.get_xdata())
+#         # yy.append(hist.get_ydata())
+#         yy.append(np.array([h.get_height() for h in ax.patches]))
+#         plt.clf()
 
 
-    stats.mannwhitneyu(*dv)
+#     stats.mannwhitneyu(*dv, use_continuity=False)
+
+#     stats.brunnermunzel(*dv)
+#     stats.ttest_ind(*dv, equal_var=False)
+#     stats.ks_2samp(*dv)
+#     stats.ks_2samp(*dv, alternative='less')
+#     stats.epps_singleton_2samp(*dv)
+#     wtd.ttest_ind(*dv, weights=tuple(weights), usevar='unequal')
+
+#     stats.ttest_ind(*yy)
+#     stats.ttest_ind(*yy, equal_var=False)
+#     stats.mannwhitneyu(*yy)
+#     stats.wilcoxon(*yy)
+#     stats.wilcoxon(*yy, zero_method='pratt')
+#     stats.wilcoxon(*yy, zero_method='zsplit')
+
+
+#     stats.mannwhitneyu(*dv)

@@ -154,10 +154,21 @@ def ofam3_datasets(exp, variables=bgc_vars, chunks=None, **kwargs):
 
 
 def ofam_clim():
+    """Open OFAM3 historical and RCP8.5 climatologies of BGC variables (and kd490 fields)."""
+    def preprocess(ds):
+        ds = rename_ofam3_coords(ds)
+        for v in ['average_DT', 'Time_bnds']:
+            if v in ds:
+                ds = ds.drop(v)
+        return ds
+
     var_list = ['phy', 'zoo', 'det', 'fe', 'no3', 'temp']
-    ds = xr.open_mfdataset(cfg.paths.ofam / 'clim/ocean_{}_2000-2012_climo.nc'.format(v) for v in var_list)
-    ds = rename_ofam3_coords(ds)
-    ds = ds.where(~np.isnan(ds.no3))
+    ds = [xr.open_mfdataset([paths.ofam / 'clim/ocean_{}_{}_climo.nc'.format(v, y) for v in var_list],
+                            preprocess=preprocess) for y in ['2000-2012', '2089-2101']]
+    ds[1].coords['time'] = ds[0]['time'].copy()
+
+    ds = concat_exp_dimension(ds, add_diff=True)
+    ds = ds.where(~np.isnan(ds.no3.isel(exp=0)))
 
     fieldset = BGCFields(cfg.ExpData(scenario=0))
     kd = fieldset.kd490_dataset(chunks='auto')

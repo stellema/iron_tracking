@@ -19,6 +19,10 @@ Example:
 Todo:
     - resave + transfer iron_source_profiles.nc
     - issue in age (maybe decoding - find and resave making sure to use decode_timedelta=False)
+    - Check phytoplankton in felx_bgc files
+        - Hist: 165: 2008-2011, 190E: 2008-2010, 220E: 2008-2010, 250E: 2005-2006
+        - RCP: 165E 2090+, 190 2090-2010, 220e: 2089-2099, 250E: 2008-2010
+    - CHeck projected changes in climatologies.
 
 
 @author: Annette Stellema
@@ -42,6 +46,7 @@ import numpy as np
 
 xr.set_options(keep_attrs=True)
 dask.config.set({"array.slicing.split_large_chunks": True})
+# warnings.filterwarnings("ignore")
 
 # Filter warnings.
 # warnings.filterwarnings('ignore', category=DeprecationWarning)

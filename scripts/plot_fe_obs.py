@@ -552,12 +552,12 @@ def plot_dfs_source_zprofile(dfs):
     ds_fe = iron_source_profiles()
     # dfe = dfs.dfe
     # dfe.ds_avg = dfe.ds_avg.isel(t=-1)
-    names = ['png', 'nicu', 'mc', 'llwbcs', 'interior']
-    labels = ['NGCU', 'NICU', 'MC', 'LLWBC Mean', 'Background']
+    names = ['png', 'nicu', 'mc', 'interior']
+    labels = ['NGCU', 'NICU', 'MC', 'Background']
 
     fig = plt.figure(figsize=(12, 7))
     ax = fig.add_subplot(121)
-    colors = ['darkorange', 'deeppink', 'green', 'k', 'darkviolet', 'blue']
+    colors = ['darkorange', 'deeppink', 'green', 'darkviolet', 'blue']
     ax.set_title('a) EUC Sources Dissolved Iron Profiles', loc='left')
 
     for i, name in enumerate(names):
@@ -568,14 +568,14 @@ def plot_dfs_source_zprofile(dfs):
     ax.set_ylim(600, 5)
     ax.set_xlim(0, 2.5)
     ax.legend()
-    ax.set_xlabel('dFe [nmol/kg]')
+    ax.set_xlabel('dFe [nM]')
     ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
     ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
     ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
 
     ax = fig.add_subplot(122)
     ax.set_title('b) EUC Dissolved Iron Profiles', loc='left')
-    colors = ['r', 'm', 'blue', 'k']
+    colors = ['r', 'blueviolet', 'blue', 'k']
     for i, lon in enumerate(ds_fe.lon.values):
         ax.plot(ds_fe['euc_avg'].sel(lon=lon), ds_fe.z, c=colors[i], lw=2, label='{}°E'.format(lon))
         # ax.plot(dfe.ds_avg['EUC'].sel(x=lon, method='nearest'), dfe.ds_avg.z, c=colors[i], lw=2,
@@ -584,7 +584,7 @@ def plot_dfs_source_zprofile(dfs):
     ax.set_ylim(350, 25)
     ax.set_xlim(0, 1.75)
     ax.legend()  # (x, y, width, height)
-    ax.set_xlabel('dFe [nmol/kg]')
+    ax.set_xlabel('dFe [nM]')
     ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
     ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
     ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
