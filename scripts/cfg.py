@@ -171,7 +171,7 @@ class ExpData:
     test_month_bnds: int = field(default=3)
     # Iron model params
     scav_eq: str = field(default='Galibraith')
-    source_iron: str = field(default='seperate')
+    source_iron: str = field(default='LLWBC-obs')
     ntraj: int = field(default=100)
 
     def __post_init__(self):
