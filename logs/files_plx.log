@@ -1,0 +1,11 @@
+2023-05-04 03:21:49:lon=220 exp=ExpData(scenario=1, lon=220, name='felx', version=0, file_index=0, test=False, spinup_year_offset=4, spinup_num_years=10, out_subdir='felx', test_month_bnds=3, scav_eq='Galibraith', ntraj=100): n_traj initial=505505, remaining=146257 %=-71.1%
+2023-05-04 03:24:50:lon=165 exp=0: n_traj initial=537823, remaining=195704 %=-63.6%
+2023-05-04 03:25:25:lon=190 exp=0: n_traj initial=559848, remaining=172132 %=-69.3%
+2023-05-04 03:28:35:lon=165 exp=0: n_traj initial=537823, remaining=195704 %=-63.6%
+2023-05-04 03:29:13:lon=190 exp=0: n_traj initial=559848, remaining=172132 %=-69.3%
+2023-05-04 03:29:43:lon=220 exp=0: n_traj initial=493538, remaining=143472 %=-70.9%
+2023-05-04 03:29:57:lon=250 exp=0: n_traj initial=408710, remaining=108892 %=-73.4%
+2023-05-04 03:30:34:lon=165 exp=1: n_traj initial=623943, remaining=221389 %=-64.5%
+2023-05-04 03:31:11:lon=190 exp=1: n_traj initial=596258, remaining=181411 %=-69.6%
+2023-05-04 03:31:41:lon=220 exp=1: n_traj initial=505505, remaining=146257 %=-71.1%
+2023-05-04 03:31:55:lon=250 exp=1: n_traj initial=401104, remaining=106889 %=-73.4%
