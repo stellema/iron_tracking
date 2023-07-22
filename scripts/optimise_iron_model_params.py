@@ -46,23 +46,22 @@ except ModuleNotFoundError:
 logger = mlogger('optimise_iron_model_params')
 
 
-def cost_function(pds, ds, fe_obs, ds_fe, params, rank=0):
+def cost_function(pds, ds, fe_obs, ds_fe, params, comm):
     """Cost function for iron model optmisation (uses weighted least absolute deviations)."""
     params_dict = dict([(k, v) for k, v in zip(pds.param_names, params)])
     pds.update_params(params_dict)
 
     # Particle dataset (only fe vars).
-    fe_pred = update_particles_MPI(pds, ds, ds_fe, pds.param_names, params)
+    fe_pred = update_particles_MPI(pds, ds, ds_fe, pds.param_names, params, comm=comm)
 
     if MPI is not None:
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-        size = comm.Get_size()
-
         # Synchronize all processes.
+        rank = comm.Get_rank()
         comm.Barrier()
-        tmp_files = pds.felx_tmp_filenames(size)
+        tmp_files = pds.felx_tmp_filenames(comm.Get_size())
         fe_pred = xr.open_mfdataset(tmp_files)
+    else:
+        rank = 0
 
     # Final particle Fe.
     fe_pred = fe_pred.fe.ffill('obs').isel(obs=-1, drop=True)
@@ -76,9 +75,11 @@ def cost_function(pds, ds, fe_obs, ds_fe, params, rank=0):
         logger.info('{}: p={}: cost={} {}'.format(pds.exp.id, ds.traj.size, cost, params_dict))
     fe_pred.close()
 
-    if MPI is not None:
-        if tmp_files[rank].exists():  # Delete previous tmp_file before saving
-            os.remove(tmp_files[rank])
+    if MPI is not None and rank == 0:
+        comm.Barrier()
+        for r in range(comm.Get_size()):
+            if tmp_files[r].exists():  # Delete tmp_file
+                os.remove(tmp_files[r])
     return cost
 
 
@@ -97,6 +98,7 @@ def optimise_iron_model_params(lon, method):
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
     else:
+        comm = None
         rank = 0
 
     # Particle dataset.
@@ -141,7 +143,7 @@ def optimise_iron_model_params(lon, method):
                       gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
-    res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, rank),
+    res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, comm),
                    params_init, method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
@@ -156,7 +158,7 @@ def optimise_iron_model_params(lon, method):
         logger.info('{}: Optimimal {}'.format(exp.id, param_dict))
 
         # Calculate the predicted iron concentration using the optimized parameters.
-        ds_opt = update_particles_MPI(pds, ds, ds_fe, pds.param_names, params_optimized)
+        ds_opt = update_particles_MPI(pds, ds, ds_fe, pds.param_names, params_optimized, comm=comm)
 
         # Plot the observed and predicted iron concentrations.
         test_plot_EUC_iron_depth_profile(pds, ds_opt, ds_fe)
@@ -185,7 +187,7 @@ def optimise_multi_lon_dataset():
     for i in range(n):
         logger.info('Init dataset: {}'.format(i))
         # Experiment class.
-        pds = FelxDataSet(ExpData(scenario=0, lon=lons[i]))
+        pds = FelxDataSet(ExpData(scenario=0, lon=lons[i], version=9))
 
         if cfg.test:
             ds_list[i] = ds_list[i].isel(traj=slice(10))
@@ -238,6 +240,7 @@ def optimise_iron_model_params_multi_lon(lon, method):
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
     else:
+        comm = None
         rank = 0
 
     ds_fe, ds, fe_obs = optimise_multi_lon_dataset()
@@ -247,7 +250,7 @@ def optimise_iron_model_params_multi_lon(lon, method):
         ds = ds.isel(traj=slice(10))
 
     # Source iron profile.
-    pds = FelxDataSet(ExpData(scenario=0, lon=lon))
+    pds = FelxDataSet(ExpData(scenario=0, lon=lon, version=9))
 
     # Paramaters to optimise (e.g., a, b, c = params).
     #pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'I_0', 'PAR', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'a', 'b', 'c']
@@ -262,21 +265,19 @@ def optimise_iron_model_params_multi_lon(lon, method):
                       tau=None, gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
-    if rank == 0:
-        logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
-    res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, rank),
+    logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
+    res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, comm),
                    params_init, method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
     # Update pds params dict with optimised values.
-    if rank == 0:
-        param_dict = dict([(k, v) for k, v in zip(pds.param_names, params_optimized)])
-        pds.update_params(param_dict)
+    param_dict = dict([(k, v) for k, v in zip(pds.param_names, params_optimized)])
+    pds.update_params(param_dict)
 
-        logger.info('felx_hist: p={}, method={}, nit={}, nfev={}, success={}, message={}'
-                    .format(ds.traj.size, method, res.nit, res.nfev, res.success, res.message))
-        logger.info('felx_hist: Init {}'.format(params_init))
-        logger.info('felx_hist: Optimimal {}'.format(param_dict))
+    logger.info('felx_hist: p={}, method={}, nit={}, nfev={}, success={}, message={}'
+                .format(ds.traj.size, method, res.nit, res.nfev, res.success, res.message))
+    logger.info('felx_hist: Init {}'.format(params_init))
+    logger.info('felx_hist: Optimimal {}'.format(param_dict))
     return res
 
 
@@ -286,7 +287,7 @@ if __name__ == '__main__':
                    help='Release longitude [165, 190, 220, 250].')
     args = p.parse_args()
     lon = args.lon
-    method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][0]
+    method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][2]
     logger = mlogger('optimise_iron_model_params_{}'.format(lon))
 
     if lon in [165, 190, 220, 250]:

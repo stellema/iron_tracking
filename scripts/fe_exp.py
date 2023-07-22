@@ -62,7 +62,7 @@ class FelxDataSet(object):
         params['mu_D_180'] = 0.01  # 0.01 b**cT
 
         # Phytoplankton paramaters.
-        params['I_0'] = 280  # Surface incident solar radiation [W/m^2] (not actually constant)
+        params['I_0'] = 300  # Surface incident solar radiation [W/m^2] (not actually constant)
         params['alpha'] = 0.025  # Initial slope of P-I curve [day^-1 / (Wm^-2)]. (Qin: 0.256)
         params['PAR'] = 0.43  # Photosynthetically active radiation (0.34/0.43) [no unit]
         params['a'] = 0.6  # 0.6 Growth rate at 0C [day^-1] (Qin: 0.27?)

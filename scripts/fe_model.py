@@ -143,7 +143,7 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_sc
     # J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
 
     # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
-    J = J_max * min(J_I / J_max, N / (N + k_N), fe / (fe + k_fe))  # [day^-1]
+    J = J_max * min(J_I / J_max, N / (N + k_N), fe / (fe + (0.02 * k_fe)))  # [day^-1]
 
     # Iron Phytoplankton Uptake
     fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
@@ -166,7 +166,7 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_sc
 
 
 @timeit(my_logger=logger)  # Turn off for optimisation
-def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
+def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, comm=None):
     """Run iron model for each particle.
 
     Args:
@@ -177,12 +177,11 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     Returns:
         ds (xarray.Dataset): Particle dataset with updated iron, fe_scav, etc.
     """
-    rank = 0
     if MPI is not None:
-        comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
-        logger.debug('{}: p={}: Subsetting dataset.'.format(pds.exp.file_felx.stem, ds.traj.size))
+
+        # logger.debug('{}: p={}: Subsetting dataset.'.format(pds.exp.file_felx.stem, ds.traj.size))  # !!!
 
         # Distribute particles among processes
         if rank == 0:
@@ -206,7 +205,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     constants = [pds.params[i] for i in constant_names]
 
     # Pre calculate data_variables that require function calls.
-    logger.debug('{}: Calculating J_max and J_I.'.format(pds.exp.file_felx.stem))
+    # logger.debug('{}: Calculating J_max and J_I.'.format(pds.exp.file_felx.stem))
 
     ds['J_max'] = pds.a * np.power(pds.b, (pds.c * ds.temp))
     light = pds.PAR * pds.I_0 * np.exp(-ds.z * np.power(10, ds.kd))
@@ -224,7 +223,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
     gc.collect()
 
     # Run simulation for each particle.
-    logger.info('{}: particles={}: Updating iron.'.format(pds.exp.id, ds.traj.size))
+    # logger.info('{}: particles={}: Updating iron.'.format(pds.exp.id, ds.traj.size))  # !!!
 
     for p in particles:
         # Assign initial iron.
@@ -246,7 +245,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
             gc.collect()
 
     if MPI is not None:
-        logger.info('{}: Saving dataset...'.format(pds.exp.file_felx.stem))
+        # logger.info('{}: Saving dataset...'.format(pds.exp.file_felx.stem))  # !!!
 
         # Save proc dataset as tmp file.
         tmp_files = pds.felx_tmp_filenames(size)
@@ -265,14 +264,14 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None):
         ds.attrs['history'] += str(np.datetime64('now', 's')).replace('T', ' ')
         ds.attrs['history'] += ' Iron model ({})'.format(pds.exp.source_iron)
         ds.to_netcdf(tmp_files[rank], compute=True)
-        logger.info('{}: Saved dataset.'.format(pds.exp.file_felx.stem))
+        # logger.info('{}: Saved dataset.'.format(pds.exp.file_felx.stem))  # !!!
         ds.close()
 
     return ds
 
 
 @timeit(my_logger=logger)
-def run_iron_model(pds):
+def run_iron_model(pds, comm=None):
     """Set up and run Lagrangian iron model.
 
     Args:
@@ -301,8 +300,8 @@ def run_iron_model(pds):
         logger.debug('{}: Dropped background sources p={}.'.format(pds.exp.id, ds.traj.size))
 
     # Run iron model for particles.
-    ds = update_particles_MPI(pds, ds, ds_fe)
-    return ds
+    ds = update_particles_MPI(pds, ds, ds_fe, comm=comm)
+    return
 
 
 if __name__ == '__main__':
@@ -320,8 +319,10 @@ if __name__ == '__main__':
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, source_iron=source_iron)
     pds = FelxDataSet(exp)
 
+    comm = MPI.COMM_WORLD if MPI is not None else None
+
     if args.func == 'run':
-        ds = run_iron_model(pds)
+        run_iron_model(pds, comm=comm)
 
     # elif args.func == 'fix':
     #     fix_particles_v0_err(pds)
@@ -333,7 +334,7 @@ if __name__ == '__main__':
                 ds = pds.save_felx_dataset_fixed()
             else:
                 ds = pds.save_felx_dataset()
-        else:
+        else:  # Partial subsets.
             ds = pds.save_felx_dataset_particle_subset()
 
         ds_fe = iron_source_profiles()
