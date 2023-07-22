@@ -2,8 +2,8 @@
 #PBS -P e14
 #PBS -q normalsr
 #PBS -l walltime=48:00:00
-#PBS -l mem=341GB
-#PBS -l ncpus=44
+#PBS -l mem=482GB
+#PBS -l ncpus=52
 #PBS -l storage=gdata/hh5+gdata/e14
 #PBS -l wd
 #PBS -m ae
@@ -12,7 +12,11 @@
 
 ###############################################################################
 # Run iron model
-# To submit: qsub -v V=1,EXP=0,LON=220,R=0 fe_model.sh
+# To submit:
+# qsub -v V=3,EXP=0,LON=165,R=0 fe_model.sh
+# qsub -v V=3,EXP=0,LON=190,R=0 fe_model.sh
+# qsub -v V=3,EXP=0,LON=220,R=0 fe_model.sh
+# qsub -v V=3,EXP=0,LON=250,R=0 fe_model.sh
 ###############################################################################
 
 ECHO=/bin/echo
