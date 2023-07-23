@@ -147,7 +147,7 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_sc
     fe_phy = 0.02 * J * P
 
     # Iron Scavenging [umol Fe m^-3 day^-1]
-    fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)
+    fe_scav = (fe * k_org * 0.02 * (D)**0.58) + (k_inorg * fe**c_scav)
 
     fe_phy = max(fe_phy, 0)
     fe_scav = max(fe_scav, 0)
