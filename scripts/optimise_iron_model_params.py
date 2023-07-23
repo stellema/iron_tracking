@@ -75,11 +75,9 @@ def cost_function(pds, ds, fe_obs, ds_fe, params, comm):
         logger.info('{}: p={}: cost={} {}'.format(pds.exp.id, ds.traj.size, cost, params_dict))
     fe_pred.close()
 
-    if MPI is not None and rank == 0:
-        comm.Barrier()
-        for r in range(comm.Get_size()):
-            if tmp_files[r].exists():  # Delete tmp_file
-                os.remove(tmp_files[r])
+    if MPI is not None:
+        if tmp_files[rank].exists():  # Delete tmp_file
+            os.remove(tmp_files[rank])
     return cost
 
 
@@ -102,7 +100,7 @@ def optimise_iron_model_params(lon, method):
         rank = 0
 
     # Particle dataset.
-    exp = ExpData(scenario=0, lon=lon)
+    exp = ExpData(scenario=0, lon=lon, version=9)
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
@@ -122,7 +120,7 @@ def optimise_iron_model_params(lon, method):
 
     if MPI is not None:
         ds = comm.bcast(ds, root=0)
-
+    ds = ds.isel(traj=slice(60)) # !!! TEST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # Source iron profile.
     ds_fe = iron_source_profiles()
 
@@ -246,17 +244,22 @@ def optimise_iron_model_params_multi_lon(lon, method):
     ds_fe, ds, fe_obs = optimise_multi_lon_dataset()
     fe_obs = fe_obs['euc_avg']
 
-    if cfg.test:
-        ds = ds.isel(traj=slice(10))
-
     # Source iron profile.
     pds = FelxDataSet(ExpData(scenario=0, lon=lon, version=9))
 
+    if cfg.test:
+        n = 60
+        ds = ds.isel(traj=slice(n))
+        fe_obs = fe_obs.isel(traj=slice(n))
+
     # Paramaters to optimise (e.g., a, b, c = params).
-    #pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'I_0', 'PAR', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'a', 'b', 'c']
-    pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']
+    # pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'I_0', 'PAR', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'a', 'b', 'c']
+    #pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']
+    pds.param_names = ['k_inorg', 'k_org']
     params_init = [pds.params[i] for i in pds.param_names]  # params = params_init
 
+    params_init[-2] = 6e-4
+    params_init[-1] = 1e-4
     param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5],
                       mu_D=[0.005, 0.03], mu_D_180=[0.005, 0.03], mu_P=[0.005, 0.02],
                       gamma_2=[0.005, 0.02], I_0=[280, 350], PAR=[0.323, 0.5375],
@@ -265,7 +268,9 @@ def optimise_iron_model_params_multi_lon(lon, method):
                       tau=None, gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
-    logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
+    if rank == 0:
+        logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
+
     res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, comm),
                    params_init, method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
@@ -274,10 +279,11 @@ def optimise_iron_model_params_multi_lon(lon, method):
     param_dict = dict([(k, v) for k, v in zip(pds.param_names, params_optimized)])
     pds.update_params(param_dict)
 
-    logger.info('felx_hist: p={}, method={}, nit={}, nfev={}, success={}, message={}'
-                .format(ds.traj.size, method, res.nit, res.nfev, res.success, res.message))
-    logger.info('felx_hist: Init {}'.format(params_init))
-    logger.info('felx_hist: Optimimal {}'.format(param_dict))
+    if rank == 0:
+        logger.info('felx_hist: p={}, method={}, nit={}, nfev={}, success={}, message={}'
+                    .format(ds.traj.size, method, res.nit, res.nfev, res.success, res.message))
+        logger.info('felx_hist: Init {}'.format(params_init))
+        logger.info('felx_hist: Optimimal {}'.format(param_dict))
     return res
 
 
@@ -287,7 +293,7 @@ if __name__ == '__main__':
                    help='Release longitude [165, 190, 220, 250].')
     args = p.parse_args()
     lon = args.lon
-    method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][2]
+    method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][0]
     logger = mlogger('optimise_iron_model_params_{}'.format(lon))
 
     if lon in [165, 190, 220, 250]:
