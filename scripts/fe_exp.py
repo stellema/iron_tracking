@@ -58,8 +58,8 @@ class FelxDataSet(object):
         # Detritus paramaters.
         params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
         # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
-        params['mu_D'] = 0.02  # 0.02 b**cT
-        params['mu_D_180'] = 0.01  # 0.01 b**cT
+        params['mu_D'] = 0.005  # 0.02 b**cT
+        params['mu_D_180'] = 0.03  # 0.01 b**cT
 
         # Phytoplankton paramaters.
         params['I_0'] = 300  # Surface incident solar radiation [W/m^2] (not actually constant)

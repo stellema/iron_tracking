@@ -129,39 +129,33 @@ def update_iron_jit(p, t, fe, T, D, Z, P, N, z, J_max, J_I, k_org, k_inorg, c_sc
                     mu_D_180, gamma_2, mu_P, b, c, k_N, k_fe):
     bcT = b**(c * T)  # [no units]
     if z < 180:
-        mu_D = mu_D * bcT  # [day^-1]
+        mu_D = mu_D  # [day^-1]
     else:
-        mu_D = mu_D_180 * bcT  # [day^-1]
+        mu_D = mu_D_180  # [day^-1]
 
-    # # Nitrate limit on phytoplankton growth rate
-    # J_limit_N = N / (N + k_N)  # [no units] (mmol N m^-3 / mmol N m^-3)
-
-    # # Iron limit on phytoplankton growth rate
-    # J_limit_Fe = fe / (fe + (0.02 * k_fe))  # [no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3))
-
-    # # Light limit on phytoplankton growth rate
-    # J_limit_I = J_I / J_max  # [no units] (day^-1 / day^-1)
+    # Iron Remineralisation [umol Fe m^-3 day^-1]
+    fe_reg = 0.02 * (mu_D * bcT * D + gamma_2 * bcT * Z + mu_P * bcT * P)
 
     # Phytoplankton growth rate [day^-1] ((day^-1 * const)^const)
+    # Light limit on phytoplankton growth[no units] (day^-1 / day^-1)
+    # Nitrate limit on phytoplankton growth [no units] (mmol N m^-3 / mmol N m^-3)
+    # Iron limit on phytoplankton growth[no units] (umol Fe m^-3 / (umol Fe m^-3 + umol Fe m^-3))
     J = J_max * min(J_I / J_max, N / (N + k_N), fe / (fe + (0.02 * k_fe)))  # [day^-1]
+    J = max(J, 0)
 
-    # Iron Phytoplankton Uptake
-    fe_phy = 0.02 * J * P  # [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
+    # Iron Phytoplankton Uptake [umol Fe m^-3 day^-1] (0.02 * day^-1 * mmol N m^-3)
+    fe_phy = 0.02 * J * P
 
-    # Iron Remineralisation
-    fe_reg = 0.02 * (mu_D * D + gamma_2 * bcT * Z + mu_P * bcT * P)  # [umol Fe m^-3 day^-1]
+    # Iron Scavenging [umol Fe m^-3 day^-1]
+    fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)
 
-    # Iron Scavenging
-    fe_scav = (fe * k_org * (0.02 * D)**0.58) + (k_inorg * fe**c_scav)  # [umol Fe m^-3 day^-1]
-    # fe_scav = tau * max(0, fe - 0.6)  # [umol Fe m^-3  day^-1]
-
-    fe_phy = max([fe_phy, 0])
-    fe_scav = max([fe_scav, 0])
-    fe_reg = max([fe_reg, 0])
+    fe_phy = max(fe_phy, 0)
+    fe_scav = max(fe_scav, 0)
+    fe_reg = max(fe_reg, 0)
 
     # Iron
     fe = fe + 2 * (fe_reg - fe_phy - fe_scav)
-    fe = max([fe, 0])
+    fe = max(fe, 0)
     return fe, fe_scav, fe_reg, fe_phy
 
 
@@ -181,7 +175,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, comm=Non
         rank = comm.Get_rank()
         size = comm.Get_size()
 
-        # logger.debug('{}: p={}: Subsetting dataset.'.format(pds.exp.file_felx.stem, ds.traj.size))  # !!!
+        logger.debug('{}: p={}: Subsetting dataset.'.format(pds.exp.file_felx.stem, ds.traj.size))  # !!!
 
         # Distribute particles among processes
         if rank == 0:
@@ -205,7 +199,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, comm=Non
     constants = [pds.params[i] for i in constant_names]
 
     # Pre calculate data_variables that require function calls.
-    # logger.debug('{}: Calculating J_max and J_I.'.format(pds.exp.file_felx.stem))
+    logger.debug('{}: Calculating J_max and J_I.'.format(pds.exp.file_felx.stem))
 
     ds['J_max'] = pds.a * np.power(pds.b, (pds.c * ds.temp))
     light = pds.PAR * pds.I_0 * np.exp(-ds.z * np.power(10, ds.kd))
@@ -223,7 +217,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, comm=Non
     gc.collect()
 
     # Run simulation for each particle.
-    # logger.info('{}: particles={}: Updating iron.'.format(pds.exp.id, ds.traj.size))  # !!!
+    logger.info('{}: particles={}: Updating iron.'.format(pds.exp.id, ds.traj.size))
 
     for p in particles:
         # Assign initial iron.
@@ -245,7 +239,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, comm=Non
             gc.collect()
 
     if MPI is not None:
-        # logger.info('{}: Saving dataset...'.format(pds.exp.file_felx.stem))  # !!!
+        logger.info('{}: Saving dataset...'.format(pds.exp.file_felx.stem))
 
         # Save proc dataset as tmp file.
         tmp_files = pds.felx_tmp_filenames(size)
@@ -264,7 +258,7 @@ def update_particles_MPI(pds, ds, ds_fe, param_names=None, params=None, comm=Non
         ds.attrs['history'] += str(np.datetime64('now', 's')).replace('T', ' ')
         ds.attrs['history'] += ' Iron model ({})'.format(pds.exp.source_iron)
         ds.to_netcdf(tmp_files[rank], compute=True)
-        # logger.info('{}: Saved dataset.'.format(pds.exp.file_felx.stem))  # !!!
+        logger.info('{}: Saved dataset.'.format(pds.exp.file_felx.stem))
         ds.close()
 
     return ds
@@ -314,7 +308,8 @@ if __name__ == '__main__':
     p.add_argument('-f', '--func', default='run', type=str, help='run, fix or save.')
     args = p.parse_args()
     scenario, lon, version, index = args.scenario, args.lon, args.version, args.index
-    source_iron = ['LLWBC-obs', 'LLWBC-low', 'LLWBC-proj', 'depth-mean', 'LLWBC-mean'][version]
+    source_iron = ['LLWBC-obs', 'LLWBC-low', 'LLWBC-proj', 'depth-mean',
+                   'LLWBC-obs', 'LLWBC-proj', 'depth-mean'][version]
 
     exp = ExpData(scenario=scenario, lon=lon, version=version, file_index=index, source_iron=source_iron)
     pds = FelxDataSet(exp)
@@ -328,12 +323,8 @@ if __name__ == '__main__':
     #     fix_particles_v0_err(pds)
 
     elif args.func == 'save' and not pds.file_felx.exists():
-        if pds.exp.version in [0, 3]:
-            felx_file_tmp = pds.exp.out_subdir / 'tmp_err/{}'.format(exp.file_felx.name)
-            if felx_file_tmp.exists():
-                ds = pds.save_felx_dataset_fixed()
-            else:
-                ds = pds.save_felx_dataset()
+        if source_iron in ['LLWBC-obs', 'depth-mean']:
+            ds = pds.save_felx_dataset()
         else:  # Partial subsets.
             ds = pds.save_felx_dataset_particle_subset()
 
