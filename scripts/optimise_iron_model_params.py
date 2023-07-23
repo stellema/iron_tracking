@@ -46,7 +46,7 @@ except ModuleNotFoundError:
 logger = mlogger('optimise_iron_model_params')
 
 
-def cost_function(pds, ds, fe_obs, ds_fe, params, comm):
+def cost_function(params, pds, ds, fe_obs, ds_fe, comm):
     """Cost function for iron model optmisation (uses weighted least absolute deviations)."""
     params_dict = dict([(k, v) for k, v in zip(pds.param_names, params)])
     pds.update_params(params_dict)
@@ -120,7 +120,10 @@ def optimise_iron_model_params(lon, method):
 
     if MPI is not None:
         ds = comm.bcast(ds, root=0)
-    ds = ds.isel(traj=slice(60)) # !!! TEST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+    if cfg.test:
+        ds = ds.isel(traj=slice(30))
+
     # Source iron profile.
     ds_fe = iron_source_profiles()
 
@@ -141,8 +144,8 @@ def optimise_iron_model_params(lon, method):
                       gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
-    res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, comm),
-                   params_init, method=method, bounds=bounds, options={'disp': True})
+    res = minimize(cost_function, params_init, args=(pds, ds, fe_obs, ds_fe, comm),
+                   method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
     # Update pds params dict with optimised values.
@@ -246,20 +249,21 @@ def optimise_iron_model_params_multi_lon(lon, method):
 
     # Source iron profile.
     pds = FelxDataSet(ExpData(scenario=0, lon=lon, version=9))
+    pds.add_iron_model_params()
 
     if cfg.test:
-        n = 60
+        n = 20
         ds = ds.isel(traj=slice(n))
         fe_obs = fe_obs.isel(traj=slice(n))
 
     # Paramaters to optimise (e.g., a, b, c = params).
-    # pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'I_0', 'PAR', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'a', 'b', 'c']
-    #pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']
+    # pds.param_names = ['k_inorg', 'k_org', 'c_scav', 'I_0', 'PAR', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'a', 'b', 'c']
+    # pds.param_names = ['k_inorg', 'k_org', 'c_scav', 'mu_D', 'mu_D_180']
     pds.param_names = ['k_inorg', 'k_org']
-    params_init = [pds.params[i] for i in pds.param_names]  # params = params_init
+    params_init = np.array([pds.params[i] for i in pds.param_names])  # params = params_init
+    params_init[0] = 6e-4
+    params_init[1] = 1e-4
 
-    params_init[-2] = 6e-4
-    params_init[-1] = 1e-4
     param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5],
                       mu_D=[0.005, 0.03], mu_D_180=[0.005, 0.03], mu_P=[0.005, 0.02],
                       gamma_2=[0.005, 0.02], I_0=[280, 350], PAR=[0.323, 0.5375],
@@ -271,8 +275,8 @@ def optimise_iron_model_params_multi_lon(lon, method):
     if rank == 0:
         logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
 
-    res = minimize(lambda params: cost_function(pds, ds, fe_obs, ds_fe, params, comm),
-                   params_init, method=method, bounds=bounds, options={'disp': True})
+    res = minimize(cost_function, params_init, args=(pds, ds, fe_obs, ds_fe, comm),
+                   method=method, bounds=bounds, options={'disp': True})
     params_optimized = res.x
 
     # Update pds params dict with optimised values.
