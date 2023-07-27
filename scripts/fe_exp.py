@@ -51,15 +51,15 @@ class FelxDataSet(object):
         params = {}
         # Scavenging paramaters.
         params['c_scav'] = 2.5  # Scavenging rate constant [no units]
-        params['k_org'] = 4e-4  # Organic iron scavenging rate constant [(nM Fe)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
-        params['k_inorg'] = 1e-3  # Inorganic iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
-        params['tau'] = 1.24e-2  # Scavenging rate [day^-1] (OFAM3 equation) (Oke: 1, other: 1.24e-2)
+        params['k_org'] = 0.000618  # Organic iron scavenging rate constant [(uM N)^-0.58 day^-1] (Qin: 1.0521e-4, Galbraith: 4e-4)
+        params['k_inorg'] = 0.00117  # Inorganic iron scavenging rate constant [(nM m Fe)^-0.5 day^-1] (Qin: 6.10e-4, Galbraith: 6e-4)
+        # params['tau'] = 1.24e-2  # Scavenging rate [day^-1] (OFAM3 equation) (Oke: 1, other: 1.24e-2)
 
         # Detritus paramaters.
+        params['mu_D'] = 0.001  # 0.02 b**cT
+        params['mu_D_180'] = 0.05  # 0.01 b**cT
         params['w_D'] = 10  # Detritus sinking velocity [m day^-1] (Qin: 10 or Oke: 5)
         # params['w_D'] = lambda z: 16 + max(0, (z - 80)) * 0.05  # [m day^-1] linearly increases by 0.5 below 80m
-        params['mu_D'] = 0.005  # 0.02 b**cT
-        params['mu_D_180'] = 0.03  # 0.01 b**cT
 
         # Phytoplankton paramaters.
         params['I_0'] = 300  # Surface incident solar radiation [W/m^2] (not actually constant)
@@ -74,10 +74,10 @@ class FelxDataSet(object):
 
         # Zooplankton paramaters.
         params['gamma_1'] = 0.85  # Assimilation efficiency [no units]
+        params['gamma_2'] = 0.01  # (*b^cT) Excretion [day^-1]
         params['g'] = 2.1  # Maximum grazing rate [day^-1]
         params['epsilon'] = 1.1  # Prey capture rate [(mmol N m^-3)^-1 day^-1]
         params['mu_Z'] = 0.06  # Quadratic mortality [(mmol N m^-3)^-1 day^-1]
-        params['gamma_2'] = 0.01  # (*b^cT) Excretion [day^-1]
 
         for name, value in params.items():
             setattr(self, name, value)
@@ -733,26 +733,3 @@ class FelxDataSet(object):
         ds['names'] = ('zone', zones.names)
         ds['colors'] = ('zone', zones.colors)
         return ds
-
-    # def fe_model_sources_versions(self, add_diff=False):
-    #     """Open fe model source dataset for all longitudes."""
-    #     ds = pds.fe_model_sources_all(add_diff=True)
-    #     ds2 = FelxDataSet(ExpData(version=2)).fe_model_sources_all(add_diff=True)
-    #     ds3 = FelxDataSet(ExpData(version=3)).fe_model_sources_all(add_diff=True)
-    #     ds_all = xr.concat([d.expand_dims(v=i) for i, d in zip([0, 2, 3], [ds, ds2, ds3])], 'v')
-
-    #     ds = [self.fe_model_sources(lon=i, add_diff=False) for i in self.release_lons]
-    #     ds = [ds[i].expand_dims(dict(x=[x]), axis=1) for i, x in enumerate(self.release_lons)]
-    #     ds = xr.concat(ds, 'x')
-
-    #     ds = ds.drop(['names', 'colors'])
-    #     for k in ds.data_vars:
-    #         if 'long_name' in ds[k].attrs:
-    #             ds[k].attrs['long_name'] = ds[k].attrs['long_name'].replace('Dissolved Iron', 'dFe')
-
-    #     if add_diff:
-    #         ds = xr.concat([ds, (ds.isel(exp=1, drop=True) - ds.isel(exp=0, drop=True)
-    #                              ).expand_dims(dict(exp=[2]))], 'exp')
-
-    #     ds['names'] = ('zone', zones.names)
-    #     ds['colors'] = ('zone', zones.colors)
