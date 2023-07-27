@@ -67,9 +67,10 @@ def cost_function(params, pds, ds, fe_obs, ds_fe, comm):
     fe_pred = fe_pred.fe.ffill('obs').isel(obs=-1, drop=True)
 
     # Error for each particle.
-    cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean()  # Least absolute deviations
+    # cost = np.fabs((fe_obs - fe_pred)).weighted(ds.u).mean()  # Least absolute deviations
+    cost = np.fabs((fe_obs - fe_pred)).mean()  # Least absolute deviations
     # cost = np.sqrt(np.sum((F_obs - F_pred)**2) / F_obs.size)  # RSMD
-    cost = cost.load().item()
+    cost = cost.load().item() * 10
 
     if rank == 0:
         logger.info('{}: p={}: cost={} {}'.format(pds.exp.id, ds.traj.size, cost, params_dict))
@@ -259,21 +260,23 @@ def optimise_iron_model_params_multi_lon(lon, method):
     # Paramaters to optimise (e.g., a, b, c = params).
     # pds.param_names = ['k_inorg', 'k_org', 'c_scav', 'I_0', 'PAR', 'mu_D', 'mu_D_180', 'gamma_2', 'mu_P', 'a', 'b', 'c']
     # pds.param_names = ['k_inorg', 'k_org', 'c_scav', 'mu_D', 'mu_D_180']
-    pds.param_names = ['k_inorg', 'k_org']
+    pds.param_names = ['k_inorg', 'k_org', 'mu_D', 'mu_D_180', 'c_scav']
     params_init = np.array([pds.params[i] for i in pds.param_names])  # params = params_init
-    params_init[0] = 6e-4
-    params_init[1] = 1e-4
-
-    param_bnds = dict(k_org=[1e-8, 1e-3], k_inorg=[1e-8, 1e-3], c_scav=[1.5, 2.5],
-                      mu_D=[0.005, 0.03], mu_D_180=[0.005, 0.03], mu_P=[0.005, 0.02],
-                      gamma_2=[0.005, 0.02], I_0=[280, 350], PAR=[0.323, 0.5375],
+    params_init[0] = 1.05e-3
+    params_init[1] = 6e-4
+    params_init[2] = 0.001
+    params_init[3] = 0.05
+    params_init[4] = 2.5
+    param_bnds = dict(k_org=[1e-6, 1e-2], k_inorg=[1e-6, 1e-2], c_scav=[1.5, 2.5],
+                      mu_D=[0.001, 0.05], mu_D_180=[0.001, 0.05], mu_P=[0.005, 0.02],
+                      gamma_2=[0.005, 0.03], I_0=[280, 350], PAR=[0.323, 0.5375],
                       a=[0.45, 0.75], b=[0.8, 1.33], c=[0.75, 1.25],
                       alpha=[0.02, 0.03], k_fe=[0.75, 1.25], k_N=[0.75, 1.25],
                       tau=None, gamma_1=None, g=None, epsilon=None, mu_Z=None)
     bounds = [tuple(param_bnds[i]) for i in pds.param_names]
 
     if rank == 0:
-        logger.info('felx_hist: Optimisation {} method - init {}'.format(method, params_init))
+        logger.info('felx_hist: Optimisation {} method - init {} (fixed scavenging detritus conversion (k_org*=0.02; unweighted)'.format(method, params_init))
 
     res = minimize(cost_function, params_init, args=(pds, ds, fe_obs, ds_fe, comm),
                    method=method, bounds=bounds, options={'disp': True})
@@ -291,16 +294,86 @@ def optimise_iron_model_params_multi_lon(lon, method):
     return res
 
 
+def test_plot_optimise_iron_model_params_multi_lon(lon):
+    """Plot and save dataset with optmised values."""
+    if MPI is not None:
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+    else:
+        comm = None
+        rank = 0
+
+    pds = FelxDataSet(ExpData(scenario=0, lon=lon, version=9))
+    pds.add_iron_model_params()
+    file = pds.exp.file_felx
+
+    ds_fe, ds, fe_obs = optimise_multi_lon_dataset()
+    fe_obs = fe_obs['euc_avg']
+    param_dict = {'c_scav': 2.5, 'k_inorg': 0.0011708984374999998, 'k_org': 0.0006181640625000001, 'mu_D': 0.001, 'mu_D_180': 0.05}
+    param_dict = {'c_scav': 2, 'k_inorg': 0.0009053696000000005, 'k_org': 0.00040948480000000005, 'mu_D': 0.001, 'mu_D_180': 0.05}
+    # param_dict = {'k_inorg': 0.0011076, 'k_org': 0.00057648, 'mu_D': 0.0010112, 'mu_D_180': 0.05, 'c_scav': 2.5}
+    pds.param_names = ['c_scav', 'k_inorg', 'k_org', 'mu_D', 'mu_D_180']
+    params = np.array([param_dict[i] for i in pds.param_names])  # params = params_init
+
+    # Calculate the predicted iron concentration using the optimized parameters.
+    ds_opt = update_particles_MPI(pds, ds, ds_fe, pds.param_names, params, comm=comm)
+
+    if rank == 0:
+        tmp_files = pds.felx_tmp_filenames(comm.Get_size())
+        ds_opt = xr.open_mfdataset(tmp_files)
+        for var in pds.variables:
+            ds[var] = ds_opt[var]
+        ds = ds.unify_chunks()
+
+        if 'obs' in ds.zone.dims:
+            ds['zone'] = ds.zone.isel(obs=0)  # Not run in v0
+
+        # Add metadata
+        ds = pds.add_variable_attrs(ds)
+
+        # Save dataset.
+        comp = dict(zlib=True, complevel=5, contiguous=False)
+        for var in ds:
+            ds[var].encoding.update(comp)
+
+        # Tests
+        # all iron non-negative
+        # phyto uptake okay
+        # remineralisation okay
+        # Scavenging okay
+
+        # Plot
+        p = [0, 2135, 2782, 3211, 3294]  # Particle ID of lontitude subsets
+
+        for i in range(4):
+            dx = ds.isel(traj=slice(p[i], p[i+1]))
+            pds = FelxDataSet(ExpData(scenario=0, lon=cfg.release_lons[i], version=9))
+            test_plot_EUC_iron_depth_profile(pds, dx, ds_fe)
+
+        ds = ds.chunk()
+        ds.to_netcdf(file)
+
+    #if MPI is not None:
+        #comm.Barrier()
+        #if tmp_files[rank].exists():  # Delete tmp_file
+            #os.remove(tmp_files[rank])
+
+
 if __name__ == '__main__':
     p = ArgumentParser(description="""Optimise iron model paramaters.""")
     p.add_argument('-x', '--lon', default=0, type=int,
                    help='Release longitude [165, 190, 220, 250].')
+    p.add_argument('-f', '--function', default='run', type=str, help='Run or plot.')
     args = p.parse_args()
     lon = args.lon
     method = ['Nelder-Mead', 'L-BFGS-B', 'Powell', 'TNC'][0]
     logger = mlogger('optimise_iron_model_params_{}'.format(lon))
+    # cfg.test = True
 
-    if lon in [165, 190, 220, 250]:
-        res = optimise_iron_model_params(lon, method=method)
+    if args.function == 'run':
+        if lon in [165, 190, 220, 250]:
+            res = optimise_iron_model_params(lon, method=method)
+        else:
+            res = optimise_iron_model_params_multi_lon(lon, method=method)
     else:
-        res = optimise_iron_model_params_multi_lon(lon, method=method)
+        test_plot_optimise_iron_model_params_multi_lon(lon)
