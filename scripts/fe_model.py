@@ -322,7 +322,7 @@ if __name__ == '__main__':
     # elif args.func == 'fix':
     #     fix_particles_v0_err(pds)
 
-    elif args.func == 'save' and not pds.file_felx.exists():
+    elif args.func == 'save' and not pds.exp.file_felx.exists():
         if source_iron in ['LLWBC-obs', 'depth-mean']:
             ds = pds.save_felx_dataset()
         else:  # Partial subsets.
