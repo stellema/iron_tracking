@@ -14,7 +14,7 @@
 cd /g/data/e14/as3189/OFAM/trop_pac
 # Historical 2000-2012
 for var in "phy" "zoo" "det" "no3" "temp" "fe" "w" "u" "v"; do
-  gzip -7v ocean_"$var"_*.nc.gz &
+  gzip -7v ocean_"$var"_*.nc &
 done
 
 wait
