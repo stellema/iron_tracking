@@ -30,7 +30,7 @@ logger = mlogger('fe_model_test')
 
 def plot_seawifs_chlorophyll():
     """Plot seaWIFIS chlorophyll climatology map."""
-    ds = xr.open_mfdataset([paths.obs / 'GMIS_SEAWIFS/GMIS_A_CHLA_{:02d}.nc'.format(i)
+    ds = xr.open_mfdataset([paths.obs / 'GMIS_SEAWIFS/GMIS_S_CHLA_{:02d}.nc'.format(i)
                             for i in range(1, 13)], combine='nested', concat_dim='time',
                            decode_cf=0)
     ds = ds.Chl_a
