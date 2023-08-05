@@ -28,7 +28,7 @@ from fe_obs_dataset import FeObsDataset, FeObsDatasets, iron_source_profiles
 from tools import mlogger
 
 
-def create_map_axis(fig, ax, extent=[120, 285, -10, 10]):
+def create_map_axis(fig, ax, extent=[120, 285, -10, 10], ocean_color=None):
     """Create a figure and axis with cartopy."""
     proj = ccrs.PlateCarree()
     proj._threshold /= 20.
@@ -39,6 +39,8 @@ def create_map_axis(fig, ax, extent=[120, 285, -10, 10]):
     # Features.
     ax.add_feature(cfeature.LAND, color=cfeature.COLORS['land_alt1'])
     ax.add_feature(cfeature.COASTLINE)
+    if ocean_color is not None:
+        ax.add_feature(cfeature.OCEAN, color=ocean_color, zorder=1)
 
     # Set ticks.
     xticks = np.arange(*extent[:2], 20)
@@ -146,122 +148,97 @@ def plot_iron_obs_Huang(ds):
     plt.show()
 
 
-def plot_iron_obs_maps(dfs):
+def plot_iron_obs_maps(dfs, labels='reference', add_bounds=True, add_labels=True):
     """Plot Tagliabue & GEOTRACES data positions."""
+    # labels = ['time', 'reference'][0]  # Plot by obs time or reference
+    # add_labels = True
+    # add_bounds = 0  # Add obs region boxes
+
     if not hasattr(dfs, 'ds_geo'):
         dfs.ds_geo = dfs.GEOTRACES_iron_dataset()
     if not hasattr(dfs, 'ds_tag'):
         dfs.ds_tag = dfs.Tagliabue_iron_dataset()
 
-    names = ['a) GEOTRACES IDP2021', 'b) Tagliabue et al. (2012) Dataset [2015 Update]']
+    lats, lons = [-11, 11], [110, 290]
+    colors = np.array(['mediumorchid', 'royalblue', 'seagreen', 'coral', 'darkred', 'red',
+                       'm', 'brown', 'deeppink', 'cyan', 'darkviolet', 'y', 'dodgerblue',
+                       'hotpink', 'b', 'grey', 'teal', 'springgreen', 'navy', 'forestgreen',
+                       'mediumorchid', 'purple'])
 
-    # Global plot (seperate).
-    fig = plt.figure(figsize=(12, 10))
-    for i, ds in enumerate([dfs.ds_geo, dfs.ds_tag]):
-        ax = fig.add_subplot(211 + i, projection=ccrs.PlateCarree(central_longitude=180))
-        fig, ax, proj = create_map_axis(fig, ax, extent=[0, 360, -80, 80])
-        ax.scatter(ds.x, ds.y, c='navy', s=9, marker='*', transform=proj)
-        ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
-        ax.set_title('{} iron observations'.format(names[i]), loc='left')
-    plt.tight_layout()
-    plt.savefig(paths.figs / 'obs/iron_obs_map_global.png')
+    # Fix boxes & colors for map plot
+    obs_site = {}
+    obs_site['mc'] = dict(y=[4.5, 8], x=[118, 133], c='seagreen')
+    obs_site['png'] = dict(y=[-4.8, -3], x=[140.5, 147], c='darkorange')
+    obs_site['ss'] = dict(y=[-5.5, -2.6], x=[151, 158], c='deeppink')
+    obs_site['int_s'] = dict(y=[-10.5, -2.6], x=[170, 277], c='k')
+    obs_site['int_n'] = dict(y=[2.6, 10.5], x=[138, 275], c='k')
 
-    ##############################################################################################
-    # Tropical Pacific.
-    fig = plt.figure(figsize=(12, 6))
+    fig = plt.figure(figsize=(12, 6.5))
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
-    fig, ax, proj = create_map_axis(fig, ax, extent=[120, 290, -30, 30])
+    fig, ax, proj = create_map_axis(fig, ax, extent=[115, 290, -11, 11], ocean_color='azure')
 
-    for i, ds, c in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['blue', 'red']):
-        ax.scatter(ds.x, ds.y, c=c, s=15, marker='*', alpha=0.7, transform=proj)
-    ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
-    ax.set_title('Iron observations from (blue) GEOTRACES IDP2021 and '
-                 + '(red) Tagliabue et al. (2012) dataset [2015 Update]')
-    plt.tight_layout()
-    plt.savefig(paths.figs / 'obs/iron_obs_map_pacific.png')
-
-    ##############################################################################################
-    # Tropical Pacific (References/cruises).
-    lats, lons = [-10.1, 10.1], [110, 290]
-    colors = np.array(['navy', 'royalblue', 'orange', 'green', 'darkred', 'red',
-                       'm', 'brown', 'deeppink', 'cyan', 'darkviolet', 'y',
-                       'dodgerblue', 'hotpink', 'b', 'grey', 'springgreen'])
-    fig = plt.figure(figsize=(13, 7))
-    ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
-    fig, ax, proj = create_map_axis(fig, ax, extent=[110, 290, -12, 12])
-
-    for i, ds, mrk in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['o', 'P']):
-        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
-                      & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
-
-        refs = np.unique(ds['ref'])
-        for j, r in enumerate(refs):
-            dx = ds.where(ds['ref'] == r, drop=True)
-            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j + i * 4], alpha=0.9, transform=proj)
-
-    ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=5)
-    ax.set_title('Locations of iron observations')
-    plt.tight_layout()
-    plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_references.png', dpi=300)
-
-    ##############################################################################################
-    # Tropical Pacific (References/cruises & bounding boxes).
-    fig = plt.figure(figsize=(13, 7))
-    ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
-    fig, ax, proj = create_map_axis(fig, ax, extent=[110, 300, -12, 12])
-
-    for i, ds, mrk in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['o', 'P']):
+    for i, ds, mrk in zip(range(2), [dfs.ds_geo, dfs.ds_tag], ['o', '*']):
         ds = ds.where(~np.isnan(ds.fe), drop=True)
         ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
                       & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
 
-        refs = np.unique(ds['ref'])
+        # Group by references or obs time period.
+        if labels == 'reference':
+            refs = np.unique(ds['ref'])
+            ref_var = 'ref'
+
+        elif labels == 'time':
+            ds['t'] = ('index', ['{}-{:02d}'.format(x.year, x.month)
+                                 for x in pd.to_datetime(ds.t)])
+            ref_var = 't'
+            refs = np.unique(ds.t)
+
         for j, r in enumerate(refs):
-            dx = ds.where(ds['ref'] == r, drop=True)
-            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j + i * 4], alpha=0.9, transform=proj)
+            dx = ds.where(ds[ref_var] == r, drop=True)
 
-    # ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
+            if labels == 'reference':
+                c = colors[j + i * 4]
+            elif labels == 'time':
+                c = colors[j + i * 5]
+                mrk = 'o' if i == 0 else ['^', '>', '<'][j % 3]
 
-    for n in ['mc', 'ss', 'png', 'int_s', 'int_n']:
-        x, y = [dfs.dfe.obs_site[n][v] for v in ['x', 'y']]
-        # Create a rectangle patch with the specified coordinates
-        rect = mpl.patches.Rectangle((x[0], y[0]), x[1] - x[0], y[1] - y[0], lw=1, edgecolor='k', fc='none', transform=proj)
+            if not add_labels:
+                mrk = '*'
+                c = 'navy'
+            ax.scatter(dx.x, dx.y, s=60, marker=mrk, lw=0.3, label=r, c=c, transform=proj)
 
-        # Add the rectangle patch to the axis object
-        ax.add_patch(rect)
+    if add_bounds:
+        for i, n in enumerate(obs_site.keys()):
+            x, y = [obs_site[n][v] for v in ['x', 'y']]
 
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=5)
-    ax.set_title('Iron observations from GEOTRACES IDP2021 and '
-                 + 'Tagliabue et al. (2012) dataset [2015 Update]')
-    plt.tight_layout()
-    plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_references_regions.png', dpi=300)
+            # Create a rectangle patch with the specified coordinates
+            rect = mpl.patches.Rectangle((x[0], y[0]), x[1] - x[0], y[1] - y[0], lw=1.5,
+                                         edgecolor=obs_site[n]['c'], fc='none', transform=proj)
 
-    ##############################################################################################
-    # Tropical Pacific (dates).
-    lats, lons = [-10.1, 10.1], [110, 290]
-    colors = np.array(['navy', 'royalblue', 'orange', 'green', 'darkred', 'red',
-                       'm', 'brown', 'deeppink', 'cyan', 'darkviolet', 'y',
-                       'dodgerblue', 'hotpink', 'b', 'grey', 'springgreen', 'k'])
-    fig = plt.figure(figsize=(13, 7))
-    ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
-    fig, ax, proj = create_map_axis(fig, ax, extent=[110, 290, -12, 12])
-
-    for i, ds, mrk in zip(range(2), [dfs.ds_tag, dfs.ds_geo], ['o', 'P']):
-        ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
-                      & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
-        ds['t'] = ('index', ['{}-{:02d}'.format(x.year, x.month) for x in pd.to_datetime(ds.t)])
-        refs = np.unique(ds.t)
-        for j, r in enumerate(refs):
-            dx = ds.where(ds.t == r, drop=True)
-
-            ax.scatter(dx.x, dx.y, s=30, marker=mrk, label=r, c=colors[j], alpha=0.9, transform=proj)
+            # Add the rectangle patch to the axis object
+            ax.add_patch(rect)
 
     ax.axhline(y=0, c='k', lw=0.5)  # Add reference line at the equator.
-    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1, ncols=5)
-    ax.set_title('Locations of iron observations')
+    xticks = np.arange(130, 295, 20)
+    ax.set_xticks(xticks, crs=proj)
+    ax.set_xticklabels(['{}°E'.format(i) for i in xticks])
+    ax.set_yticks(np.arange(-10, 12, 4), crs=proj)
+
+    if add_labels:
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1,
+                  ncols=5 if labels == 'reference' else 6)
+
+    ax.set_title('Iron observations from GEOTRACES IDP2021 and '
+                 + 'Tagliabue et al. (2012) dataset [2015 Version]', loc='left')
     plt.tight_layout()
-    plt.savefig(paths.figs / 'obs/iron_obs_map_pacific_dates.png', dpi=300)
+
+    name = 'iron_obs_map_pacific'
+    if add_labels:
+        name += '_{}'.format(labels)
+    if add_bounds:
+        name += '_regions'
+    plt.savefig(paths.figs / 'obs/{}.png'.format(name), dpi=300)
+
 
 def plot_iron_obs_straits(dfe_geo, dfe_tag, dfe_ml):
     """Plot Tagliabue & GEOTRACES data positions."""
@@ -597,17 +574,21 @@ def plot_dfs_source_zprofile(dfs):
 if __name__ == '__main__':
     logger = mlogger('iron_observations')
     dfs = FeObsDatasets()
-    # dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
-    # dfs.dfe = FeObsDataset(dfs.ds)
+    dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
+    dfs.dfe = FeObsDataset(dfs.ds)
 
-    # setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
-    # setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
+    setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
+    setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
 
-    # # setattr(dfs, 'dfe_ml', FeObsDataset(dfs.Huang_iron_dataset()))
-    # setattr(dfs, 'dfe_geo', FeObsDataset(dfs.GEOTRACES_iron_dataset_4D()))
-    # setattr(dfs, 'dfe_tag', FeObsDataset(dfs.Tagliabue_iron_dataset_4D()))
+    # setattr(dfs, 'dfe_ml', FeObsDataset(dfs.Huang_iron_dataset()))
+    setattr(dfs, 'dfe_geo', FeObsDataset(dfs.GEOTRACES_iron_dataset_4D()))
+    setattr(dfs, 'dfe_tag', FeObsDataset(dfs.Tagliabue_iron_dataset_4D()))
 
-    # plot_iron_obs_Huang(dfs.dfe_ml.ds)
-    # plot_iron_obs_maps(dfs)
-    # plot_iron_obs_straits(dfs.dfe_geo, dfs.dfe_tag, dfs.dfe_ml)
-    # plot_combined_iron_obs_datasets(dfs)
+    plot_iron_obs_Huang(dfs.dfe_ml.ds)
+    plot_iron_obs_maps(dfs)
+    plot_iron_obs_straits(dfs.dfe_geo, dfs.dfe_tag, dfs.dfe_ml)
+    plot_combined_iron_obs_datasets(dfs)
+
+    plot_iron_obs_maps(dfs, add_bounds=False, add_labels=False)
+    plot_iron_obs_maps(dfs, labels='reference', add_bounds=True, add_labels=True)
+    plot_iron_obs_maps(dfs, labels='time', add_bounds=False, add_labels=True)
