@@ -203,7 +203,7 @@ class ExpData:
         # Data file names.
         # File base
         self.id = '{}_{}_v{}_{:02d}'.format(self.scenario_abbr, self.lon, self.version, self.file_index)
-        self.id_v0 = '{}_{}_v0_{:02d}'.format(self.scenario_abbr, self.lon, self.file_index)
+        self.id_v0 = '{}_{}_v4_{:02d}'.format(self.scenario_abbr, self.lon, self.file_index)
 
         # Iron model finished files
         self.file_felx = self.out_subdir / 'fe_{}.nc'.format(self.id)

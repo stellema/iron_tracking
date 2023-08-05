@@ -487,7 +487,7 @@ class FelxDataSet(object):
         tmp_files = [f for f in tmp_files if f.exists()]
         ds_new_list = [xr.open_dataset(f) for f in tmp_files]
 
-        felx_file_v0 = self.exp.out_dir / 'v0/fe_{}.nc'.format(self.exp.id_v0)
+        felx_file_v0 = self.exp.out_dir / 'v4/fe_{}.nc'.format(self.exp.id_v0)
         ds = xr.open_dataset(felx_file_v0)  # Open v0 complete felx dataset.
 
         # Add fe model output from temp files
@@ -699,6 +699,8 @@ class FelxDataSet(object):
         version = [version] * 2
         if version[0] == 2:
             version[0] = 0  # Use version 0 for historical comparison
+        if version[0] == 5:
+            version[0] = 4  # Use version 0 for historical comparison
         exps = [ExpData(scenario=i, lon=lon, version=version[i]) for i in range(2)]
         ds = [xr.open_dataset(exp.file_source, decode_timedelta=False) for exp in exps]
         ds = concat_exp_dimension(ds, add_diff=add_diff)
