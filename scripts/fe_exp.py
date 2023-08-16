@@ -550,12 +550,14 @@ class FelxDataSet(object):
                  'kd': {'long_name': 'Diffuse Attenuation Coefficient at 490 nm',
                         'standard_name': 'Kd490', 'units': 'm^-1', 'source': 'SeaWiFS-GMIS'},
                  'fe': {'long_name': 'Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},
-                 'fe_flux': {'long_name': 'Dissolved Iron Flux', 'standard_name': 'dFe flux', 'units': 'umol m^-2 s^-1 Fe'},
+                 'fe_flux': {'long_name': 'Dissolved Iron Flux', 'standard_name': 'dFe flux',
+                             'units': 'umol m^-2 s^-1 Fe'},
                  'fe_scav': {'long_name': 'Scavenged Dissolved Iron', 'standard_name': 'dFe',
                              'units': 'umol/m^3 Fe'},
-                 'fe_reg': {'long_name': 'Remineralised Dissolved Iron', 'standard_name': 'dFe', 'units': 'umol/m^3 Fe'},
-                 'fe_phy': {'long_name': 'Phytoplankton Dissolved Iron Uptake', 'standard_name': 'dFe',
-                            'units': 'umol/m^3 Fe'}
+                 'fe_reg': {'long_name': 'Remineralised Dissolved Iron', 'standard_name': 'dFe',
+                            'units': 'umol/m^3 Fe'},
+                 'fe_phy': {'long_name': 'Phytoplankton Dissolved Iron Uptake',
+                            'standard_name': 'dFe', 'units': 'umol/m^3 Fe'}
                  }
 
         for k, v in attrs.items():
@@ -576,15 +578,13 @@ class FelxDataSet(object):
                     if 'mmol' in str(ds[v].attrs['units']):
                         ds[v].attrs['units'] = 'μM N'
 
-                if 'long_name' in ds[v].attrs:
-                    # Replace 'Dissolved Iron' with 'dFe'
-                    ds[v].attrs['long_name'] = ds[v].attrs['long_name'].title()
-                    ds[v].attrs['long_name'] = ds[v].attrs['long_name'].replace('Dissolved Iron', 'dFe')
-
-                if 'standard_name' in ds[v].attrs:
-                    if ds[v].attrs['standard_name'] != 'dFe':
-                        ds[v].attrs['standard_name'] = ds[v].attrs['standard_name'].title()
-
+                for n in ['long_name', 'standard_name']:
+                    if n in ds[v].attrs:
+                        # Replace 'Dissolved Iron' with 'dFe'
+                        ds[v].attrs[n] = ds[v].attrs[n].replace('Dissolved Iron', 'dFe')
+                        # if 'dFe' not in str(ds[v].attrs[n]):
+                        ds[v].attrs[n] = ds[v].attrs[n].title()
+                        ds[v].attrs[n] = str(ds[v].attrs[n]).replace('Dfe', 'dFe')
         return ds
 
     def weighted_mean(self, ds, var='fe', dim='traj', groupby_depth=False):
@@ -715,6 +715,9 @@ class FelxDataSet(object):
                 # Replace umol/m^2 s with nM Sv.
                 ds[v] *= DXDY  # Convert from mass flux to volume flux.
                 ds[v].attrs['units'] = 'nM Sv'
+            for var in ['fe_scav_avg', 'fe_phy_avg', 'fe_reg_avg']:
+                if var in str(v):
+                    ds[v] *= 2  # Convert from nM per day to nM.
         return ds
 
     def fe_model_sources_all(self, version=None, add_diff=False):

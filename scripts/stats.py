@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+"""Statistical tests.
 
 Notes:
 
@@ -10,20 +10,6 @@ Todo:
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
 @created: Sat Jun 24 01:04:50 2023
-
-"""
-# -*- coding: utf-8 -*-
-"""Statistical tests.
-
-Example:
-
-Notes:
-
-Todo:
-
-@author: Annette Stellema
-@email: a.stellema@unsw.edu.au
-@created: Mon Aug  1 15:01:41 2022
 
 """
 import math
@@ -84,14 +70,15 @@ def format_pvalue_str(p):
     return sig_str
 
 
-def test_signifiance(x, y):
+def test_signifiance(x, y, format_string=True):
     tdim = x.dims[0]
     def resample(ds):
         return ds.resample({tdim: "Y"}).mean(tdim, keep_attrs=True)
     x, y = x.dropna(tdim, 'all'), y.dropna(tdim, 'all')
     x, y = resample(x), resample(y)
     t, p = stats.wilcoxon(x, y)
-    p = format_pvalue_str(p)
+    if format_string:
+        p = format_pvalue_str(p)
     return p
 
 

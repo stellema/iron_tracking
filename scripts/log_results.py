@@ -63,7 +63,7 @@ def log_source_var(pds, ds, var, lon):
 
 if __name__ == '__main__':
     # Print lagrangian source transport values.
-    for v in [0, 2, 3]:
+    for v in [4, 5, 6]:
         pds = FelxDataSet(ExpData(version=v))
         ds = pds.fe_model_sources_all(add_diff=True)
         logger = mlogger('results_v{}'.format(pds.exp.version))
@@ -71,3 +71,23 @@ if __name__ == '__main__':
         for var in ['u_sum', 'fe_avg', 'fe_src_avg', 'fe_flux_sum', 'fe_reg_avg', 'fe_scav_avg', 'fe_phy_avg']:
             for lon in release_lons:
                 log_source_var(pds, ds, var, lon)
+
+    df = ds.isel(exp=0).dropna('traj', 'all')
+    df = df.drop([v for v in df.data_vars if v not in ['age', 'fe_scav', 'fe_phy', 'fe_reg']])
+    df = df.stack({'f': ('zone', 'traj')}).dropna('f', 'all')
+
+    for v in ['fe_scav', 'fe_phy', 'fe_reg']:
+        print('{}: {:.2e}'.format(v, (df[v] / df.age).mean()))
+
+    # # Print dates contained in each file version.
+    # logger = mlogger('plx_files')
+    # files = [ExpData(scenario=0).file_felx_all, ExpData(scenario=1).file_felx_all]
+    # logger.info('Fe model file indexes')
+    # for s in [0, 1]:
+    #     logger.info(['Historical', 'RCP8.5'][s])
+    #     for i in range(10):
+    #         # exp = ExpData(scenario=s, file_index=i)
+    #         dt = xr.open_dataset(files[s][i])
+    #         dt = dt.time.isel(traj=[0, -1]).ffill('obs').isel(obs=-1)
+    #         logger.info('file index={}: {} to {}'.format(i, *[str(t)[:10] for t in dt.values]))
+    #         dt.close()

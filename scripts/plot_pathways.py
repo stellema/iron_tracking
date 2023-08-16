@@ -272,12 +272,12 @@ def plot_source_pathways(exp, N_total=300, age='mode', add_lon_lines=release_lon
 
     plt.tight_layout()
     plt.savefig(paths.figs / 'pathway_{}_{}_n{}.png'.format(pds.exp.id, age, N_total),
-                bbox_inches='tight', dpi=350)
+                bbox_inches='tight', dpi=300)
     plt.show()
     return
 
 
 if __name__ == "__main__":
-    exp = ExpData(scenario=0, lon=250, version=0, file_index=5)
+    exp = ExpData(scenario=0, lon=165, version=0, file_index=0)
     pds = FelxDataSet(exp)
     plot_source_pathways(exp, N_total=1000, age='mode', add_lon_lines=release_lons)

@@ -153,7 +153,26 @@ def ofam3_datasets(exp, variables=bgc_vars, chunks=None, **kwargs):
     return ds
 
 
-def ofam_clim():
+def ofam_clim(var_list):
+    """Open OFAM3 historical and RCP8.5 climatologies of a variable."""
+    def preprocess(ds):
+        ds = rename_ofam3_coords(ds)
+        for v in ['average_DT', 'Time_bnds']:
+            if v in ds:
+                ds = ds.drop(v)
+        return ds
+    if not isinstance(var_list, list):
+        var_list = list(var_list)
+
+    ds = [xr.open_mfdataset([paths.ofam / 'clim/ocean_{}_{}_climo.nc'.format(v, y) for v in var_list],
+                            preprocess=preprocess) for y in ['1981-2012', '2070-2101']]
+    ds[1].coords['time'] = ds[0]['time'].copy()
+
+    ds = concat_exp_dimension(ds, add_diff=True)
+    return ds
+
+
+def ofam_bgc_clim():
     """Open OFAM3 historical and RCP8.5 climatologies of BGC variables (and kd490 fields)."""
     def preprocess(ds):
         ds = rename_ofam3_coords(ds)
@@ -696,3 +715,71 @@ def llwbc_transport_projections():
     ds.v.sel(lat=-6, method='nearest').plot(**kwargs)
     ds.v.sel(lat=8, method='nearest').plot(**kwargs)
     ds.u.sel(lon=120, method='nearest').plot(**kwargs)
+
+
+def convert_to_transport(ds, lat=None, var='v', sum_dims=['lon', 'lev']):
+    """Sum OFAM3 meridional velocity multiplied by cell depth and width.
+
+    Args:
+        ds (xr.DataArray or xr.DataSet): Contains variable v & dims renamed.
+        lat (float): Latitude when transport is calculated (arrays not tested).
+
+    Returns:
+        ds (xr.DataArray or xr.DataSet): Meridional transport in Sverdrups.
+
+    """
+    dz = ofam_cell_depth()
+    dz = dz.sel(lev=ds.lev.values)
+    if var == 'v':
+        dxdy = cfg.LON_DEG(lat) * 0.1 / 1e6
+
+    elif var == 'u':
+        dxdy = cfg.LAT_DEG * 0.1 / 1e6
+
+    if isinstance(ds, xr.DataArray):
+        ds *= dxdy * dz
+        if sum_dims:
+            ds = ds.sum(sum_dims, skipna=True, keep_attrs=True)
+    else:
+        ds[var] = ds[var] * dxdy * dz
+        if sum_dims:
+            ds[var] = ds[var].sum(sum_dims, skipna=True, keep_attrs=True)
+
+    return ds
+
+
+def get_ofam_clim_circ():
+    """Sum OFAM3 meridional velocity multiplied by cell depth and width.
+
+    Args:
+        ds (xr.DataArray or xr.DataSet): Contains variable v & dims renamed.
+        lat (float): Latitude when transport is calculated (arrays not tested).
+
+    Returns:
+        ds (xr.DataArray or xr.DataSet): Meridional transport in Sverdrups.
+
+    """
+    files = [*[paths.data / 'transport_{}_hist.nc'.format(v) for v in ['EUC', 'LLWBCs']],
+             *[paths.data / 'transport_{}_rcp.nc'.format(v) for v in ['EUC', 'LLWBCs']]]
+    df = [xr.open_mfdataset(f) for f in files]
+
+    for i in [0, 1]:
+        df[i] = df[i].sel(time=slice('2000', '2012'))
+        df[i + 2] = df[i + 2].sel(time=slice('2089', '2101'))
+
+    for i in range(4):
+        df[i] = df[i].groupby('time.month').mean('time').rename({'month': 'time'})
+    for i in [1, 3]:
+        df[i].coords['lon'] = df[0].lon
+
+    dg = [xr.merge(df[:2]).expand_dims(dict(exp=[0])),
+          xr.merge(df[2:]).expand_dims(dict(exp=[1]))]
+
+    ds = xr.concat(dg, 'exp').mean('time')
+
+
+    dz = ofam_cell_depth()
+    dz = dz.sel(lev=ds.lev.values)
+    ds = ds / dz
+
+    return ds

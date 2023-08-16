@@ -37,7 +37,7 @@ import numpy as np
 import xarray as xr  # NOQA
 
 from cfg import ExpData, test
-from datasets import ofam_clim, BGCFields
+from datasets import ofam_bgc_clim, BGCFields
 from fe_model import SourceIron, iron_source_profiles, update_iron_jit
 from particle_BGC_fields import update_field_AAA
 from tools import mlogger, timeit
@@ -222,7 +222,7 @@ def update_particles(pds, ds, ds_fe, param_names=None, params=None):
 
 def add_particles_dD_dz(ds, exp):
     """Add OFAM det at depth above."""
-    df = ofam_clim().rename({'depth': 'z', 'det': 'dD_dz'}).mean('time')
+    df = ofam_bgc_clim().rename({'depth': 'z', 'det': 'dD_dz'}).mean('time')
 
     # Calculate dD/dz (detritus flux)
     zi_1 = (np.abs(df.z - ds.z.fillna(1))).argmin('z')  # Index of depth.

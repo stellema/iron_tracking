@@ -474,9 +474,10 @@ def plot_combined_iron_obs_datasets(dfs):
 
     fig.suptitle('Combined iron obs around the equator (time.month mean)', y=0.92)
     cax = fig.add_axes([0.25, 0.05, 0.5, 0.025])  # [left, bottom, width, height].
-    cbar = fig.colorbar(cs, cax=cax, orientation='horizontal')
+    fig.colorbar(cs, cax=cax, orientation='horizontal')
     fig.subplots_adjust(hspace=0.3, bottom=0.1)
-    plt.savefig(paths.figs / 'obs/iron_obs_equator_combined_all_months.png', bbox_inches='tight', dpi=350)
+    plt.savefig(paths.figs / 'obs/iron_obs_equator_combined_all_months.png', bbox_inches='tight',
+                dpi=300)
     plt.show()
 
     ##############################################################################################

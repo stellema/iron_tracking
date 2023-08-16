@@ -21,7 +21,7 @@ import xarray as xr  # NOQA
 
 import cfg
 from cfg import paths, ltr, scenario_name
-from datasets import ofam_clim, BGCFields
+from datasets import ofam_bgc_clim, BGCFields
 from fe_exp import FelxDataSet
 from tools import mlogger, unique_name
 
@@ -137,7 +137,7 @@ def plot_euc_obs_xz_profile():
 def plot_OFAM3_fields():
     """Plot Johnson et al 2002 EUC obs climatology as a function of depth and longitude."""
     # OFAM3.
-    ds = ofam_clim().mean('time')
+    ds = ofam_bgc_clim().mean('time')
     pds = FelxDataSet()
     ds = pds.add_variable_attrs(ds)
 
@@ -151,7 +151,7 @@ def plot_OFAM3_bgc_clim_at_equator():
     """Plot OFAM BGC variable climatology as a function of depth and longitude."""
     # Open dataset.
     var_list = ['phy', 'zoo', 'det', 'fe', 'no3', 'temp']
-    ds = ofam_clim().mean('time')
+    ds = ofam_bgc_clim().mean('time')
     pds = FelxDataSet()
     ds = pds.add_variable_attrs(ds, post=True)
     ds = ds.drop('kd')
@@ -253,7 +253,7 @@ def plot_ofam_clim_phyto_uptake_limits():
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    ds = ofam_clim().isel(exp=0).mean('time')
+    ds = ofam_bgc_clim().isel(exp=0).mean('time')
 
     # Equator
     dx = ds.sel(lat=0, method='nearest').sel(depth=slice(0, 400))
@@ -335,7 +335,7 @@ def plot_phyto_param_constants():
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    ds = ofam_clim().isel(exp=0).mean('time')
+    ds = ofam_bgc_clim().isel(exp=0).mean('time')
     dx = ds.sel(lat=0, lon=exp.lon, method='nearest').sel(depth=slice(0, 180))
 
     constant_names = ['a', 'b', 'c', 'k_N', 'k_fe', 'PAR', 'I_0', 'alpha']
@@ -384,7 +384,7 @@ def plot_remin_param_constants():
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    ds = ofam_clim().isel(exp=0).mean('time')
+    ds = ofam_bgc_clim().isel(exp=0).mean('time')
     dx = ds.sel(lat=0, lon=exp.lon, method='nearest').sel(depth=slice(0, 350))
 
     constant_names = ['b', 'c', 'mu_P', 'gamma_2', 'mu_D', 'mu_D_180']
@@ -432,7 +432,7 @@ def plot_scav_param_constants():
     pds = FelxDataSet(exp)
     pds.add_iron_model_params()
 
-    # ds = ofam_clim().isel(exp=0).mean('time')
+    # ds = ofam_bgc_clim().isel(exp=0).mean('time')
     # dx = ds.sel(lat=0, lon=exp.lon, method='nearest').sel(depth=slice(0, 350))
 
     constant_names = ['c_scav', 'k_inorg', 'k_org']
