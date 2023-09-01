@@ -170,6 +170,7 @@ class FeObsDatasets():
             ds = ds.rename(dict(time='t', depth='z', lat='y', lon='x', dFe='fe'))
             ds['ref'] = xr.where(ds.ref == 'KondoY et al. (2007)', 'Kondo et al. (2007)', ds.ref)
             ds['ref'] = xr.where(ds.ref == 'Takeda et al. (1995)', 'Takeda and Obata (1995)', ds.ref)
+            ds['ref'] = xr.where(ds.ref == 'Wu et al. (2010)', 'Wu et al. (2011)', ds.ref)
             return ds
 
         ds = pd.read_csv(file)
@@ -519,6 +520,7 @@ class FeObsDataset(object):
         obs_site['int_n'] = dict(y=[2.6, 10], x=[138, 275], name='North Interior', c='b', obs_min=5)
         obs_site['eq'] = dict(y=[-0.5, 0.5], x=[145, 285], name='Equator', c='k')
         obs_site['euc'] = dict(y=[-2.6, 2.6], x=[145, 275], name='Equatorial Undercurrent', c='k')
+        # obs_site['euc'] = dict(y=[-2.6, 2.6], x=[145, 268], name='Equatorial Undercurrent', c='k')  # !!! for plot
 
         # For interior plotting only.
         # obs_site['int'] = dict(y=[obs_site['int_s']['y'], obs_site['int_n']['y']],

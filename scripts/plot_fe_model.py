@@ -319,6 +319,47 @@ def scatter_iron_at_source(pds, ds):
     plt.show()
 
 
+def var_significance(ds, var, fill=[1, 0], stack_exp=True):
+    """Get array that is 1 where change is significant.
+
+    Args:
+        ds (xarray.dataset): Source dataset.
+        dvar (str): Variables [exp, rtime, *dims] (not traj).
+        fill (list, optional): Fill values where significant/not. Defaults to [1, 0].
+
+
+    Returns:
+        sig (numpy.array): significance(*dims)
+
+    """
+    # P-values
+    dims = [dim for dim in ds[var].dims if dim not in ['exp', 'rtime']]
+    pval = np.zeros(tuple([ds[dim].size for dim in dims]))
+
+    # Iterate through first dimension (e.g., longitude).
+    for i in range(ds[dims[0]].size):
+        dx = ds[var].isel({dims[0]: i})
+        if len(dims) == 1:
+            pval[i] = test_signifiance(dx[0], dx[1], format_string=False)
+        else:
+            # Iterate through second dimension (e.g., zone).
+            for j in range(ds[dims[1]].size):
+                dxx = dx.isel({dims[1]: j})
+                pval[i, j] = test_signifiance(dxx[0], dxx[1], format_string=False)
+
+    sig = pval.copy()
+    if fill is not None:
+        # pval = np.where(pval <= 0.05, fill[0], fill[1])  # 1 where significant.
+        sig[pval <= 0.05] = fill[0]  # 1 where significant.
+        sig[pval > 0.05] = fill[1]
+
+    if stack_exp:
+        t = np.ones((3, *list(sig.shape)))
+        t[1:] = sig
+        sig = t
+    return sig
+
+
 def dfe_mean_flux_depth(pds, ds, ds1, ds2):
     """Plot dFe mean, dFe flux & transport, dFe depth profiles at each release longitude.
 
@@ -330,15 +371,15 @@ def dfe_mean_flux_depth(pds, ds, ds1, ds2):
     """
     ds_all = [ds, ds1, ds2]
     ds_fe = iron_source_profiles()
-    ds_fe = ds_fe.sel(z=slice(25, 350))
-    ds_fe = ds_fe.sel(x=slice(160, 260)).dropna('x', 'all')
-    version_colors = ['k', 'k', 'b']
+    ds_fe = ds_fe.sel(z=slice(0, 350))
+    ds_fe = ds_fe.sel(x=slice(160, 300)).dropna('x', 'all')
+    version_colors = ['k', 'k', 'b', 'tab:red']
     ls = [['-', ':'], ['-', '--'], ['-', ':']]  # [version, scenario]
     lw = 1.5  # linewidth for model outout
 
     # ---------------------------------------------------------------------------------------
     fig, axes = plt.subplot_mosaic("AABB;CDEF", figsize=(12, 11), height_ratios=[2.75, 4],
-                                   gridspec_kw={"wspace": 0.188, "hspace": 0.14})
+                                   gridspec_kw={"wspace": 0.22, "hspace": 0.14})
     var = 'fe_avg'
     ax = axes['A']
 
@@ -347,7 +388,7 @@ def dfe_mean_flux_depth(pds, ds, ds1, ds2):
         ax.plot([0], [0], c='k', ls=['-', ':', '--'][i], lw=2, label=name)
 
     # Add observations.
-    ax.plot(ds_fe.x, ds_fe.EUC.mean('z'), 'x', ms=6, c='g', lw=1, label='Obs.')
+    ax.plot(ds_fe.x, ds_fe.EUC.mean('z'), 'x', ms=7, c='g', lw=1, label='Obs.')
     ax.plot(ds_fe.lon, ds_fe.euc_avg.mean('z'), 'o', ms=6, c='g', lw=1, label='Obs. Mean')
 
     for i, dx in enumerate(ds_all):
@@ -359,20 +400,21 @@ def dfe_mean_flux_depth(pds, ds, ds1, ds2):
     ax.set_ylabel('{} [{}]'.format(dx.attrs['standard_name'], dx.attrs['units']))
     ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
     ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+    ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
     ax.set_xticks(dx.x)
-    ax.set_xlim(162, 253)
-    ax.set_ylim(0.1)
+    ax.set_xlim(161, 270)
+    ax.set_ylim(0.01)
 
     # Legend experiment version colors.
-    for i, name in enumerate(['Obs. Depth-Profile', 'Obs. Depth-Mean']):
+    for i, name in enumerate(['dFe Obs. Depth-Profile', 'dFe Obs. Depth-Mean', 'Transport']):
         ax.plot([0], [0], c=version_colors[i + 1], lw=5, label=name)
     handles, labels = ax.get_legend_handles_labels()
 
     # Variable legend.
     fig.legend(handles[:5], labels[:5], ncols=5, loc='upper center', bbox_to_anchor=(0.5, 0.93))
     # Experiment legend.
-    fig.legend(handles[5:], labels[5:], ncols=2, markerscale=1.4, handlelength=3.7,
-               loc='upper center', bbox_to_anchor=(0.5, 0.955), numpoints=2)
+    fig.legend(handles[5:], labels[5:], ncols=3, markerscale=1.4, handlelength=3.7,
+               loc='upper center', bbox_to_anchor=(0.5, 0.957), numpoints=2)
 
     # ---------------------------------------------------------------------------------------
     var = 'fe_flux_sum'
@@ -384,7 +426,7 @@ def dfe_mean_flux_depth(pds, ds, ds1, ds2):
                     lw=1.2, zorder=4 - i)
 
     ax.set_title('{} EUC dFe Flux and Transport'.format(ltr[1]), loc='left')
-    ax.set_ylabel('dFe Flux [{}]'.format(dx.attrs['units']), labelpad=0.02)
+    ax.set_ylabel('dFe Flux [{}]'.format(dx.attrs['units']), labelpad=0)
     ax.xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
     ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
     ax.yaxis.set_tick_params(pad=0)
@@ -417,21 +459,22 @@ def dfe_mean_flux_depth(pds, ds, ds1, ds2):
         # Plot observations.
         ax.plot(ds_fe.euc_avg.isel(lon=i), ds_fe.z, 'o', ms=3, c='g', lw=0.8, label='Obs. Mean',
                 zorder=1)
-        obs = ds_fe.EUC.sel(x=slice(lon - 5, lon + 5))
-        if obs.x.size > 0:
-            for j in obs.x:
-                ax.plot(obs.sel(x=lon), ds_fe.z, 'x', ms=5, c='g', lw=1, mew=0.8,
-                        label='Obs.', zorder=1)
+        # obs = ds_fe.EUC.sel(x=slice(lon - 5, lon + 5))
+        # if obs.x.size > 0:
+        #     for j in obs.x:
+        #         ax.plot(obs.sel(x=lon), ds_fe.z, 'x', ms=5, c='g', lw=1, mew=0.8,
+        #                 label='Obs.', zorder=1)
 
         # x-axis (dFe) and y-axis (depth)
         ax.set_xlabel('{} [{}]'.format(dx[var].attrs['standard_name'], dx[var].attrs['units']))
         ax.set_ylim(*[dx[dx[var].dims[-1]][a] for a in [-1, 0]])
-        ax.set_xlim(0, [1.5, 1.5, 1, 1][i])
+        ax.set_xlim(0, 1.5)
         ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%dm'))
         if a != 'C':
             ax.set_yticklabels([])
         ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
         ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.tick_params(which='major', length=5)
 
     plt.savefig(paths.figs / 'fe_model/dfe_mean_flux_depth.png', dpi=300, bbox_inches='tight')
     plt.show()
@@ -454,26 +497,30 @@ def fe_multivar(pds, ds):
           ['.:', '.-', 'd-.'],
           ['o-', '.--', 'd-.']]
 
-    fig, ax = plt.subplots(1, 2, figsize=(10, 6), sharex=True, sharey=1)
+    fig, ax = plt.subplots(1, 2, figsize=(10, 6), sharex=True, sharey=False)
     ax = ax.flatten()
 
     for i, scenario in enumerate([0, 2]):
         ax[i].set_title('{} {}'.format(ltr[i], titles[i]), loc='left')
         for j, var in enumerate(dvars):
             for k, dx in enumerate([ds]):
+                pv = var_significance(dx, var, fill=[np.nan, 1], stack_exp=True)
                 dx = dx[var].mean('rtime')
                 dx = dx * -1 if var in ['fe_scav_avg', 'fe_phy_avg'] else dx
 
                 label = vlabels[j] if k == 0 else None
+                kwargs = dict(c=colors[j], lw=lw)
 
                 if scenario == 0:
-                    ax[i].plot(dx.x, dx.sel(exp=scenario), ls[0][k], c=colors[j],
-                               lw=lw, label=label, zorder=5 - j)
-                    ax[i].plot(dx.x, dx.isel(exp=1), ls[1][k], c=colors[j],
-                               lw=lw, markersize=10)
+                    ax[i].plot(dx.x, dx.sel(exp=0), ls[0][k], label=label, zorder=5 - j, **kwargs)
+                    ax[i].plot(dx.x, dx.isel(exp=1), ls[1][k], markersize=10, **kwargs)
+                    ax[i].plot(dx.x, dx.isel(exp=1) * pv[1], ls[1][k][0], markersize=10,
+                               markerfacecolor='w', zorder=10, **kwargs)
                 else:
-                    ax[i].plot(dx.x, dx.sel(exp=1) - dx.sel(exp=0), ls[scenario][k],
-                               lw=lw, c=colors[j], label=label, zorder=5 - j)
+                    ax[i].plot(dx.x, dx.sel(exp=1) - dx.sel(exp=0), ls[2][k], label=label,
+                               zorder=5 - j, **kwargs)
+                    ax[i].plot(dx.x, (dx.sel(exp=1) - dx.sel(exp=0)) * pv[2], ls[2][k][0],
+                               markerfacecolor='w', zorder=10, **kwargs)
 
             ax[i].xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
             ax[i].yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
@@ -488,8 +535,8 @@ def fe_multivar(pds, ds):
         ax[0].plot([0], [0], ls[i][0], c='k', lw=2, label=name)
 
     handles, labels = ax[0].get_legend_handles_labels()
-    fig.legend(handles[:5], labels[:5], ncol=5, loc='upper center', bbox_to_anchor=(0.53, 1.05))
-    ax[0].legend(handles[5:], labels[5:], ncol=1, fontsize='small', loc='center right',
+    fig.legend(handles[:5], labels[:5], ncols=5, loc='upper center', bbox_to_anchor=(0.53, 1.05))
+    ax[0].legend(handles[5:], labels[5:], ncols=1, fontsize='small', loc='center right',
                  bbox_to_anchor=(1, 1.05))
     plt.tight_layout()
     plt.savefig(paths.figs / 'fe_model/fe_multi_var_v{}.png'.format(pds.exp.version),
@@ -514,11 +561,11 @@ def fe_multivar_sources(pds, ds, ds1, ds2, scenario=2, version_inds=[0, 1, 2], a
     # Source regions.
     z_ids = [1, 2, 6, 3, 4, 7, 8] if all_sources else [1, 2, 3, 7, 8]
     # Titles
-    if all_sources:
-        names = ['EUC', *['{}'.format(s) for s in ds.names.sel(zone=z_ids).values]]
-    else:
-        names = ['EUC dFe', *['EUC dFe from the {}'.format(s)
-                              for s in ds.names.sel(zone=z_ids).values]]
+    # if all_sources:
+    names = ['EUC', *['{}'.format(s) for s in ds.names.sel(zone=z_ids).values]]
+
+    # names = ['EUC dFe', *['EUC dFe from the {}'.format(s)
+    #                       for s in ds.names.sel(zone=z_ids).values]]
     dvars = ['fe_avg', 'fe_src_avg', 'fe_reg_avg', 'fe_scav_avg', 'fe_phy_avg']  # Variables
     vlabels = [ds[var].attrs['long_name'] for var in dvars]  # Variable names
     colors = ['k', 'darkviolet', 'blue', 'r', 'g']  # Variable colours
@@ -534,12 +581,24 @@ def fe_multivar_sources(pds, ds, ds1, ds2, scenario=2, version_inds=[0, 1, 2], a
           ['o-', '*--', 'd-.']]
 
     # Plot figure.
-    nc = int((len(z_ids) + 1) / 2)
-    fig, ax = plt.subplots(2, nc, figsize=(11, 11), sharex=False, sharey=1)
+    nr = 2 if all_sources else 1
+    nc = int((len(z_ids) + 1) / nr)# + 1
+    figsize = (11, 12) if all_sources else (13, 7)
+
+    fig, ax = plt.subplots(nr, nc, figsize=figsize, sharex=False, sharey=1,
+                           gridspec_kw=dict(wspace=0.12, hspace=0.13))
+    # fig, ax = plt.subplots(nr, nc, figsize=(13, 8), sharex=False, sharey=0,
+    #                        gridspec_kw=dict(wspace=0.12, width_ratios=[1, 0.12, 1, 1, 1, 1, 1]))
     ax = ax.flatten()
+    # ax[1].set_visible(False)
 
     for i, z in enumerate([None, *z_ids]):
         ax[i].set_title('{} {}'.format(ltr[i], names[i]), loc='left')
+        # if z != None:
+            # i += 1
+            # ax[i].set_title('{} {}'.format(ltr[i-1], names[i-1]), loc='left', x=-0.05)
+        # elif z != 1:
+            # ax[i].set_title('{} {}'.format(ltr[i], names[i]), loc='left')
 
         for j, var in enumerate(dvars):
             zorder = 5 - j  # Last to plot on bottom.
@@ -547,68 +606,87 @@ def fe_multivar_sources(pds, ds, ds1, ds2, scenario=2, version_inds=[0, 1, 2], a
 
             for k, vid in enumerate(version_inds):
                 dx = ds_list[vid]
-                dx = dx[v].mean('rtime')
-
                 if z is not None:
                     dx = dx.sel(zone=z)
+
+                pv = var_significance(dx, v, fill=[np.nan, 1], stack_exp=True)
+                dx = dx[v].mean('rtime')
 
                 dx = dx * -1 if var in ['fe_scav_avg', 'fe_phy_avg'] else dx  # flip sign
                 label = vlabels[j] if k == 0 else None  # Only plot v0 labels
                 lw = 1.5 if var == 'fe_avg' else 1.2  # Thicker dFe
+                kwargs = dict(c=colors[j], lw=lw)
 
                 # Historical
                 if scenario in [0, 1]:
                     # (except for v1 interior change).
                     if vid != 1:
-                        ax[i].plot(dx.x, dx.sel(exp=scenario), ls[0][vid], c=colors[j], lw=lw,
-                                   label=label, zorder=zorder)
+                        ax[i].plot(dx.x, dx.sel(exp=scenario), ls[0][vid], zorder=zorder,
+                                   label=label, **kwargs)
 
                     # RCP85 (except for v1 interior change).
                     if scenario == 1 and not (vid == 1 and z in [7, 8]):
-                        ax[i].plot(dx.x, dx.isel(exp=1), ls[1][vid], lw=lw, c=colors[j],
-                                   zorder=zorder)
+                        ax[i].plot(dx.x, dx.isel(exp=1), ls[1][vid], zorder=zorder, **kwargs)
+                        ax[i].plot(dx.x, dx.isel(exp=1) * pv[1], ls[1][vid], markerfacecolor='w',
+                                   zorder=zorder, **kwargs)
 
                 # Projected Change (except for v1 interior change or v2 source changes).
                 elif (not (vid == 2 and z is not None and var == 'fe_src_avg')
                       and not (vid == 1 and z in [7, 8])):
-                    ax[i].plot(dx.x, dx.sel(exp=1) - dx.sel(exp=0), ls[2][vid],
-                               c=colors[j], label=label, lw=lw, zorder=zorder)
+                    ax[i].plot(dx.x, dx.sel(exp=1) - dx.sel(exp=0), ls[2][vid], label=label,
+                               zorder=zorder, **kwargs)
+                    ax[i].plot(dx.x, (dx.sel(exp=1) - dx.sel(exp=0)) * pv[2], ls[2][vid],
+                               markerfacecolor='w', zorder=zorder, **kwargs)
 
         ax[i].xaxis.set_major_formatter(mpl.ticker.FormatStrFormatter('%d°E'))
         ax[i].yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
         ax[i].set_xticks(dx.x)
-        ax[i].set_xlim(160, 255)  # Needed because of extra legend markers at (0, 0).
+        ax[i].set_xlim(160, 257)  # Needed because of extra legend markers at (0, 0).
         ax[i].axhline(0, c='grey', lw=1)
-        if all_sources:
-            ax[i].tick_params(axis='y', which='major', labelsize='small', length=4)
+        # if all_sources:
+        ax[i].tick_params(axis='both', which='major', labelsize='small', length=4)
+        # if nr == 1:
+        #     ax[i].tick_params(axis='x', which='major', labelsize='small', length=5)
+        #     ax[i].tick_params(axis='y', which='major', labelsize='small', length=4)
+
         if i % nc == 0:
             ax[i].set_ylabel('{} [{}]'.format(dx.attrs['standard_name'], dx.attrs['units']),
-                             labelpad=0.01)
+                             labelpad=-4)
         ax[i].yaxis.set_tick_params(pad=0)
+    # if nr == 1:
+    #     for i, z in enumerate(z_ids):
+    #         ylim = [[-0.85, 1.26], [-0.85, 1.4], [-0.2, 0.21]]
+    #         ax[i+1].set_ylim(*ylim[scenario])
+    #         if i > 0:
+    #             ax[i+1].set_yticklabels([])
 
     # Legend.
     # Legend variable colors (no markers).
     for j, var in enumerate(dvars):
-        ax[1].plot([0], [0], c=colors[j], lw=5, label=vlabels[j])
+        ax[0].plot([0], [0], c=colors[j], lw=5, label=vlabels[j])
 
     # Legend experiment version linestyles.
     for i in version_inds:
-        ax[1].plot([0], [0], ls[0][i], c='k', lw=2, label=version_labels[i])
-    handles, labels = ax[1].get_legend_handles_labels()
+        ax[0].plot([0], [0], ls[0][i], c='k', lw=2, label=version_labels[i])
+    handles, labels = ax[0].get_legend_handles_labels()
 
     # Variable legend.
-    fig.legend(handles[5:10], labels[5:10], ncols=5, loc='upper center', bbox_to_anchor=(0.5, 1.05))
+    c = -0.04 if all_sources else 0
+    fig.legend(handles[5:10], labels[5:10], ncols=5, loc='upper center', bbox_to_anchor=(0.5, 1.03+c*1.5))
     # Experiment legend.
     fig.legend(handles[10:], labels[10:], ncols=3, markerscale=1.4, handlelength=3.7,
-               loc='upper center', bbox_to_anchor=(0.5, 1.02), numpoints=2)
+               loc='upper center', bbox_to_anchor=(0.5, 0.98+c), numpoints=2)
 
     plt.tight_layout()
     if all_sources:
         fig.subplots_adjust(wspace=0.22)
+    # if nr == 1:
+        # fig.subplots_adjust(wspace=0.2)
     plt.savefig(paths.figs / 'fe_model/fe_multi_var_{}_v{}_sources_{}.png'
-                .format('-'.join(version_inds), 'all_' if all_sources else '',
+                .format('-'.join([str(x) for x in version_inds]), 'all_' if all_sources else '',
                         scenario_abbr[scenario]),
                 dpi=300, bbox_inches='tight')
+
 
 
 def get_histogram(ax, dx, var, color, bins='fd', cutoff=0.85, weighted=True,
@@ -798,7 +876,7 @@ def particle_histogram_depth(pds, ds):
 
 
 def get_KDE_source(ax, ds, var, z, color=None, add_IQR=False, axis='x',
-                   kde_kws=dict(bw_adjust=0.5)):
+                   kde_kws=dict(bw_adjust=0.5), stat='count'):
     """Plot KDE of source var for historical (solid) and RCP(dashed).
 
     Args:
@@ -820,14 +898,14 @@ def get_KDE_source(ax, ds, var, z, color=None, add_IQR=False, axis='x',
     for s in range(2):
         dx = ds[s]
         c = dx.colors.item() if color is None else color
-        ls = ['-', ':'][s]  # Linestyle
+        ls = ['-', (0, (1, 1))][s]  # Linestyle
+        lw = [1, 1.3][s]
         n = dx.names.item() if s == 0 else None  # Legend name.
 
         ax = sns.histplot(**{axis: dx[var]}, weights=dx.u / dx.rtime.size, ax=ax,
-                          bins=bins, color=c, element='step', alpha=0,
+                          bins=bins, color=c, stat=stat, element='step', alpha=0,
                           fill=False, kde=True, kde_kws=kde_kws,
-                          line_kws=dict(color=c, linestyle=ls, label=n))
-
+                          line_kws=dict(color=c, linestyle=ls, label=n, linewidth=lw))
         # xmax & xmin cutoff.
         if axis == 'x':
             hist = ax.get_lines()[-1]
@@ -879,9 +957,11 @@ def KDE_multi_var(ds, lon, var, add_IQR=False):
     return
 
 
-def KDE_source_multi_lon(ds, var='age', add_IQR=False):
+def KDE_source_multi_lon(ds, var='age', stat='count', add_IQR=False):
     """Plot variable KDE at each longitude."""
     z_inds = [[1, 2, 6], [3, 4], [7, 8]]  # Source subsets.
+    if stat != 'count':
+        z_inds[0] = z_inds[0][:2]
     colors = ['m', 'b', 'g', 'k']
     axis = 'y' if var in ['depth', 'depth_at_src'] else 'x'
 
@@ -898,12 +978,12 @@ def KDE_source_multi_lon(ds, var='age', add_IQR=False):
 
         for j in range(ax.size // nc):  # iterate through zones.
             for iz, z in enumerate(z_inds[j]):
-                ax[j, i] = get_KDE_source(ax[j, i], dx, var, z, colors[iz], add_IQR, axis)
+                ax[j, i] = get_KDE_source(ax[j, i], dx, var, z, colors[iz], add_IQR, axis, stat=stat)
 
             # Plot extras.
             ax[j, i].set_title('{}'.format(ltr[i + j * nc]), loc='left')
             ax[j, i].set_xlabel('{} [{}]'.format(name, units))
-            ax[j, 0].set_ylabel('Transport [Sv] / day')
+            ax[j, 0].set_ylabel('Transport [Sv] / day' if stat == 'count' else stat.capitalize())
 
             # Subplot ymax (excluding histogram)
             ymax = [max(y.get_ydata()) for y in list(ax[j, i].get_lines())]
@@ -919,18 +999,19 @@ def KDE_source_multi_lon(ds, var='age', add_IQR=False):
                 ax[j, nc - 1].legend()  # Last col.
 
     fig.subplots_adjust(wspace=0.1, hspace=0.3, top=1)
-    plt.savefig(paths.figs / 'fe_model/KDE_{}.png'.format(var), dpi=300, bbox_inches='tight')
+    plt.savefig(paths.figs / 'fe_model/KDE_{}_{}.png'.format(var, stat), dpi=300,
+                bbox_inches='tight')
     plt.show()
     return
 
 
-def KDE_source_depth(ds, add_IQR=False):
+def KDE_source_depth(ds, stat='count', add_IQR=False):
     """Plot variable KDE at each longitude."""
     z_inds = [1, 2, 3, 7, 8]  # Source subsets.
     colors = ['k', 'darkviolet']
 
     nr, nc = len(z_inds), 4
-    fig, ax = plt.subplots(nr, nc, figsize=(13, 18), sharey=1)
+    fig, ax = plt.subplots(nr, nc, figsize=(12, 19), sharey=1)
 
     for j, z in enumerate(z_inds):  # Rows: iterate through zones.
         for i, lon in enumerate(release_lons):  # Cols: iterate through lons.
@@ -938,13 +1019,16 @@ def KDE_source_depth(ds, add_IQR=False):
 
             for k, var in enumerate(['depth', 'depth_at_src']):
                 ax[j, i] = get_KDE_source(ax[j, i], dx, var, z, colors[k], add_IQR, axis='y',
-                                          kde_kws=dict(bw_adjust=[2, 1.5][k]))
+                                          stat=stat, kde_kws=dict(bw_adjust=[2, 1.5][k]))
 
             # Plot extras.
             ax[j, 0].set_title('{} {}'.format(ltr[j], zones.names[z]), loc='left')
 
             # Axis
-            ax[j, i].set_xlabel('Transport [Sv] / day' if j == nr - 1 else None)
+            if j == nr - 1:
+                ax[j, i].set_xlabel('Transport [Sv] / day' if stat == 'count' else stat.capitalize())
+            else:
+                ax[j, i].set_xlabel(None)
             ax[j, i].set_ylabel('Depth [m]' if i == 0 else None)
             ax[j, i].xaxis.set_major_formatter('{x:.2f}')  # Limit decimal places.
             ax[j, i].yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
@@ -971,15 +1055,22 @@ def KDE_source_depth(ds, add_IQR=False):
     ax[0, 1].legend(handles=nm, bbox_to_anchor=(1.05, 1.1), loc=8, ncol=2)
 
     fig.subplots_adjust(wspace=0.05, hspace=0.4, top=0.6)
-    plt.savefig(paths.figs / 'fe_model/KDE_depth.png', dpi=300, bbox_inches='tight')
+    plt.savefig(paths.figs / 'fe_model/KDE_depth_{}.png'.format(stat), dpi=300, bbox_inches='tight')
     plt.show()
     return
 
 
-def plot_source_EUC_velocity_profile(ds, lon, scenario):
-    """Plot 2D lat-depth velocity sum profile."""
+def plot_yz_profile_EUC_sources(ds, lon, scenario, var='u'):
+    """Plot 2D lat-depth histogram profile at a longitude and for a scenario.
+
+    Args:
+        ds (xarray.Dataset): Particle source dataset (any version).
+        lon (int): Release Longitude.
+        scenario (int): Scenario index.
+        var (str, optional): Variable to plot (traj, obs). Defaults to 'u'.
+    """
     ds = ds.sel(zone=[0, 1, 2, 6, 3, 4, 7, 8, 5])
-    dss = ds.drop([v for v in ds.data_vars if v not in ['u', 'lat', 'depth']])
+    dss = ds.drop([v for v in ds.data_vars if v not in ['u', var, 'lat', 'depth']])
 
     names = ds.names.values
     names[0] = 'EUC'  # Replace zone=0 with overall EUC
@@ -994,20 +1085,20 @@ def plot_source_EUC_velocity_profile(ds, lon, scenario):
         dx = dx.dropna('t', 'all')
         dx = dx.set_index(xy=['t', 'lat', 'depth'])
         dx = dx.unstack('xy')
-        data[s].append(dx.u.sum('t').expand_dims(dict(zone=[0])))
+        data[s].append(dx[var].sum('t').expand_dims(dict(zone=[0])))
 
         # Iterate over source regions (exclude zone=0 if replacing with overall).
         for z in dss.zone.values[1:]:
             dx = dxx.sel(zone=z).dropna('traj', 'all')
             dx = dx.set_index(xy=['traj', 'lat', 'depth'])
             dx = dx.unstack('xy')
-            data[s].append(dx.u.sum('traj'))
+            data[s].append(dx[var].sum('traj'))
 
     # Concatenate sources, calculate projected change and concatenate scenarios.
     tmp = [xr.concat(data[s], 'zone') for s in [0, 1]]
     tmp.append((tmp[1].drop('exp') - tmp[0].drop('exp')).expand_dims(dict(exp=[2])))
     df = xr.Dataset()
-    df['u'] = xr.concat(tmp, 'exp') / ds.rtime.size
+    df[var] = xr.concat(tmp, 'exp') / ds.rtime.size
 
     # Contour climatology/overall EUC for reference.
     # clim = df.u.isel(exp=scenario if scenario != 2 else 0).isel(zone=0)
@@ -1018,22 +1109,19 @@ def plot_source_EUC_velocity_profile(ds, lon, scenario):
     for i, ax in enumerate(axes.flatten()):
         dx = df.isel(exp=scenario).isel(zone=i)
         if scenario == 2:
-            vlim = [max(np.fabs([dx.u.min(), dx.u.max()])) * c for c in [-1, 1]]
+            vlim = [max(np.fabs([dx[var].min(), dx[var].max()])) * c for c in [-1, 1]]
         else:
-            vlim = [0, max(np.fabs([df.isel(zone=i).u.min(), df.isel(zone=i).u.max()]))]
-        cs = ax.pcolormesh(dx.lat, dx.depth, dx.u.T, cmap=cmap, vmax=vlim[1], vmin=vlim[0])
+            vlim = [0, max(np.fabs([df.isel(zone=i)[var].min(), df.isel(zone=i)[var].max()]))]
+        cs = ax.pcolormesh(dx.lat, dx.depth, dx[var].T, cmap=cmap, vmax=vlim[1], vmin=vlim[0])
         cbar = fig.colorbar(cs, ax=ax)
         cbar.ax.tick_params(labelsize='small')
 
         # EUC contour (Contour where velocity is 50% of maximum EUC velocity.)
         for s in [0, 1]:
-            clim = df.u.isel(exp=s).isel(zone=0)
+            clim = df[var].isel(exp=s).isel(zone=0)
             lvls = [clim.max().item() * c for c in [0.70]]
             ax.contour(clim.lat, clim.depth, clim.T, lvls, colors='k', linewidths=1.5,
                        linestyles=['-', '--'][s])
-
-        # lvls = [clim.max().item() * c for c in [0.5, 0.75, 0.99]]
-        # ax.contour(clim.lat, clim.depth, clim.T, lvls, colors='k', linewidths=1.5)
 
         # Axes.
         ax.set_title('{} {}'.format(ltr[i], names[i]), loc='left')
@@ -1043,49 +1131,54 @@ def plot_source_EUC_velocity_profile(ds, lon, scenario):
         ax.xaxis.set_major_formatter(LatitudeFormatter())
         ax.yaxis.set_major_formatter('{x:.0f}m')
         if (i + 1) % 3 == 0:  # Last column.
-            cbar.set_label('[Sv/day]')
+            cbar.set_label('[{}]'.format(ds[var].attrs['units']))
 
     plt.tight_layout()
     fig.subplots_adjust(wspace=0.15)
-    plt.savefig(paths.figs / 'EUC_source_profile_{}_{}.png'
-                .format(lon, scenario_abbr[scenario]), bbox_inches='tight', dpi=300)
+    plt.savefig(paths.figs / 'EUC_sources_yz_profile_{}_{}_{}.png'
+                .format(var, lon, scenario_abbr[scenario]), bbox_inches='tight', dpi=300)
     plt.show()
 
 
-if __name__ == '__main__':
-    exp = ExpData(scenario=0, lon=250, version=4, file_index=0)
-    pds = FelxDataSet(exp)
-    ds = pds.fe_model_sources_all(add_diff=True)
-    ds1 = FelxDataSet(ExpData(version=5)).fe_model_sources_all(add_diff=True)
-    ds2 = FelxDataSet(ExpData(version=6)).fe_model_sources_all(add_diff=True)
-    # df = xr.open_dataset(exp.file_felx)
-    # dx = pds.fe_model_sources(add_diff=False)
+# if __name__ == '__main__':
+#     exp = ExpData(scenario=0, lon=250, version=4, file_index=0)
+#     pds = FelxDataSet(exp)
+#     ds = pds.fe_model_sources_all(add_diff=True)
+#     ds1 = FelxDataSet(ExpData(version=5)).fe_model_sources_all(add_diff=True)
+#     ds2 = FelxDataSet(ExpData(version=6)).fe_model_sources_all(add_diff=True)
 
-# #     dfe_mean_flux_depth(pds, ds, ds1, ds2)
+#     # # df = xr.open_dataset(exp.file_felx)
+#     # # dx = pds.fe_model_sources(add_diff=False)
 
-# #     # KDE/Historgrams
-# #     KDE_source_multi_lon(ds, var='age', add_IQR=False)
-# #     KDE_source_depth(ds, add_IQR=False)
-# #     particle_histogram(pds, ds, var='age')
-# #     particle_histogram_depth(pds, ds)
+#     # dfe_mean_flux_depth(pds, ds, ds1, ds2)
 
-# #     for version, ds_ in zip([4, 5, 6], [ds, ds1, ds2]):
-# #         pds_ = FelxDataSet(ExpData(version=version))
-# #         fe_multivar(pds_, ds_)
+#     # # KDE/Historgrams
+#     # KDE_source_multi_lon(ds, var='age', stat='density', add_IQR=False)
+#     # KDE_source_multi_lon(ds, var='age', stat='count', add_IQR=False)
+#     # KDE_source_depth(ds, stat='density', add_IQR=False)
+#     # KDE_source_depth(ds, stat='count', add_IQR=False)
+#     # particle_histogram(pds, ds, var='age')
+#     # particle_histogram_depth(pds, ds)
+
+#     # for version, ds_ in zip([4, 5, 6], [ds, ds1, ds2]):
+#     #     pds_ = FelxDataSet(ExpData(version=version))
+#     #     fe_multivar(pds_, ds_)
 
 #     # EUC & source water dFe variables
 #     for scenario in range(3):
 #         fe_multivar_sources(pds, ds, ds1, ds2, version_inds=[0, 1, 2], scenario=scenario)
 #         fe_multivar_sources(pds, ds, ds1, ds2, version_inds=[0, 1], scenario=scenario)
-#         fe_multivar_sources(pds, ds, ds1, ds2, version_inds=[0, 3], scenario=scenario)
+#         fe_multivar_sources(pds, ds, ds1, ds2, version_inds=[0, 2], scenario=scenario)
 #         fe_multivar_sources(pds, ds, ds1, ds2, version_inds=[0, 1, 2], scenario=scenario, all_sources=True)
 
-# #     # Weighted mean.
-# #     for var in ['fe_avg', 'fe_src_avg', 'fe_flux_sum', 'fe_scav_avg', 'fe_phy_avg', 'fe_reg_avg']:
-# #         # scatter_var(pds, ds, var=var)
-# #         bar_graph_sources(pds, ds, var=var + '_src')
+#     #     plot_yz_profile_EUC_sources(ds, 165, scenario, var='u')
 
-# #     # # Weighted mean depth profile
-# #     # var_depth_profile(pds, ds)
-# #     # scatter_iron_at_source(pds, ds)
-# #     # scatter_iron_at_source(pds, ds)
+#     # # Weighted mean.
+#     # for var in ['fe_avg', 'fe_src_avg', 'fe_flux_sum', 'fe_scav_avg', 'fe_phy_avg', 'fe_reg_avg']:
+#     #     # scatter_var(pds, ds, var=var)
+#     #     bar_graph_sources(pds, ds, var=var + '_src')
+
+#     # # Weighted mean depth profile
+#     # var_depth_profile(pds, ds)
+#     # scatter_iron_at_source(pds, ds)
+#     # scatter_iron_at_source(pds, ds)

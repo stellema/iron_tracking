@@ -715,6 +715,7 @@ class FelxDataSet(object):
                 # Replace umol/m^2 s with nM Sv.
                 ds[v] *= DXDY  # Convert from mass flux to volume flux.
                 ds[v].attrs['units'] = 'nM Sv'
+
             for var in ['fe_scav_avg', 'fe_phy_avg', 'fe_reg_avg']:
                 if var in str(v):
                     ds[v] *= 2  # Convert from nM per day to nM.

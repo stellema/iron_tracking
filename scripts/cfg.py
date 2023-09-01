@@ -258,7 +258,8 @@ class ZoneData:
                      self.sc, self.sth, self.nth]
 
         self.colors = ['silver', 'darkorange', 'deeppink', 'mediumspringgreen',
-                       'seagreen', 'y', 'red', 'darkviolet', 'blue']
+                        'seagreen', 'y', 'red', 'darkviolet', 'blue']
+
         self.names = np.array([z.name_full for z in self._all])
 
 

@@ -7,6 +7,33 @@ Example:
 
 Todo:
 
+West (<155E)
+Mackey et al. (2002) 155.0 1993-11-01--------------------------------------------------------------NOV
+Obata et al. (2008) 139.97 1992-09-01--------------------------------------------------------------SEP
+
+
+Slemons et al. (2009) 145.0 156.0 165.0 180.0 185.0 190.0 205.0 213.0 2006-08-01 2006-09-01 --------AUG,OCT
+Wu et al. (2011) 202.0 2005-04-01-------------------------------------------------------------------APR
+Kondo et al. (2012) 200.0 2005-08-01 ---------------------------------------------------------------AUG
+Takeda and Obata (1995) 201.0 1993-11-01 -----------------------------------------------------------NOV
+
+
+Coale et al. (1996) 220.0 1990-07-01 1992-03-01 1992-04-01 1992-10-01------------------------------MAR,APR,JUL,OCT
+Fitzwater et al. (1996) 220.0 1992-03-01 1992-04-01 1992-10-01--------------------------------------APR,OCT
+
+East
+Gordon et al. (1998) 266.53 267.0 268.0 271.0 1993-11-01-------------------------------------------NOV
+Hutchins et al. (2002) 272.5 2000-09-01------------------------------------------------------------SEP
+Bruland et al. (2005) 271-272 2000-09-01-----------------------------------------------------------SEP
+
+
+No obs: Janurary & May
+single obs:
+    Feb (GP19)
+    March (Fitzwater et al. (1996))
+    June (Coale et al. (1996))
+2 obs: April (Fitzwater et al. (1996); Wu et al. (2011))
+
 @author: Annette Stellema
 @email: a.stellema@unsw.edu.au
 @created: Fri Mar 10 17:07:35 2023
@@ -161,7 +188,7 @@ def plot_iron_obs_maps(dfs, labels='reference', add_bounds=True, add_labels=True
 
     lats, lons = [-11, 11], [110, 290]
     colors = np.array(['mediumorchid', 'royalblue', 'seagreen', 'coral', 'darkred', 'red',
-                       'm', 'brown', 'deeppink', 'cyan', 'darkviolet', 'y', 'dodgerblue',
+                       'm', 'tomato', 'deeppink', 'cyan', 'darkviolet', 'y', 'dodgerblue',
                        'hotpink', 'b', 'grey', 'teal', 'springgreen', 'navy', 'forestgreen',
                        'mediumorchid', 'purple'])
 
@@ -171,7 +198,11 @@ def plot_iron_obs_maps(dfs, labels='reference', add_bounds=True, add_labels=True
     obs_site['png'] = dict(y=[-4.8, -3], x=[140.5, 147], c='darkorange')
     obs_site['ss'] = dict(y=[-5.5, -2.6], x=[151, 158], c='deeppink')
     obs_site['int_s'] = dict(y=[-10.5, -2.6], x=[170, 277], c='k')
-    obs_site['int_n'] = dict(y=[2.6, 10.5], x=[138, 275], c='k')
+    obs_site['int_n'] = dict(y=[2.65, 10.5], x=[138, 275], c='k')
+    obs_site['euc1'] = dict(y=[-2, 2], x=[162, 169], c='b')
+    obs_site['euc2'] = dict(y=[-2, 2], x=[182, 192], c='b')
+    obs_site['euc3'] = dict(y=[-1.9, 1.9], x=[204, 230], c='b')
+    obs_site['euc4'] = dict(y=[-2.25, 2.25], x=[211, 272], c='b')
 
     fig = plt.figure(figsize=(12, 6.5))
     ax = fig.add_subplot(111, projection=ccrs.PlateCarree(central_longitude=180))
@@ -205,14 +236,14 @@ def plot_iron_obs_maps(dfs, labels='reference', add_bounds=True, add_labels=True
             if not add_labels:
                 mrk = '*'
                 c = 'navy'
-            ax.scatter(dx.x, dx.y, s=60, marker=mrk, lw=0.3, label=r, c=c, transform=proj)
+            ax.scatter(dx.x, dx.y, s=70, marker=mrk, lw=0.4, label=r, c=c, transform=proj)
 
     if add_bounds:
         for i, n in enumerate(obs_site.keys()):
             x, y = [obs_site[n][v] for v in ['x', 'y']]
 
             # Create a rectangle patch with the specified coordinates
-            rect = mpl.patches.Rectangle((x[0], y[0]), x[1] - x[0], y[1] - y[0], lw=1.5,
+            rect = mpl.patches.Rectangle((x[0], y[0]), x[1] - x[0], y[1] - y[0], lw=1.7,
                                          edgecolor=obs_site[n]['c'], fc='none', transform=proj)
 
             # Add the rectangle patch to the axis object
@@ -225,7 +256,7 @@ def plot_iron_obs_maps(dfs, labels='reference', add_bounds=True, add_labels=True
     ax.set_yticks(np.arange(-10, 12, 4), crs=proj)
 
     if add_labels:
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.1,
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05), markerscale=1.2,
                   ncols=5 if labels == 'reference' else 6)
 
     ax.set_title('Iron observations from GEOTRACES IDP2021 and '
@@ -310,7 +341,7 @@ def plot_test_spline(dfs):
     plt.savefig(paths.figs / 'obs/test_interp_solomon.png', dpi=250)
 
 
-def plot_dfs_avg_map_zprofile(dfs, name, dx, dx_all, obs, coords):
+def plot_dfs_avg_map_zprofile(dfs, name, dx, obs, coords):
     """Plot dFe observations, mean and location map."""
     if name in dfs.dfe.obs_site:
         Name = dfs.dfe.obs_site[name]['name']
@@ -380,12 +411,14 @@ def plot_combined_iron_obs_datasets(dfs):
         setattr(dfs, 'dfe_all', FeObsDataset(dfs.combined_iron_obs_datasets(add_Huang=True, interp_z=True)))
 
     ##############################################################################################
-    for name in ['llwbcs', 'sh_llwbcs', 'ngcu', 'nicu', 'mc', 'vs', 'ss', 'ni', 'png', 'int_s', 'int_n', 'ssea']:
+    for name in ['llwbcs', 'euc', 'sh_llwbcs', 'ngcu', 'nicu', 'mc', 'vs', 'ss', 'ni', 'png',
+                 'int_s', 'int_n', 'ssea']:
+        # Note that EUC coord was modified to 268E
         # LLWBCs: location of obs.
         dx, obs, coords = dfs.dfe.get_obs_locations(name)
         dx_all, _, _ = dfs.dfe_all.get_obs_locations(name)
         obs = np.array(obs)
-        plot_dfs_avg_map_zprofile(dfs, name, dx, dx_all, obs, coords)
+        plot_dfs_avg_map_zprofile(dfs, name, dx, obs, coords)
 
     # Interior: X-Y location of obs.
     name = 'interior'
@@ -532,17 +565,19 @@ def plot_dfs_source_zprofile(dfs):
     # dfe.ds_avg = dfe.ds_avg.isel(t=-1)
     names = ['png', 'nicu', 'mc', 'interior']
     labels = ['NGCU', 'NICU', 'MC', 'Background']
+    # labels_proj = ['{} + {}%'.format(labels[i], [21, 15, -8.4][i]) for i in range(3)]
 
     fig = plt.figure(figsize=(12, 7))
     ax = fig.add_subplot(121)
-    colors = ['darkorange', 'deeppink', 'green', 'darkviolet', 'blue']
+    colors = ['darkorange', 'deeppink', 'green', 'k']
     ax.set_title('a) EUC Sources Dissolved Iron Profiles', loc='left')
 
     for i, name in enumerate(names):
+        ax.plot(ds_fe[name], ds_fe.z, c=colors[i], lw=2, label=labels[i])
         if name + '_proj' in ds_fe:
             ax.plot(ds_fe[name + '_proj'], ds_fe.z, c=colors[i], lw=2, ls='--')
-        ax.plot(ds_fe[name], ds_fe.z, c=colors[i], lw=2, label=labels[i])
-
+        if name + '_mean' in ds_fe:
+            ax.axvline(ds_fe[name + '_mean'], ymin=-0.015, ymax=0.015, c=colors[i], clip_on=0)
     ax.set_ylim(600, 5)
     ax.set_xlim(0, 2.5)
     ax.legend()
@@ -553,15 +588,16 @@ def plot_dfs_source_zprofile(dfs):
 
     ax = fig.add_subplot(122)
     ax.set_title('b) EUC Dissolved Iron Profiles', loc='left')
-    colors = ['r', 'blueviolet', 'blue', 'k']
+    colors = ['r', 'seagreen', 'blueviolet', 'blue']
     for i, lon in enumerate(ds_fe.lon.values):
         ax.plot(ds_fe['euc_avg'].sel(lon=lon), ds_fe.z, c=colors[i], lw=2, label='{}°E'.format(lon))
         # ax.plot(dfe.ds_avg['EUC'].sel(x=lon, method='nearest'), dfe.ds_avg.z, c=colors[i], lw=2,
         #         label='{}°E'.format(lon))
+    ax.plot(ds_fe['interior'], ds_fe.z, c='k', lw=2, label='Background')
 
     ax.set_ylim(350, 25)
     ax.set_xlim(0, 1.75)
-    ax.legend()  # (x, y, width, height)
+    ax.legend()  # (x4, y, width, height)
     ax.set_xlabel('dFe [nM]')
     ax.yaxis.set_major_formatter(mpl.ticker.FormatStrFormatter("%dm"))
     ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
@@ -571,25 +607,49 @@ def plot_dfs_source_zprofile(dfs):
     plt.savefig(paths.figs / 'obs/iron_profiles.png', bbox_inches='tight', dpi=300)
     plt.show()
 
+# if __name__ == '__main__':
+#     logger = mlogger('iron_observations')
+#     dfs = FeObsDatasets()
+#     dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
+#     dfs.dfe = FeObsDataset(dfs.ds)
 
-if __name__ == '__main__':
-    logger = mlogger('iron_observations')
-    dfs = FeObsDatasets()
-    dfs.ds = dfs.combined_iron_obs_datasets(add_Huang=False, interp_z=True)
-    dfs.dfe = FeObsDataset(dfs.ds)
+#     setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
+#     setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
 
-    setattr(dfs, 'ds_geo', dfs.GEOTRACES_iron_dataset())
-    setattr(dfs, 'ds_tag', dfs.Tagliabue_iron_dataset())
+#     # setattr(dfs, 'dfe_ml', FeObsDataset(dfs.Huang_iron_dataset()))
+#     setattr(dfs, 'dfe_geo', FeObsDataset(dfs.GEOTRACES_iron_dataset_4D()))
+#     setattr(dfs, 'dfe_tag', FeObsDataset(dfs.Tagliabue_iron_dataset_4D()))
 
-    # setattr(dfs, 'dfe_ml', FeObsDataset(dfs.Huang_iron_dataset()))
-    setattr(dfs, 'dfe_geo', FeObsDataset(dfs.GEOTRACES_iron_dataset_4D()))
-    setattr(dfs, 'dfe_tag', FeObsDataset(dfs.Tagliabue_iron_dataset_4D()))
+#     plot_iron_obs_Huang(dfs.dfe_ml.ds)
+#     plot_iron_obs_maps(dfs)
+#     plot_iron_obs_straits(dfs.dfe_geo, dfs.dfe_tag, dfs.dfe_ml)
+#     plot_combined_iron_obs_datasets(dfs)
 
-    plot_iron_obs_Huang(dfs.dfe_ml.ds)
-    plot_iron_obs_maps(dfs)
-    plot_iron_obs_straits(dfs.dfe_geo, dfs.dfe_tag, dfs.dfe_ml)
-    plot_combined_iron_obs_datasets(dfs)
+#     plot_iron_obs_maps(dfs, add_bounds=False, add_labels=False)
+#     plot_iron_obs_maps(dfs, labels='reference', add_bounds=True, add_labels=True)
+#     plot_iron_obs_maps(dfs, labels='time', add_bounds=False, add_labels=True)
 
-    plot_iron_obs_maps(dfs, add_bounds=False, add_labels=False)
-    plot_iron_obs_maps(dfs, labels='reference', add_bounds=True, add_labels=True)
-    plot_iron_obs_maps(dfs, labels='time', add_bounds=False, add_labels=True)
+
+# dfs = FeObsDatasets()
+# if not hasattr(dfs, 'ds_geo'):
+#     dfs.ds_geo = dfs.GEOTRACES_iron_dataset()
+# if not hasattr(dfs, 'ds_tag'):
+#     dfs.ds_tag = dfs.Tagliabue_iron_dataset()
+
+
+# dss = [dfs.ds_geo.drop(['temp', 'salt', 'p']), dfs.ds_tag.drop(['Reference', 'year', 'month'])]
+# ds = xr.concat(dss, 'index')
+# lats, lons = [-10, 10], [120, 290]
+# ds = ds.where(~np.isnan(ds.fe), drop=True)
+# ds = ds.where((ds.y >= lats[0]) & (ds.y <= lats[1])
+#               & (ds.x >= lons[0]) & (ds.x <= lons[1]), drop=True)
+
+# np.unique(ds.t.dt.month)  # Months with observations
+
+# # ds.drop_duplicates('index')
+
+# coords = [ds.t.values, ds.y.values, ds.x.values]
+# index = pd.MultiIndex.from_arrays(coords, names=['t', 'y', 'x'],)
+# ds = ds.drop_vars({'index', 'x', 'y', 't'})
+# ds = ds.assign_coords({'index': index})
+# ds = ds.unstack('index')
